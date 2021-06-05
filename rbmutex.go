@@ -61,7 +61,7 @@ func (m *RBMutex) RLock() RToken {
 				ptr *int32
 			})
 		}
-		slot := hash32(uintptr(unsafe.Pointer(t))) % rslots
+		slot := hash64(uintptr(unsafe.Pointer(t))) % rslots
 		ptr := (*int32)(unsafe.Pointer(uintptr(unsafe.Pointer(&m.readers)) + uintptr(slot)*4))
 		if atomic.CompareAndSwapInt32(ptr, 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
@@ -123,10 +123,10 @@ func (m *RBMutex) Unlock() {
 	m.rw.Unlock()
 }
 
-// TODO consider other hash32 functions for 32 and 64-bit pointers
-func hash32(x uintptr) uintptr {
-	x = ((x >> 16) ^ x) * 0x45d9f3b
-	x = ((x >> 16) ^ x) * 0x45d9f3b
-	x = (x >> 16) ^ x
+// murmurhash3 64-bit finalizer
+func hash64(x uintptr) uintptr {
+	x = ((x >> 33) ^ x) * 0xff51afd7ed558ccd
+	x = ((x >> 33) ^ x) * 0xc4ceb9fe1a85ec53
+	x = (x >> 33) ^ x
 	return x
 }
