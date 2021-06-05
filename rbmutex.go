@@ -15,29 +15,32 @@ const (
 	nslowdown = 9
 )
 
+// pool for reader tokens
 var tokenPool sync.Pool
 
-// RToken is a reader token.
-// TODO include the pointer
+// RToken is a reader lock token.
 type RToken *struct {
 	ptr *int32
 }
 
 // A RBMutex is a reader biased reader/writer mutual exclusion lock.
-// The lock can be held by an arbitrary number of readers or a single writer.
+// The lock can be held by an many readers or a single writer.
 // The zero value for a RBMutex is an unlocked mutex.
-//
-// Based on the BRAVO (Biased Locking for Reader-Writer Locks) algorithm:
-// https://arxiv.org/pdf/1810.01553.pdf
 //
 // A RBMutex must not be copied after first use.
 //
-// If a goroutine holds a RBMutex for reading and another goroutine might
-// call Lock, no goroutine should expect to be able to acquire a read lock
-// until the initial read lock is released. In particular, this prohibits
-// recursive read locking. This is to ensure that the lock eventually becomes
-// available; a blocked Lock call excludes new readers from acquiring the
-// lock.
+// RBMutex is based on the BRAVO (Biased Locking for Reader-Writer Locks)
+// algorithm: https://arxiv.org/pdf/1810.01553.pdf
+//
+// RBMutex is a specialized mutex for scenarios, such as caches, where
+// the vast majority of locks are acquired by readers and write lock
+// acquire attempts are infrequent. In such scenarios, RBMutex performs
+// better than the sync.RWMutex on large multicore machines.
+//
+// RBMutex extends sync.RWMutex internally and uses it as the "reader
+// bias disabled" fallback, so the same semantics apply. The only
+// noticeable difference is in reader tokens returned from the
+// RLock/RUnlock methods.
 type RBMutex struct {
 	readers      [rslots]int32
 	rbias        int32
@@ -45,11 +48,11 @@ type RBMutex struct {
 	rw           sync.RWMutex
 }
 
-// RLock locks m for reading.
+// RLock locks m for reading and returns a reader token. The
+// token must be used in the later RUnlock call.
 //
-// It should not be used for recursive read locking; a blocked Lock
-// call excludes new readers from acquiring the lock. See the
-// documentation on the RBMutex type.
+// Should not be used for recursive read locking; a blocked Lock
+// call excludes new readers from acquiring the lock.
 func (m *RBMutex) RLock() RToken {
 	if atomic.LoadInt32(&m.rbias) == 1 {
 		t, ok := tokenPool.Get().(RToken)
@@ -58,7 +61,7 @@ func (m *RBMutex) RLock() RToken {
 				ptr *int32
 			})
 		}
-		slot := hash(uintptr(unsafe.Pointer(t))) % rslots
+		slot := hash32(uintptr(unsafe.Pointer(t))) % rslots
 		ptr := (*int32)(unsafe.Pointer(uintptr(unsafe.Pointer(&m.readers)) + uintptr(slot)*4))
 		if atomic.CompareAndSwapInt32(ptr, 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
@@ -76,9 +79,10 @@ func (m *RBMutex) RLock() RToken {
 	return nil
 }
 
-// RUnlock undoes a single RLock call;
-// it does not affect other simultaneous readers.
-// It is a run-time error if m is not locked for reading
+// RUnlock undoes a single RLock call. A reader token
+// obtained from the RLock call must be provided.
+// RUnlock does not affect other simultaneous readers.
+// A panic is raised if m is not locked for reading
 // on entry to RUnlock.
 func (m *RBMutex) RUnlock(t RToken) {
 	if t == nil {
@@ -109,18 +113,18 @@ func (m *RBMutex) Lock() {
 	}
 }
 
-// Unlock unlocks m for writing. It is a run-time error if m is
+// Unlock unlocks m for writing. A panic is raised if m is
 // not locked for writing on entry to Unlock.
 //
-// As with Mutexes, a locked RBMutex is not associated with a particular
+// As with RWMutex, a locked RBMutex is not associated with a particular
 // goroutine. One goroutine may RLock (Lock) a RBMutex and then
 // arrange for another goroutine to RUnlock (Unlock) it.
 func (m *RBMutex) Unlock() {
 	m.rw.Unlock()
 }
 
-// TODO find better hash function for 32 and 64-bit integers
-func hash(x uintptr) uintptr {
+// TODO consider other hash32 functions for 32 and 64-bit pointers
+func hash32(x uintptr) uintptr {
 	x = ((x >> 16) ^ x) * 0x45d9f3b
 	x = ((x >> 16) ^ x) * 0x45d9f3b
 	x = (x >> 16) ^ x

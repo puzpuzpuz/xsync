@@ -7,6 +7,7 @@ package xsync_test
 import (
 	"fmt"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -135,7 +136,7 @@ func benchmarkRBMutex(b *testing.B, localWork, writeRatio int) {
 		foo := 0
 		for pb.Next() {
 			foo++
-			if foo%writeRatio == 0 {
+			if writeRatio > 0 && foo%writeRatio == 0 {
 				m.Lock()
 				m.Unlock()
 			} else {
@@ -151,6 +152,14 @@ func benchmarkRBMutex(b *testing.B, localWork, writeRatio int) {
 	})
 }
 
+func BenchmarkRBMutexReadOnly(b *testing.B) {
+	benchmarkRBMutex(b, 0, -1)
+}
+
+func BenchmarkRBMutexWrite1000(b *testing.B) {
+	benchmarkRBMutex(b, 0, 1000)
+}
+
 func BenchmarkRBMutexWrite100(b *testing.B) {
 	benchmarkRBMutex(b, 0, 100)
 }
@@ -159,10 +168,72 @@ func BenchmarkRBMutexWrite10(b *testing.B) {
 	benchmarkRBMutex(b, 0, 10)
 }
 
+func BenchmarkRBMutexWorkReadOnly(b *testing.B) {
+	benchmarkRBMutex(b, 100, -1)
+}
+
+func BenchmarkRBMutexWorkWrite1000(b *testing.B) {
+	benchmarkRBMutex(b, 100, 1000)
+}
+
 func BenchmarkRBMutexWorkWrite100(b *testing.B) {
 	benchmarkRBMutex(b, 100, 100)
 }
 
 func BenchmarkRBMutexWorkWrite10(b *testing.B) {
+	benchmarkRBMutex(b, 100, 10)
+}
+
+func benchmarkRWMutex(b *testing.B, localWork, writeRatio int) {
+	var m sync.RWMutex
+	b.RunParallel(func(pb *testing.PB) {
+		foo := 0
+		for pb.Next() {
+			foo++
+			if writeRatio > 0 && foo%writeRatio == 0 {
+				m.Lock()
+				m.Unlock()
+			} else {
+				m.RLock()
+				for i := 0; i != localWork; i += 1 {
+					foo *= 2
+					foo /= 2
+				}
+				m.RUnlock()
+			}
+		}
+		_ = foo
+	})
+}
+
+func BenchmarkRWMutexReadOnly(b *testing.B) {
+	benchmarkRWMutex(b, 0, -1)
+}
+
+func BenchmarkRWMutexWrite1000(b *testing.B) {
+	benchmarkRWMutex(b, 0, 1000)
+}
+
+func BenchmarkRWMutexWrite100(b *testing.B) {
+	benchmarkRWMutex(b, 0, 100)
+}
+
+func BenchmarkRWMutexWrite10(b *testing.B) {
+	benchmarkRWMutex(b, 0, 10)
+}
+
+func BenchmarkRWMutexWorkReadOnly(b *testing.B) {
+	benchmarkRWMutex(b, 100, -1)
+}
+
+func BenchmarkRWMutexWorkWrite1000(b *testing.B) {
+	benchmarkRWMutex(b, 100, 1000)
+}
+
+func BenchmarkRWMutexWorkWrite100(b *testing.B) {
+	benchmarkRWMutex(b, 100, 100)
+}
+
+func BenchmarkRWMutexWorkWrite10(b *testing.B) {
 	benchmarkRBMutex(b, 100, 10)
 }
