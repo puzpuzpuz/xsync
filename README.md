@@ -38,22 +38,22 @@ goos: linux
 goarch: amd64
 pkg: github.com/puzpuzpuz/xsync
 cpu: Intel(R) Core(TM) i5-8300H CPU @ 2.30GHz
-BenchmarkRBMutexReadOnly-8        	212948089	         5.945 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRBMutexWrite1000-8       	36328396	        33.42 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRBMutexWrite100-8        	18402147	        65.85 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRBMutexWrite10-8         	16644835	        71.08 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRBMutexWorkReadOnly-8    	59884281	        20.01 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRBMutexWorkWrite1000-8   	20774445	        57.45 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRBMutexWorkWrite100-8    	 8182573	       146.9 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRBMutexWorkWrite10-8     	 6925441	       174.1 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRWMutexReadOnly-8        	31383505	        38.05 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRWMutexWrite1000-8       	38046286	        31.49 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRWMutexWrite100-8        	43489144	        27.57 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRWMutexWrite10-8         	60075478	        19.95 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRWMutexWorkReadOnly-8    	31480654	        37.88 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRWMutexWorkWrite1000-8   	23722382	        51.50 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRWMutexWorkWrite100-8    	11507290	       104.7 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRWMutexWorkWrite10-8     	 6894904	       173.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRBMutexReadOnly-8         	212651030	         5.917 ns/op
+BenchmarkRBMutexWrite10000-8       	100000000	        10.35 ns/op
+BenchmarkRBMutexWrite1000-8        	36253170	        32.56 ns/op
+BenchmarkRBMutexWrite100-8         	18382934	        64.92 ns/op
+BenchmarkRBMutexWorkReadOnly-8     	57881797	        20.72 ns/op
+BenchmarkRBMutexWorkWrite10000-8   	40274763	        27.70 ns/op
+BenchmarkRBMutexWorkWrite1000-8    	20605999	        57.56 ns/op
+BenchmarkRBMutexWorkWrite100-8     	 8106751	       147.3 ns/op
+BenchmarkRWMutexReadOnly-8         	40822070	        29.32 ns/op
+BenchmarkRWMutexWrite10000-8       	40643188	        29.36 ns/op
+BenchmarkRWMutexWrite1000-8        	45810360	        26.89 ns/op
+BenchmarkRWMutexWrite100-8         	43401741	        26.95 ns/op
+BenchmarkRWMutexWorkReadOnly-8     	40501375	        29.39 ns/op
+BenchmarkRWMutexWorkWrite10000-8   	35851208	        32.52 ns/op
+BenchmarkRWMutexWorkWrite1000-8    	24899078	        48.26 ns/op
+BenchmarkRWMutexWorkWrite100-8     	11526358	       104.2 ns/op
 ```
 
 ## License

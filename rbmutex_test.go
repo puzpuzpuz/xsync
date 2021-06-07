@@ -156,6 +156,10 @@ func BenchmarkRBMutexReadOnly(b *testing.B) {
 	benchmarkRBMutex(b, 0, -1)
 }
 
+func BenchmarkRBMutexWrite10000(b *testing.B) {
+	benchmarkRBMutex(b, 0, 10000)
+}
+
 func BenchmarkRBMutexWrite1000(b *testing.B) {
 	benchmarkRBMutex(b, 0, 1000)
 }
@@ -164,12 +168,12 @@ func BenchmarkRBMutexWrite100(b *testing.B) {
 	benchmarkRBMutex(b, 0, 100)
 }
 
-func BenchmarkRBMutexWrite10(b *testing.B) {
-	benchmarkRBMutex(b, 0, 10)
-}
-
 func BenchmarkRBMutexWorkReadOnly(b *testing.B) {
 	benchmarkRBMutex(b, 100, -1)
+}
+
+func BenchmarkRBMutexWorkWrite10000(b *testing.B) {
+	benchmarkRBMutex(b, 100, 10000)
 }
 
 func BenchmarkRBMutexWorkWrite1000(b *testing.B) {
@@ -178,10 +182,6 @@ func BenchmarkRBMutexWorkWrite1000(b *testing.B) {
 
 func BenchmarkRBMutexWorkWrite100(b *testing.B) {
 	benchmarkRBMutex(b, 100, 100)
-}
-
-func BenchmarkRBMutexWorkWrite10(b *testing.B) {
-	benchmarkRBMutex(b, 100, 10)
 }
 
 func benchmarkRWMutex(b *testing.B, localWork, writeRatio int) {
@@ -210,6 +210,10 @@ func BenchmarkRWMutexReadOnly(b *testing.B) {
 	benchmarkRWMutex(b, 0, -1)
 }
 
+func BenchmarkRWMutexWrite10000(b *testing.B) {
+	benchmarkRWMutex(b, 0, 10000)
+}
+
 func BenchmarkRWMutexWrite1000(b *testing.B) {
 	benchmarkRWMutex(b, 0, 1000)
 }
@@ -218,12 +222,12 @@ func BenchmarkRWMutexWrite100(b *testing.B) {
 	benchmarkRWMutex(b, 0, 100)
 }
 
-func BenchmarkRWMutexWrite10(b *testing.B) {
-	benchmarkRWMutex(b, 0, 10)
-}
-
 func BenchmarkRWMutexWorkReadOnly(b *testing.B) {
 	benchmarkRWMutex(b, 100, -1)
+}
+
+func BenchmarkRWMutexWorkWrite10000(b *testing.B) {
+	benchmarkRWMutex(b, 100, 10000)
 }
 
 func BenchmarkRWMutexWorkWrite1000(b *testing.B) {
@@ -232,8 +236,4 @@ func BenchmarkRWMutexWorkWrite1000(b *testing.B) {
 
 func BenchmarkRWMutexWorkWrite100(b *testing.B) {
 	benchmarkRWMutex(b, 100, 100)
-}
-
-func BenchmarkRWMutexWorkWrite10(b *testing.B) {
-	benchmarkRBMutex(b, 100, 10)
 }
