@@ -57,9 +57,13 @@ A `MPMCQeueue` is a bounded multi-producer multi-consumer concurrent queue.
 ```go
 q := NewMPMCQueue(1024)
 // producer inserts an item into the queue
-q.Enqueue("hello world")
+q.Enqueue("foo")
+// optimistic insertion attempt; doesn't block
+inserted := q.TryEnqueue("bar")
 // consumer obtains an item from the queue
 item := q.Dequeue()
+// optimistic obtain attempt; doesn't block
+item, ok := q.Dequeue()
 ```
 
 Based on the algorithm from the [MPMCQueue](https://github.com/rigtorp/MPMCQueue) C++ library which in its turn references D.Vyukov's [MPMC queue](https://www.1024cores.net/home/lock-free-algorithms/queues/bounded-mpmc-queue). According to the following [classification](https://www.1024cores.net/home/lock-free-algorithms/queues), the queue is array-based, fails on overflow, provides causal FIFO, has blocking producers and consumers.
@@ -68,7 +72,7 @@ The idea of the algorithm is to allow parallelism for concurrent producers and c
 
 In essence, `MPMCQueue` is a specialized queue for scenarios where there are multiple concurrent producers and consumers of a single queue running on a large multicore machine.
 
-To get the optimal performance, make sure to set the queue size to be at least an order of magnitude greater than the number of producers/consumers.
+To get the optimal performance, you may want to set the queue size to be large enough, say, an order of magnitude greater than the number of producers/consumers, to allow producers and consumers to progress with their queue operations in parallel most of the time.
 
 ### MPMCQueue vs. Go channels
 

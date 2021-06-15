@@ -14,20 +14,19 @@ import (
 	. "github.com/puzpuzpuz/xsync"
 )
 
-func TestEnqueueDequeue(t *testing.T) {
+func TestQueueEnqueueDequeue(t *testing.T) {
 	q := NewMPMCQueue(10)
 	for i := 0; i < 10; i++ {
 		q.Enqueue(i)
 	}
 	for i := 0; i < 10; i++ {
-		got := q.Dequeue()
-		if got != i {
+		if got := q.Dequeue(); got != i {
 			t.Errorf("got %v, want %d", got, i)
 		}
 	}
 }
 
-func TestEnqueueBlocksOnBounds(t *testing.T) {
+func TestQueueEnqueueBlocksOnFull(t *testing.T) {
 	q := NewMPMCQueue(1)
 	q.Enqueue("foo")
 	cdone := make(chan bool)
@@ -41,14 +40,13 @@ func TestEnqueueBlocksOnBounds(t *testing.T) {
 	}()
 	time.Sleep(50 * time.Millisecond)
 	atomic.StoreInt32(&flag, 1)
-	got := q.Dequeue()
-	if got != "foo" {
+	if got := q.Dequeue(); got != "foo" {
 		t.Errorf("got %v, want foo", got)
 	}
 	<-cdone
 }
 
-func TestDequeueBlocksOnEmpty(t *testing.T) {
+func TestQueueDequeueBlocksOnEmpty(t *testing.T) {
 	q := NewMPMCQueue(2)
 	cdone := make(chan bool)
 	flag := int32(0)
@@ -65,7 +63,38 @@ func TestDequeueBlocksOnEmpty(t *testing.T) {
 	<-cdone
 }
 
-func HammerMPMCQueue(t *testing.T, gomaxprocs, numOps, numThreads int) {
+func TestQueueTryEnqueueDequeue(t *testing.T) {
+	q := NewMPMCQueue(10)
+	for i := 0; i < 10; i++ {
+		if !q.TryEnqueue(i) {
+			t.Errorf("failed to enqueue for %d", i)
+		}
+	}
+	for i := 0; i < 10; i++ {
+		if got, ok := q.TryDequeue(); !ok || got != i {
+			t.Errorf("got %v, want %d, for status %v", got, i, ok)
+		}
+	}
+}
+
+func TestQueueTryEnqueueOnFull(t *testing.T) {
+	q := NewMPMCQueue(1)
+	if !q.TryEnqueue("foo") {
+		t.Error("failed to enqueue initial item")
+	}
+	if q.TryEnqueue("bar") {
+		t.Error("got success for enqueue on full queue")
+	}
+}
+
+func TestQueueTryDequeueBlocksOnEmpty(t *testing.T) {
+	q := NewMPMCQueue(2)
+	if _, ok := q.TryDequeue(); ok {
+		t.Error("got success for enqueue on empty queue")
+	}
+}
+
+func hammerQueueBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
 	runtime.GOMAXPROCS(gomaxprocs)
 	q := NewMPMCQueue(numThreads)
 	startwg := sync.WaitGroup{}
@@ -107,18 +136,82 @@ func HammerMPMCQueue(t *testing.T, gomaxprocs, numOps, numThreads int) {
 	}
 }
 
-func TestMPMCQueue(t *testing.T) {
+func TestQueueBlockingCalls(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
 	n := 100
 	if testing.Short() {
 		n = 10
 	}
-	HammerMPMCQueue(t, 1, 100*n, n)
-	HammerMPMCQueue(t, 1, 1000*n, 10*n)
-	HammerMPMCQueue(t, 4, 100*n, n)
-	HammerMPMCQueue(t, 4, 1000*n, 10*n)
-	HammerMPMCQueue(t, 8, 100*n, n)
-	HammerMPMCQueue(t, 8, 1000*n, 10*n)
+	hammerQueueBlockingCalls(t, 1, 100*n, n)
+	hammerQueueBlockingCalls(t, 1, 1000*n, 10*n)
+	hammerQueueBlockingCalls(t, 4, 100*n, n)
+	hammerQueueBlockingCalls(t, 4, 1000*n, 10*n)
+	hammerQueueBlockingCalls(t, 8, 100*n, n)
+	hammerQueueBlockingCalls(t, 8, 1000*n, 10*n)
+}
+
+func hammerQueueNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
+	runtime.GOMAXPROCS(gomaxprocs)
+	q := NewMPMCQueue(numThreads)
+	startwg := sync.WaitGroup{}
+	startwg.Add(1)
+	csum := make(chan int, numThreads)
+	// Start producers.
+	for i := 0; i < numThreads; i++ {
+		go func(n int) {
+			startwg.Wait()
+			for j := n; j < numOps; j += numThreads {
+				for !q.TryEnqueue(j) {
+					// busy spin until success
+				}
+			}
+		}(i)
+	}
+	// Start consumers.
+	for i := 0; i < numThreads; i++ {
+		go func(n int) {
+			startwg.Wait()
+			sum := 0
+			for j := n; j < numOps; j += numThreads {
+				var (
+					item interface{}
+					ok   bool
+				)
+				for {
+					// busy spin until success
+					if item, ok = q.TryDequeue(); ok {
+						sum += item.(int)
+						break
+					}
+				}
+			}
+			csum <- sum
+		}(i)
+	}
+	startwg.Done()
+	// Wait for all the sums from producers.
+	sum := 0
+	for i := 0; i < numThreads; i++ {
+		s := <-csum
+		sum += s
+	}
+	// Assert the total sum.
+	expectedSum := numOps * (numOps - 1) / 2
+	if sum != expectedSum {
+		t.Errorf("sums don't match for %d num ops, %d num threads: got %d, want %d",
+			numOps, numThreads, sum, expectedSum)
+	}
+}
+
+func TestQueueNonBlockingCalls(t *testing.T) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
+	n := 10
+	if testing.Short() {
+		n = 1
+	}
+	hammerQueueNonBlockingCalls(t, 1, 10*n, n)
+	hammerQueueNonBlockingCalls(t, 4, 100*n, 2*n)
+	hammerQueueNonBlockingCalls(t, 8, 1000*n, 4*n)
 }
 
 func benchmarkQueueProdCons(b *testing.B, queueSize, localWork int) {
