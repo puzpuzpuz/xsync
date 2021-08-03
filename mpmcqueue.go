@@ -6,10 +6,6 @@ import (
 	"unsafe"
 )
 
-const (
-	cacheLineSize = 64
-)
-
 // A MPMCQueue is a bounded multi-producer multi-consumer concurrent queue.
 //
 // MPMCQueue instances must be created with NewMPMCQueue function.

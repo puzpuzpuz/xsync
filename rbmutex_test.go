@@ -14,7 +14,7 @@ import (
 	. "github.com/puzpuzpuz/xsync"
 )
 
-func TestSerialReader(t *testing.T) {
+func TestRBMutexSerialReader(t *testing.T) {
 	var m RBMutex
 	tk := m.RLock()
 	m.RUnlock(tk)
@@ -52,7 +52,7 @@ func doTestParallelReaders(numReaders, gomaxprocs int) {
 	}
 }
 
-func TestParallelReaders(t *testing.T) {
+func TestRBMutexParallelReaders(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
 	doTestParallelReaders(1, 4)
 	doTestParallelReaders(3, 4)

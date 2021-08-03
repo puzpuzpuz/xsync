@@ -60,15 +60,14 @@ func (m *RBMutex) RLock() RToken {
 			t = new(struct {
 				ptr *int32
 			})
+			slot := hash64(uintptr(unsafe.Pointer(t))) % rslots
+			t.ptr = (*int32)(unsafe.Pointer(uintptr(unsafe.Pointer(&m.readers)) + uintptr(slot)*4))
 		}
-		slot := hash64(uintptr(unsafe.Pointer(t))) % rslots
-		ptr := (*int32)(unsafe.Pointer(uintptr(unsafe.Pointer(&m.readers)) + uintptr(slot)*4))
-		if atomic.CompareAndSwapInt32(ptr, 0, 1) {
+		if atomic.CompareAndSwapInt32(t.ptr, 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
-				t.ptr = ptr
 				return t
 			}
-			atomic.StoreInt32(ptr, 0)
+			atomic.StoreInt32(t.ptr, 0)
 		}
 		tokenPool.Put(t)
 	}
@@ -121,12 +120,4 @@ func (m *RBMutex) Lock() {
 // arrange for another goroutine to RUnlock (Unlock) it.
 func (m *RBMutex) Unlock() {
 	m.rw.Unlock()
-}
-
-// murmurhash3 64-bit finalizer
-func hash64(x uintptr) uintptr {
-	x = ((x >> 33) ^ x) * 0xff51afd7ed558ccd
-	x = ((x >> 33) ^ x) * 0xc4ceb9fe1a85ec53
-	x = (x >> 33) ^ x
-	return x
 }
