@@ -16,7 +16,7 @@ const (
 )
 
 // pool for reader tokens
-var tokenPool sync.Pool
+var rtokenPool sync.Pool
 
 // RToken is a reader lock token.
 type RToken *struct {
@@ -55,13 +55,13 @@ type RBMutex struct {
 // call excludes new readers from acquiring the lock.
 func (m *RBMutex) RLock() RToken {
 	if atomic.LoadInt32(&m.rbias) == 1 {
-		t, ok := tokenPool.Get().(RToken)
+		t, ok := rtokenPool.Get().(RToken)
 		if !ok {
 			t = new(struct {
 				ptr *int32
 			})
-			slot := hash64(uintptr(unsafe.Pointer(t))) % rslots
-			t.ptr = (*int32)(unsafe.Pointer(uintptr(unsafe.Pointer(&m.readers)) + uintptr(slot)*4))
+			slot := int(hash64(uintptr(unsafe.Pointer(t))) % rslots)
+			t.ptr = m.rslotPtr(slot)
 		}
 		if atomic.CompareAndSwapInt32(t.ptr, 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
@@ -69,7 +69,7 @@ func (m *RBMutex) RLock() RToken {
 			}
 			atomic.StoreInt32(t.ptr, 0)
 		}
-		tokenPool.Put(t)
+		rtokenPool.Put(t)
 	}
 	m.rw.RLock()
 	if atomic.LoadInt32(&m.rbias) == 0 && time.Now().After(m.inhibitUntil) {
@@ -91,7 +91,7 @@ func (m *RBMutex) RUnlock(t RToken) {
 	if !atomic.CompareAndSwapInt32(t.ptr, 1, 0) {
 		panic("invalid reader state detected")
 	}
-	tokenPool.Put(t)
+	rtokenPool.Put(t)
 }
 
 // Lock locks m for writing.
@@ -103,8 +103,7 @@ func (m *RBMutex) Lock() {
 		atomic.StoreInt32(&m.rbias, 0)
 		start := time.Now()
 		for i := 0; i < rslots; i++ {
-			ptr := (*int32)(unsafe.Pointer(uintptr(unsafe.Pointer(&m.readers)) + uintptr(i)*4))
-			for atomic.LoadInt32(ptr) == 1 {
+			for atomic.LoadInt32(m.rslotPtr(i)) == 1 {
 				runtime.Gosched()
 			}
 		}
@@ -120,4 +119,8 @@ func (m *RBMutex) Lock() {
 // arrange for another goroutine to RUnlock (Unlock) it.
 func (m *RBMutex) Unlock() {
 	m.rw.Unlock()
+}
+
+func (m *RBMutex) rslotPtr(slot int) *int32 {
+	return (*int32)(unsafe.Pointer(uintptr(unsafe.Pointer(&m.readers)) + uintptr(slot)*4))
 }
