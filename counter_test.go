@@ -50,35 +50,36 @@ func TestCounterReset(t *testing.T) {
 	}
 }
 
-func parallelModifier(c *Counter, cdone chan bool) {
+func parallelIncrementor(c *Counter, numIncs int, cdone chan bool) {
 	for i := 0; i < 10000; i++ {
 		c.Inc()
-		c.Dec()
 	}
 	cdone <- true
 }
 
-func doTestParallelModifiers(t *testing.T, numModifiers, gomaxprocs int) {
+func doTestParallelIncrementors(t *testing.T, numModifiers, gomaxprocs int) {
 	runtime.GOMAXPROCS(gomaxprocs)
 	var c Counter
 	cdone := make(chan bool)
+	numIncs := 10000
 	for i := 0; i < numModifiers; i++ {
-		go parallelModifier(&c, cdone)
+		go parallelIncrementor(&c, numIncs, cdone)
 	}
 	// Wait for the goroutines to finish.
 	for i := 0; i < numModifiers; i++ {
 		<-cdone
 	}
-	if v := c.Value(); v != 0 {
-		t.Errorf("got %v, want %d", v, 0)
+	expected := int64(numModifiers * numIncs)
+	if v := c.Value(); v != expected {
+		t.Errorf("got %d, want %d", v, expected)
 	}
 }
 
-func TestCounterParallelModifiers(t *testing.T) {
+func TestCounterParallelIncrementors(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
-	doTestParallelModifiers(t, 4, 2)
-	doTestParallelModifiers(t, 16, 4)
-	doTestParallelModifiers(t, 64, 8)
+	doTestParallelIncrementors(t, 4, 2)
+	doTestParallelIncrementors(t, 16, 4)
+	doTestParallelIncrementors(t, 64, 8)
 }
 
 func benchmarkCounter(b *testing.B, writeRatio int) {
