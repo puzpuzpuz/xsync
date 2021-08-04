@@ -55,7 +55,7 @@ func (c *Counter) Add(delta int64) {
 		t.idx = int(hash64(uintptr(unsafe.Pointer(t))) % cstripes)
 	}
 	atomic.AddInt64(c.counterPtr(t.idx), delta)
-	rtokenPool.Put(t)
+	ptokenPool.Put(t)
 }
 
 // Value returns the current counter value.

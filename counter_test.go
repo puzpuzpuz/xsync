@@ -2,6 +2,7 @@ package xsync_test
 
 import (
 	"runtime"
+	"sync/atomic"
 	"testing"
 
 	. "github.com/puzpuzpuz/xsync"
@@ -78,4 +79,44 @@ func TestCounterParallelModifiers(t *testing.T) {
 	doTestParallelModifiers(t, 4, 2)
 	doTestParallelModifiers(t, 16, 4)
 	doTestParallelModifiers(t, 64, 8)
+}
+
+func benchmarkCounter(b *testing.B, writeRatio int) {
+	var c Counter
+	b.RunParallel(func(pb *testing.PB) {
+		foo := 0
+		for pb.Next() {
+			foo++
+			if writeRatio > 0 && foo%writeRatio == 0 {
+				c.Value()
+			} else {
+				c.Inc()
+			}
+		}
+		_ = foo
+	})
+}
+
+func BenchmarkCounter(b *testing.B) {
+	benchmarkCounter(b, 10000)
+}
+
+func benchmarkAtomicInt64(b *testing.B, writeRatio int) {
+	var c int64
+	b.RunParallel(func(pb *testing.PB) {
+		foo := 0
+		for pb.Next() {
+			foo++
+			if writeRatio > 0 && foo%writeRatio == 0 {
+				atomic.LoadInt64(&c)
+			} else {
+				atomic.AddInt64(&c, 1)
+			}
+		}
+		_ = foo
+	})
+}
+
+func BenchmarkAtomicInt64(b *testing.B) {
+	benchmarkAtomicInt64(b, 10000)
 }
