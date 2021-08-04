@@ -9,10 +9,16 @@ import (
 // number of counter stripes
 const cstripes = 32
 
-// pool for counter tokens
-var ctokenPool sync.Pool
+// pool for P tokens
+var ptokenPool sync.Pool
 
-type ctoken *struct {
+// a P token is used to point at the current OS thread (P)
+// on which the goroutine is run; exact identity of the thread,
+// as well as P migration tolerance, is not important since
+// it's used to as a best effort mechanism for assigning
+// concurrent operations (goroutines) to different stripes of
+// the counter
+type ptoken struct {
 	ptr *int64
 }
 
@@ -43,11 +49,9 @@ func (c *Counter) Dec() {
 
 // Add adds the delta to the counter.
 func (c *Counter) Add(delta int64) {
-	t, ok := ctokenPool.Get().(ctoken)
+	t, ok := ptokenPool.Get().(*ptoken)
 	if !ok {
-		t = new(struct {
-			ptr *int64
-		})
+		t = &ptoken{}
 		idx := int(hash64(uintptr(unsafe.Pointer(t))) % cstripes)
 		t.ptr = c.counterPtr(idx)
 	}

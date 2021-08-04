@@ -19,7 +19,7 @@ const (
 var rtokenPool sync.Pool
 
 // RToken is a reader lock token.
-type RToken *struct {
+type RToken struct {
 	ptr *int32
 }
 
@@ -53,13 +53,11 @@ type RBMutex struct {
 //
 // Should not be used for recursive read locking; a blocked Lock
 // call excludes new readers from acquiring the lock.
-func (m *RBMutex) RLock() RToken {
+func (m *RBMutex) RLock() *RToken {
 	if atomic.LoadInt32(&m.rbias) == 1 {
-		t, ok := rtokenPool.Get().(RToken)
+		t, ok := rtokenPool.Get().(*RToken)
 		if !ok {
-			t = new(struct {
-				ptr *int32
-			})
+			t = &RToken{}
 			slot := int(hash64(uintptr(unsafe.Pointer(t))) % rslots)
 			t.ptr = m.rslotPtr(slot)
 		}
@@ -83,7 +81,7 @@ func (m *RBMutex) RLock() RToken {
 // RUnlock does not affect other simultaneous readers.
 // A panic is raised if m is not locked for reading
 // on entry to RUnlock.
-func (m *RBMutex) RUnlock(t RToken) {
+func (m *RBMutex) RUnlock(t *RToken) {
 	if t == nil {
 		m.rw.RUnlock()
 		return
