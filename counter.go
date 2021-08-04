@@ -19,7 +19,7 @@ var ptokenPool sync.Pool
 // concurrent operations (goroutines) to different stripes of
 // the counter
 type ptoken struct {
-	ptr *int64
+	idx int
 }
 
 // A Counter is a striped int64 counter.
@@ -52,10 +52,9 @@ func (c *Counter) Add(delta int64) {
 	t, ok := ptokenPool.Get().(*ptoken)
 	if !ok {
 		t = new(ptoken)
-		idx := int(hash64(uintptr(unsafe.Pointer(t))) % cstripes)
-		t.ptr = c.counterPtr(idx)
+		t.idx = int(hash64(uintptr(unsafe.Pointer(t))) % cstripes)
 	}
-	atomic.AddInt64(t.ptr, delta)
+	atomic.AddInt64(c.counterPtr(t.idx), delta)
 	rtokenPool.Put(t)
 }
 

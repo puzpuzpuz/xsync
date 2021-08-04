@@ -20,7 +20,7 @@ var rtokenPool sync.Pool
 
 // RToken is a reader lock token.
 type RToken struct {
-	ptr *int32
+	slot int
 }
 
 // A RBMutex is a reader biased reader/writer mutual exclusion lock.
@@ -58,14 +58,14 @@ func (m *RBMutex) RLock() *RToken {
 		t, ok := rtokenPool.Get().(*RToken)
 		if !ok {
 			t = new(RToken)
-			slot := int(hash64(uintptr(unsafe.Pointer(t))) % rslots)
-			t.ptr = m.rslotPtr(slot)
+			t.slot = int(hash64(uintptr(unsafe.Pointer(t))) % rslots)
 		}
-		if atomic.CompareAndSwapInt32(t.ptr, 0, 1) {
+		ptr := m.rslotPtr(t.slot)
+		if atomic.CompareAndSwapInt32(ptr, 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
 				return t
 			}
-			atomic.StoreInt32(t.ptr, 0)
+			atomic.StoreInt32(ptr, 0)
 		}
 		rtokenPool.Put(t)
 	}
@@ -86,7 +86,7 @@ func (m *RBMutex) RUnlock(t *RToken) {
 		m.rw.RUnlock()
 		return
 	}
-	if !atomic.CompareAndSwapInt32(t.ptr, 1, 0) {
+	if !atomic.CompareAndSwapInt32(m.rslotPtr(t.slot), 1, 0) {
 		panic("invalid reader state detected")
 	}
 	rtokenPool.Put(t)

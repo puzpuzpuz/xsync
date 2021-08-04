@@ -59,39 +59,39 @@ func TestRBMutexParallelReaders(t *testing.T) {
 	doTestParallelReaders(4, 2)
 }
 
-func reader(shm *RBMutex, numIterations int, activity *int32, cdone chan bool) {
+func reader(m *RBMutex, numIterations int, activity *int32, cdone chan bool) {
 	for i := 0; i < numIterations; i++ {
-		tk := shm.RLock()
+		tk := m.RLock()
 		n := atomic.AddInt32(activity, 1)
 		if n < 1 || n >= 10000 {
-			shm.RUnlock(tk)
-			panic(fmt.Sprintf("wlock(%d)\n", n))
+			m.RUnlock(tk)
+			panic(fmt.Sprintf("rlock(%d)\n", n))
 		}
 		for i := 0; i < 100; i++ {
 		}
 		atomic.AddInt32(activity, -1)
-		shm.RUnlock(tk)
+		m.RUnlock(tk)
 	}
 	cdone <- true
 }
 
-func writer(shm *RBMutex, numIterations int, activity *int32, cdone chan bool) {
+func writer(m *RBMutex, numIterations int, activity *int32, cdone chan bool) {
 	for i := 0; i < numIterations; i++ {
-		shm.Lock()
+		m.Lock()
 		n := atomic.AddInt32(activity, 10000)
 		if n != 10000 {
-			shm.Unlock()
+			m.Unlock()
 			panic(fmt.Sprintf("wlock(%d)\n", n))
 		}
 		for i := 0; i < 100; i++ {
 		}
 		atomic.AddInt32(activity, -10000)
-		shm.Unlock()
+		m.Unlock()
 	}
 	cdone <- true
 }
 
-func HammerRBMutex(gomaxprocs, numReaders, numIterations int) {
+func hammerRBMutex(gomaxprocs, numReaders, numIterations int) {
 	runtime.GOMAXPROCS(gomaxprocs)
 	var (
 		// Number of active readers + 10000 * number of active writers.
@@ -120,16 +120,16 @@ func TestRBMutex(t *testing.T) {
 	if testing.Short() {
 		n = 5
 	}
-	HammerRBMutex(1, 1, n)
-	HammerRBMutex(1, 3, n)
-	HammerRBMutex(1, 10, n)
-	HammerRBMutex(4, 1, n)
-	HammerRBMutex(4, 3, n)
-	HammerRBMutex(4, 10, n)
-	HammerRBMutex(10, 1, n)
-	HammerRBMutex(10, 3, n)
-	HammerRBMutex(10, 10, n)
-	HammerRBMutex(10, 5, n)
+	hammerRBMutex(1, 1, n)
+	hammerRBMutex(1, 3, n)
+	hammerRBMutex(1, 10, n)
+	hammerRBMutex(4, 1, n)
+	hammerRBMutex(4, 3, n)
+	hammerRBMutex(4, 10, n)
+	hammerRBMutex(10, 1, n)
+	hammerRBMutex(10, 3, n)
+	hammerRBMutex(10, 10, n)
+	hammerRBMutex(10, 5, n)
 }
 
 func benchmarkRBMutex(b *testing.B, localWork, writeRatio int) {
