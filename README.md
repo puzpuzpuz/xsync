@@ -27,29 +27,6 @@ Hence, by the design `RBMutex` is a specialized mutex for scenarios, such as cac
 
 `RBMutex` extends `sync.RWMutex` internally and uses it as the "reader bias disabled" fallback, so the same semantics apply. The only noticeable difference is in the reader tokens returned from the `RLock`/`RUnlock` methods.
 
-### RBMutex vs. sync.RWMutex
-
-The following results were obtained on a GCP e2-highcpu-32 VM with 32 vCPUs (Intel Haswell), 32 GB memory, Ubuntu 20.04, Go 1.16.5.
-
-<figure>
-  <img src="./images/rb-mutex-read-only-no-work-chart.svg" alt="Reader locks only, no work in the critical section" />
-  <figcaption>Reader locks only, no work in the critical section</figcaption>
-</figure>
-
-<br/><br/>
-
-<figure>
-  <img src="./images/rb-mutex-read-only-work-chart.svg" alt="Reader locks only, a loop spin in the critical section" />
-  <figcaption>Reader locks only, some work in the critical section</figcaption>
-</figure>
-
-<br/><br/>
-
-<figure>
-  <img src="./images/rb-mutex-write-10000-chart.svg" alt="Writer locks on each 10,000 iteration, both no work and a loop spin in the critical section" />
-  <figcaption>Writer locks on each 10,000 iteration, both no work and some work in the critical section</figcaption>
-</figure>
-
 ## MPMCQueue
 
 A `MPMCQeueue` is a bounded multi-producer multi-consumer concurrent queue.
@@ -74,21 +51,24 @@ In essence, `MPMCQueue` is a specialized queue for scenarios where there are mul
 
 To get the optimal performance, you may want to set the queue size to be large enough, say, an order of magnitude greater than the number of producers/consumers, to allow producers and consumers to progress with their queue operations in parallel most of the time.
 
-### MPMCQueue vs. Go channels
+## Counter
 
-The following results were obtained on a GCP e2-highcpu-32 VM with 32 vCPUs (Intel Haswell), 32 GB memory, Ubuntu 20.04, Go 1.16.5.
+A `Counter` is a striped int64 counter inspired by the j.u.c.a.LongAdder class from Java standard library.
 
-<figure>
-  <img src="./images/mpmcqueue-no-work-chart.svg" alt="Concurrent producers and consumers (1:1), queue/channel size 1,000, no work" />
-  <figcaption>Concurrent producers and consumers (1:1), queue/channel size 1,000, no work</figcaption>
-</figure>
+```go
+var c Counter
+// increment and decrement the counter
+c.Inc()
+c.Dec()
+// read the current value 
+v := c.Value()
+```
 
-<br/><br/>
+Works better in comparison with a single atomically updated int64 counter in high contention scenarios.
 
-<figure>
-  <img src="./images/mpmcqueue-work-chart.svg" alt="Concurrent producers and consumers (1:1), queue/channel size 1,000, some work" />
-  <figcaption>Concurrent producers and consumers (1:1), queue/channel size 1,000, some work</figcaption>
-</figure>
+### Benchmarks
+
+Benchmark results may be found [here](BENCHMARKS.md).
 
 ## License
 
