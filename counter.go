@@ -29,10 +29,10 @@ type ptoken struct {
 //
 // A Counter must not be copied after first use.
 type Counter struct {
-	counters [cstripes]counter
+	stripes [cstripes]cstripe
 }
 
-type counter struct {
+type cstripe struct {
 	c   int64
 	pad [cacheLineSize - 8]byte
 }
@@ -54,7 +54,8 @@ func (c *Counter) Add(delta int64) {
 		t = new(ptoken)
 		t.idx = int(hash64(uintptr(unsafe.Pointer(t))) % cstripes)
 	}
-	atomic.AddInt64(c.counterPtr(t.idx), delta)
+	stripe := &c.stripes[t.idx]
+	atomic.AddInt64(&stripe.c, delta)
 	ptokenPool.Put(t)
 }
 
@@ -64,7 +65,8 @@ func (c *Counter) Add(delta int64) {
 func (c *Counter) Value() int64 {
 	v := int64(0)
 	for i := 0; i < cstripes; i++ {
-		v += atomic.LoadInt64(c.counterPtr(i))
+		stripe := &c.stripes[i]
+		v += atomic.LoadInt64(&stripe.c)
 	}
 	return v
 }
@@ -74,10 +76,7 @@ func (c *Counter) Value() int64 {
 // no concurrent modifications of the counter.
 func (c *Counter) Reset() {
 	for i := 0; i < cstripes; i++ {
-		atomic.StoreInt64(c.counterPtr(i), 0)
+		stripe := &c.stripes[i]
+		atomic.StoreInt64(&stripe.c, 0)
 	}
-}
-
-func (c *Counter) counterPtr(idx int) *int64 {
-	return (*int64)(unsafe.Pointer(&c.counters[idx]))
 }

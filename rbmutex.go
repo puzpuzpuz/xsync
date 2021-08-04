@@ -60,12 +60,11 @@ func (m *RBMutex) RLock() *RToken {
 			t = new(RToken)
 			t.slot = int(hash64(uintptr(unsafe.Pointer(t))) % rslots)
 		}
-		ptr := m.rslotPtr(t.slot)
-		if atomic.CompareAndSwapInt32(ptr, 0, 1) {
+		if atomic.CompareAndSwapInt32(&m.readers[t.slot], 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
 				return t
 			}
-			atomic.StoreInt32(ptr, 0)
+			atomic.StoreInt32(&m.readers[t.slot], 0)
 		}
 		rtokenPool.Put(t)
 	}
@@ -86,7 +85,7 @@ func (m *RBMutex) RUnlock(t *RToken) {
 		m.rw.RUnlock()
 		return
 	}
-	if !atomic.CompareAndSwapInt32(m.rslotPtr(t.slot), 1, 0) {
+	if !atomic.CompareAndSwapInt32(&m.readers[t.slot], 1, 0) {
 		panic("invalid reader state detected")
 	}
 	rtokenPool.Put(t)
@@ -101,7 +100,7 @@ func (m *RBMutex) Lock() {
 		atomic.StoreInt32(&m.rbias, 0)
 		start := time.Now()
 		for i := 0; i < rslots; i++ {
-			for atomic.LoadInt32(m.rslotPtr(i)) == 1 {
+			for atomic.LoadInt32(&m.readers[i]) == 1 {
 				runtime.Gosched()
 			}
 		}
@@ -117,8 +116,4 @@ func (m *RBMutex) Lock() {
 // arrange for another goroutine to RUnlock (Unlock) it.
 func (m *RBMutex) Unlock() {
 	m.rw.Unlock()
-}
-
-func (m *RBMutex) rslotPtr(slot int) *int32 {
-	return (*int32)(unsafe.Pointer(&m.readers[slot]))
 }
