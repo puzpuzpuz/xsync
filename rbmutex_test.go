@@ -16,17 +16,17 @@ import (
 
 func TestRBMutexSerialReader(t *testing.T) {
 	var m RBMutex
-	tk := m.RLock()
-	m.RUnlock(tk)
-	tk = m.RLock()
-	m.RUnlock(tk)
+	for i := 0; i < 10; i++ {
+		tk := m.RLock()
+		m.RUnlock(tk)
+	}
 }
 
 func parallelReader(m *RBMutex, clocked, cunlock, cdone chan bool) {
-	t := m.RLock()
+	tk := m.RLock()
 	clocked <- true
 	<-cunlock
-	m.RUnlock(t)
+	m.RUnlock(tk)
 	cdone <- true
 }
 
@@ -59,24 +59,24 @@ func TestRBMutexParallelReaders(t *testing.T) {
 	doTestParallelReaders(4, 2)
 }
 
-func reader(shm *RBMutex, num_iterations int, activity *int32, cdone chan bool) {
-	for i := 0; i < num_iterations; i++ {
-		t := shm.RLock()
+func reader(shm *RBMutex, numIterations int, activity *int32, cdone chan bool) {
+	for i := 0; i < numIterations; i++ {
+		tk := shm.RLock()
 		n := atomic.AddInt32(activity, 1)
 		if n < 1 || n >= 10000 {
-			shm.RUnlock(t)
+			shm.RUnlock(tk)
 			panic(fmt.Sprintf("wlock(%d)\n", n))
 		}
 		for i := 0; i < 100; i++ {
 		}
 		atomic.AddInt32(activity, -1)
-		shm.RUnlock(t)
+		shm.RUnlock(tk)
 	}
 	cdone <- true
 }
 
-func writer(shm *RBMutex, num_iterations int, activity *int32, cdone chan bool) {
-	for i := 0; i < num_iterations; i++ {
+func writer(shm *RBMutex, numIterations int, activity *int32, cdone chan bool) {
+	for i := 0; i < numIterations; i++ {
 		shm.Lock()
 		n := atomic.AddInt32(activity, 10000)
 		if n != 10000 {
@@ -91,20 +91,22 @@ func writer(shm *RBMutex, num_iterations int, activity *int32, cdone chan bool) 
 	cdone <- true
 }
 
-func HammerRBMutex(gomaxprocs, numReaders, num_iterations int) {
+func HammerRBMutex(gomaxprocs, numReaders, numIterations int) {
 	runtime.GOMAXPROCS(gomaxprocs)
-	// Number of active readers + 10000 * number of active writers.
-	var activity int32
-	var m RBMutex
+	var (
+		// Number of active readers + 10000 * number of active writers.
+		activity int32
+		m        RBMutex
+	)
 	cdone := make(chan bool)
-	go writer(&m, num_iterations, &activity, cdone)
+	go writer(&m, numIterations, &activity, cdone)
 	var i int
 	for i = 0; i < numReaders/2; i++ {
-		go reader(&m, num_iterations, &activity, cdone)
+		go reader(&m, numIterations, &activity, cdone)
 	}
-	go writer(&m, num_iterations, &activity, cdone)
+	go writer(&m, numIterations, &activity, cdone)
 	for ; i < numReaders; i++ {
-		go reader(&m, num_iterations, &activity, cdone)
+		go reader(&m, numIterations, &activity, cdone)
 	}
 	// Wait for the 2 writers and all readers to finish.
 	for i := 0; i < 2+numReaders; i++ {
@@ -140,12 +142,12 @@ func benchmarkRBMutex(b *testing.B, localWork, writeRatio int) {
 				m.Lock()
 				m.Unlock()
 			} else {
-				t := m.RLock()
+				tk := m.RLock()
 				for i := 0; i != localWork; i += 1 {
 					foo *= 2
 					foo /= 2
 				}
-				m.RUnlock(t)
+				m.RUnlock(tk)
 			}
 		}
 		_ = foo

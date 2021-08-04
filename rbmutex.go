@@ -57,7 +57,7 @@ func (m *RBMutex) RLock() *RToken {
 	if atomic.LoadInt32(&m.rbias) == 1 {
 		t, ok := rtokenPool.Get().(*RToken)
 		if !ok {
-			t = &RToken{}
+			t = new(RToken)
 			slot := int(hash64(uintptr(unsafe.Pointer(t))) % rslots)
 			t.ptr = m.rslotPtr(slot)
 		}
@@ -120,5 +120,5 @@ func (m *RBMutex) Unlock() {
 }
 
 func (m *RBMutex) rslotPtr(slot int) *int32 {
-	return (*int32)(unsafe.Pointer(uintptr(unsafe.Pointer(&m.readers)) + uintptr(slot)*4))
+	return (*int32)(unsafe.Pointer(&m.readers[slot]))
 }

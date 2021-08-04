@@ -51,7 +51,7 @@ func (c *Counter) Dec() {
 func (c *Counter) Add(delta int64) {
 	t, ok := ptokenPool.Get().(*ptoken)
 	if !ok {
-		t = &ptoken{}
+		t = new(ptoken)
 		idx := int(hash64(uintptr(unsafe.Pointer(t))) % cstripes)
 		t.ptr = c.counterPtr(idx)
 	}
@@ -80,5 +80,5 @@ func (c *Counter) Reset() {
 }
 
 func (c *Counter) counterPtr(idx int) *int64 {
-	return (*int64)(unsafe.Pointer(uintptr(unsafe.Pointer(&c.counters)) + uintptr(idx)*unsafe.Sizeof(counter{})))
+	return (*int64)(unsafe.Pointer(&c.counters[idx]))
 }
