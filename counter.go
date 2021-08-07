@@ -6,8 +6,8 @@ import (
 	"unsafe"
 )
 
-// number of counter stripes
-const cstripes = 32
+// number of counter stripes; must be a power of two
+const cstripes = 64
 
 // pool for P tokens
 var ptokenPool sync.Pool
@@ -19,7 +19,7 @@ var ptokenPool sync.Pool
 // concurrent operations (goroutines) to different stripes of
 // the counter
 type ptoken struct {
-	idx int
+	idx uint32
 }
 
 // A Counter is a striped int64 counter.
@@ -52,7 +52,8 @@ func (c *Counter) Add(delta int64) {
 	t, ok := ptokenPool.Get().(*ptoken)
 	if !ok {
 		t = new(ptoken)
-		t.idx = int(hash64(uintptr(unsafe.Pointer(t))) % cstripes)
+		// Since cstripes is a power of two, we can use & instead of %.
+		t.idx = hash64(uintptr(unsafe.Pointer(t))) & (cstripes - 1)
 	}
 	stripe := &c.stripes[t.idx]
 	atomic.AddInt64(&stripe.c, delta)

@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	// number of reader slots
+	// number of reader slots; must be a power of two
 	rslots = 4096
 	// slow-down guard
 	nslowdown = 9
@@ -20,7 +20,7 @@ var rtokenPool sync.Pool
 
 // RToken is a reader lock token.
 type RToken struct {
-	slot int
+	slot uint32
 }
 
 // A RBMutex is a reader biased reader/writer mutual exclusion lock.
@@ -58,7 +58,8 @@ func (m *RBMutex) RLock() *RToken {
 		t, ok := rtokenPool.Get().(*RToken)
 		if !ok {
 			t = new(RToken)
-			t.slot = int(hash64(uintptr(unsafe.Pointer(t))) % rslots)
+			// Since rslots is a power of two, we can use & instead of %.
+			t.slot = hash64(uintptr(unsafe.Pointer(t))) & (rslots - 1)
 		}
 		if atomic.CompareAndSwapInt32(&m.readers[t.slot], 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
