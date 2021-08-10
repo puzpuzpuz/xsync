@@ -6,12 +6,13 @@ import (
 	"unsafe"
 )
 
-// A MPMCQueue is a bounded multi-producer multi-consumer concurrent queue.
+// A MPMCQueue is a bounded multi-producer multi-consumer concurrent
+// queue.
 //
 // MPMCQueue instances must be created with NewMPMCQueue function.
 // A MPMCQueue must not be copied after first use.
 //
-// Based on the algorithm from the following C++ library:
+// Based on the data structure from the following C++ library:
 // https://github.com/rigtorp/MPMCQueue
 type MPMCQueue struct {
 	cap   uint64
@@ -32,7 +33,8 @@ type slotInternal struct {
 	item interface{}
 }
 
-// NewMPMCQueue creates a new MPMCQueue instance with the given capacity.
+// NewMPMCQueue creates a new MPMCQueue instance with the given
+// capacity.
 func NewMPMCQueue(capacity int) *MPMCQueue {
 	if capacity < 1 {
 		panic("capacity must be positive number")
@@ -71,10 +73,9 @@ func (q *MPMCQueue) Dequeue() interface{} {
 	return item
 }
 
-// TryEnqueue inserts the given item into the queue.
-// Does not block and returns immediately.
-// The result indicates that the queue isn't full and the item was
-// inserted.
+// TryEnqueue inserts the given item into the queue. Does not block
+// and returns immediately. The result indicates that the queue isn't
+// full and the item was inserted.
 func (q *MPMCQueue) TryEnqueue(item interface{}) bool {
 	head := atomic.LoadUint64(&q.head)
 	for {
@@ -97,10 +98,9 @@ func (q *MPMCQueue) TryEnqueue(item interface{}) bool {
 	}
 }
 
-// TryDequeue retrieves and removes the item from the head of the queue.
-// Does not block and returns immediately.
-// The ok result indicates that the queue isn't empty and an item was
-// retrieved.
+// TryDequeue retrieves and removes the item from the head of the
+// queue. Does not block and returns immediately. The ok result
+// indicates that the queue isn't empty and an item was retrieved.
 func (q *MPMCQueue) TryDequeue() (item interface{}, ok bool) {
 	tail := atomic.LoadUint64(&q.tail)
 	for {

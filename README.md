@@ -4,28 +4,40 @@ Concurrent data structures for Go. An extension for the standard `sync` package.
 
 This library should be considered experimental, so make sure to run benchmarks for your use cases before starting to use it in your application.
 
-## RBMutex
+### Benchmarks
 
-A `RBMutex` is a reader biased reader/writer mutual exclusion lock. The lock can be held by an many readers or a single writer.
+Benchmark results may be found [here](BENCHMARKS.md).
+
+## Counter
+
+A `Counter` is a striped int64 counter inspired by the j.u.c.a.LongAdder class from Java standard library.
 
 ```go
-var m RBMutex
-// reader lock calls return a token
-t := m.RLock()
-// the token must be later used to unlock the mutex
-m.RUnlock(t)
-// writer locks are the same as in sync.RWMutex
-m.Lock()
-m.Unlock()
+var c Counter
+// increment and decrement the counter
+c.Inc()
+c.Dec()
+// read the current value 
+v := c.Value()
 ```
 
-`RBMutex` is based on the BRAVO (Biased Locking for Reader-Writer Locks) algorithm: https://arxiv.org/pdf/1810.01553.pdf
+Works better in comparison with a single atomically updated int64 counter in high contention scenarios.
 
-The idea of the algorithm is to build on top of an existing reader-writer mutex and introduce a fast path for readers. On the fast path, reader lock attempts are sharded over an internal array based on the reader identity (a token in case of Golang). This means that readers do not contend over a single atomic counter like it's done in, say, `sync.RWMutex` allowing for better scalability in terms of cores.
+## Map
 
-Hence, by the design `RBMutex` is a specialized mutex for scenarios, such as caches, where the vast majority of locks are acquired by readers and write lock acquire attempts are infrequent. In such scenarios, `RBMutex` should perform better than the `sync.RWMutex` on large multicore machines.
+A `Map` is like a concurrent hash table based map. It follows the interface of sync.Map.
 
-`RBMutex` extends `sync.RWMutex` internally and uses it as the "reader bias disabled" fallback, so the same semantics apply. The only noticeable difference is in the reader tokens returned from the `RLock`/`RUnlock` methods.
+```go
+m := NewMap()
+m.Store("foo", "bar")
+v, ok := m.Load("foo")
+```
+
+`Map` uses a modified version of Cache-Line Hash Table (CLHT) data structure: https://github.com/LPD-EPFL/CLHT
+
+CLHT is built around idea to organize the hash table in cache-line-sized buckets, so that on all modern CPUs update operations complete with at most one cache-line transfer. Also, Get operations involve no write to memory, as well as no mutexes or any other sort of locks. Due to this design, in all considered scenarios Map outperforms sync.Map.
+
+One important difference with sync.Map is that only string keys are supported. That's because Golang standard library does not expose the built-in hash functions for `interface{}` values. Another difference with sync.Map is that nil values are not supported. Use Delete operation or a special "nil" value to overcome this restriction.
 
 ## MPMCQueue
 
@@ -51,24 +63,28 @@ In essence, `MPMCQueue` is a specialized queue for scenarios where there are mul
 
 To get the optimal performance, you may want to set the queue size to be large enough, say, an order of magnitude greater than the number of producers/consumers, to allow producers and consumers to progress with their queue operations in parallel most of the time.
 
-## Counter
+## RBMutex
 
-A `Counter` is a striped int64 counter inspired by the j.u.c.a.LongAdder class from Java standard library.
+A `RBMutex` is a reader biased reader/writer mutual exclusion lock. The lock can be held by an many readers or a single writer.
 
 ```go
-var c Counter
-// increment and decrement the counter
-c.Inc()
-c.Dec()
-// read the current value 
-v := c.Value()
+var m RBMutex
+// reader lock calls return a token
+t := m.RLock()
+// the token must be later used to unlock the mutex
+m.RUnlock(t)
+// writer locks are the same as in sync.RWMutex
+m.Lock()
+m.Unlock()
 ```
 
-Works better in comparison with a single atomically updated int64 counter in high contention scenarios.
+`RBMutex` is based on the BRAVO (Biased Locking for Reader-Writer Locks) algorithm: https://arxiv.org/pdf/1810.01553.pdf
 
-### Benchmarks
+The idea of the algorithm is to build on top of an existing reader-writer mutex and introduce a fast path for readers. On the fast path, reader lock attempts are sharded over an internal array based on the reader identity (a token in case of Golang). This means that readers do not contend over a single atomic counter like it's done in, say, `sync.RWMutex` allowing for better scalability in terms of cores.
 
-Benchmark results may be found [here](BENCHMARKS.md).
+Hence, by the design `RBMutex` is a specialized mutex for scenarios, such as caches, where the vast majority of locks are acquired by readers and write lock acquire attempts are infrequent. In such scenarios, `RBMutex` should perform better than the `sync.RWMutex` on large multicore machines.
+
+`RBMutex` extends `sync.RWMutex` internally and uses it as the "reader bias disabled" fallback, so the same semantics apply. The only noticeable difference is in the reader tokens returned from the `RLock`/`RUnlock` methods.
 
 ## License
 

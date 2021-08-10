@@ -29,13 +29,13 @@ type RToken struct {
 //
 // A RBMutex must not be copied after first use.
 //
-// RBMutex is based on the BRAVO (Biased Locking for Reader-Writer Locks)
-// algorithm: https://arxiv.org/pdf/1810.01553.pdf
+// RBMutex is based on the BRAVO (Biased Locking for Reader-Writer
+// Locks) algorithm: https://arxiv.org/pdf/1810.01553.pdf
 //
-// RBMutex is a specialized mutex for scenarios, such as caches, where
-// the vast majority of locks are acquired by readers and write lock
-// acquire attempts are infrequent. In such scenarios, RBMutex performs
-// better than the sync.RWMutex on large multicore machines.
+// RBMutex is a specialized mutex for scenarios, such as caches,
+// where the vast majority of locks are acquired by readers and write
+// lock acquire attempts are infrequent. In such scenarios, RBMutex
+// performs better than the sync.RWMutex on large multicore machines.
 //
 // RBMutex extends sync.RWMutex internally and uses it as the "reader
 // bias disabled" fallback, so the same semantics apply. The only
@@ -76,11 +76,10 @@ func (m *RBMutex) RLock() *RToken {
 	return nil
 }
 
-// RUnlock undoes a single RLock call. A reader token
-// obtained from the RLock call must be provided.
-// RUnlock does not affect other simultaneous readers.
-// A panic is raised if m is not locked for reading
-// on entry to RUnlock.
+// RUnlock undoes a single RLock call. A reader token obtained from
+// the RLock call must be provided. RUnlock does not affect other
+// simultaneous readers. A panic is raised if m is not locked for
+// reading on entry to RUnlock.
 func (m *RBMutex) RUnlock(t *RToken) {
 	if t == nil {
 		m.rw.RUnlock()
@@ -92,9 +91,8 @@ func (m *RBMutex) RUnlock(t *RToken) {
 	rtokenPool.Put(t)
 }
 
-// Lock locks m for writing.
-// If the lock is already locked for reading or writing,
-// Lock blocks until the lock is available.
+// Lock locks m for writing. If the lock is already locked for
+// reading or writing, Lock blocks until the lock is available.
 func (m *RBMutex) Lock() {
 	m.rw.Lock()
 	if atomic.LoadInt32(&m.rbias) == 1 {
@@ -109,12 +107,12 @@ func (m *RBMutex) Lock() {
 	}
 }
 
-// Unlock unlocks m for writing. A panic is raised if m is
-// not locked for writing on entry to Unlock.
+// Unlock unlocks m for writing. A panic is raised if m is not locked
+// for writing on entry to Unlock.
 //
-// As with RWMutex, a locked RBMutex is not associated with a particular
-// goroutine. One goroutine may RLock (Lock) a RBMutex and then
-// arrange for another goroutine to RUnlock (Unlock) it.
+// As with RWMutex, a locked RBMutex is not associated with a
+// particular goroutine. One goroutine may RLock (Lock) a RBMutex and
+// then arrange for another goroutine to RUnlock (Unlock) it.
 func (m *RBMutex) Unlock() {
 	m.rw.Unlock()
 }
