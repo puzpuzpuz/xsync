@@ -65,6 +65,7 @@ type rangeEntry struct {
 	value unsafe.Pointer
 }
 
+// NewMap creates a new Map instance.
 func NewMap() *Map {
 	m := &Map{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
@@ -93,10 +94,9 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 						if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
 							// Atomic snapshot succeeded.
 							return *(*interface{})(vp), true
-						} else {
-							// Concurrent update/remove detected, so go for another spin.
-							goto load_attempt
 						}
+						// Concurrent update/remove detected, so go for another spin.
+						goto load_attempt
 					}
 				}
 			}
