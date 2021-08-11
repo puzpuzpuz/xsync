@@ -349,7 +349,7 @@ func (m *Map) Delete(key string) {
 func (m *Map) Range(f func(key string, value interface{}) bool) {
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*[]bucket)(tablep)
-	bentries := make([]rangeEntry, 0)
+	bentries := make([]rangeEntry, 0, entriesPerMapBucket*(resizeMapThreshold+1))
 	for i := range table {
 		copyRangeEntries(&bentries, &table[i])
 		for j := range bentries {
