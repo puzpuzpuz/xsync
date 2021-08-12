@@ -31,7 +31,7 @@ var benchmarkCases = []struct {
 	{"0%-reads", 0},     //   0% loads,   50% stores,   50% deletes
 }
 
-func TestMapBucketStructSize(t *testing.T) {
+func TestMap_BucketStructSize(t *testing.T) {
 	if bits.UintSize != 64 {
 		return // skip for 32-bit builds
 	}
@@ -41,7 +41,7 @@ func TestMapBucketStructSize(t *testing.T) {
 	}
 }
 
-func TestMapMissingEntry(t *testing.T) {
+func TestMap_MissingEntry(t *testing.T) {
 	m := NewMap()
 	v, ok := m.Load("foo")
 	if ok {
@@ -55,22 +55,28 @@ func TestMapMissingEntry(t *testing.T) {
 	}
 }
 
-func TestMapStoreNilValue(t *testing.T) {
+func TestMapStore_NilValue(t *testing.T) {
 	m := NewMap()
-	defer func() {
-		recover()
-	}()
 	m.Store("foo", nil)
-	t.Error("no panic was raised")
+	v, ok := m.Load("foo")
+	if !ok {
+		t.Error("nil value was expected")
+	}
+	if v != nil {
+		t.Errorf("value was not nil: %v", v)
+	}
 }
 
-func TestMapLoadOrStoreNilValue(t *testing.T) {
+func TestMapLoadOrStore_NilValue(t *testing.T) {
 	m := NewMap()
-	defer func() {
-		recover()
-	}()
 	m.LoadOrStore("foo", nil)
-	t.Error("no panic was raised")
+	v, loaded := m.LoadOrStore("foo", nil)
+	if !loaded {
+		t.Error("nil value was expected")
+	}
+	if v != nil {
+		t.Errorf("value was not nil: %v", v)
+	}
 }
 
 func TestMapRange(t *testing.T) {

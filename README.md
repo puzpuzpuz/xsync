@@ -37,7 +37,7 @@ v, ok := m.Load("foo")
 
 CLHT is built around idea to organize the hash table in cache-line-sized buckets, so that on all modern CPUs update operations complete with at most one cache-line transfer. Also, Get operations involve no write to memory, as well as no mutexes or any other sort of locks. Due to this design, in all considered scenarios Map outperforms sync.Map.
 
-One important difference with sync.Map is that only string keys are supported. That's because Golang standard library does not expose the built-in hash functions for `interface{}` values. Another difference with sync.Map is that nil values are not supported. Use Delete operation or a special "nil" value to overcome this restriction.
+One important difference with sync.Map is that only string keys are supported. That's because Golang standard library does not expose the built-in hash functions for `interface{}` values.
 
 ## MPMCQueue
 
