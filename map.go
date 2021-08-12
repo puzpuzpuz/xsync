@@ -37,10 +37,7 @@ const (
 //
 // One important difference with sync.Map is that only string keys
 // are supported. That's because Golang standard library does not
-// expose the built-in hash functions for interface{} values. Another
-// difference with sync.Map is that nil values are not supported. Use
-// Delete operation or a special "nil" value to overcome this
-// restriction.
+// expose the built-in hash functions for interface{} values.
 //
 // Also note that, unlike in sync.Map, the underlying hash table used
 // by Map never shrinks and only grows on demand. However, this
@@ -64,6 +61,11 @@ type rangeEntry struct {
 	key   unsafe.Pointer
 	value unsafe.Pointer
 }
+
+// special type to mark nil values
+type nilValue struct{}
+
+var nilVal = new(nilValue)
 
 // NewMap creates a new Map instance.
 func NewMap() *Map {
@@ -89,10 +91,10 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 				vp := atomic.LoadPointer(&b.values[i])
 				kp := atomic.LoadPointer(&b.keys[i])
 				if kp != nil && vp != nil {
-					if key == *(*string)(kp) {
+					if key == derefKey(kp) {
 						if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
 							// Atomic snapshot succeeded.
-							return *(*interface{})(vp), true
+							return derefValue(vp), true
 						}
 						// Concurrent update/remove of the key case. Go for another spin.
 						continue
@@ -112,8 +114,6 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 }
 
 // Store sets the value for a key.
-//
-// A panic is raised if a nil value is provided.
 func (m *Map) Store(key string, value interface{}) {
 	m.doStore(key, value, false)
 }
@@ -121,15 +121,13 @@ func (m *Map) Store(key string, value interface{}) {
 // LoadOrStore returns the existing value for the key if present.
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
-//
-// A panic is raised if a nil value is provided.
 func (m *Map) LoadOrStore(key string, value interface{}) (actual interface{}, loaded bool) {
 	return m.doStore(key, value, true)
 }
 
 func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual interface{}, loaded bool) {
 	if value == nil {
-		panic("nil values are not supported")
+		value = nilVal
 	}
 	// Read-only path.
 	if loadIfExists {
@@ -162,10 +160,10 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 		for {
 			for i := 0; i < entriesPerMapBucket; i++ {
 				if b.keys[i] != nil {
-					k := *(*string)(b.keys[i])
+					k := derefKey(b.keys[i])
 					if k == key {
 						if loadIfExists {
-							return *(*interface{})(b.values[i]), true
+							return derefValue(b.values[i]), true
 						}
 						// In-place update case. Luckily we get a copy of the value
 						// interface{} on each call, thus the live value pointers are
@@ -250,7 +248,7 @@ func copyBucket(b *bucket, table []bucket) {
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
-				k := *(*string)(b.keys[i])
+				k := derefKey(b.keys[i])
 				hash := fnv32(k)
 				destb := &table[uint32(len(table)-1)&hash]
 				appendToBucket(destb, b.keys[i], b.values[i])
@@ -310,7 +308,7 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 			for i := 0; i < entriesPerMapBucket; i++ {
 				kp := b.keys[i]
 				if kp != nil {
-					k := *(*string)(kp)
+					k := derefKey(kp)
 					if k == key {
 						vp := b.values[i]
 						// Deletion case. First we update the value, then the key.
@@ -318,7 +316,7 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 						atomic.StorePointer(&b.values[i], nil)
 						atomic.StorePointer(&b.keys[i], nil)
 						rootb.mu.Unlock()
-						return *(*interface{})(vp), true
+						return derefValue(vp), true
 					}
 				}
 			}
@@ -358,8 +356,8 @@ func (m *Map) Range(f func(key string, value interface{}) bool) {
 			if bentries[j].key == nil {
 				break
 			}
-			k := *(*string)(bentries[j].key)
-			v := *(*interface{})(bentries[j].value)
+			k := derefKey(bentries[j].key)
+			v := derefValue(bentries[j].value)
 			if !f(k, v) {
 				return
 			}
@@ -393,4 +391,16 @@ func copyRangeEntries(bentries *[]rangeEntry, b *bucket) {
 		}
 		b = (*bucket)(b.next)
 	}
+}
+
+func derefKey(keyPtr unsafe.Pointer) string {
+	return *(*string)(keyPtr)
+}
+
+func derefValue(valuePtr unsafe.Pointer) interface{} {
+	value := *(*interface{})(valuePtr)
+	if _, ok := value.(*nilValue); ok {
+		return nil
+	}
+	return value
 }
