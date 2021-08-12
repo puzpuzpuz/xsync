@@ -23,11 +23,12 @@ var benchmarkCases = []struct {
 	name           string
 	writeThreshold int
 }{
-	{"99%-reads", 99}, // 99% loads,  0.5% stores,  0.5% deletes
-	{"90%-reads", 90}, // 90% loads,    5% stores,    5% deletes
-	{"75%-reads", 75}, // 75% loads, 12.5% stores, 12.5% deletes
-	{"50%-reads", 50}, // 50% loads,   25% stores,   25% deletes
-	{"0%-reads", 0},   //  0% loads,   50% stores,   50% deletes
+	{"100%-reads", 100}, // 100% loads,    0% stores,    0% deletes
+	{"99%-reads", 99},   //  99% loads,  0.5% stores,  0.5% deletes
+	{"90%-reads", 90},   //  90% loads,    5% stores,    5% deletes
+	{"75%-reads", 75},   //  75% loads, 12.5% stores, 12.5% deletes
+	{"50%-reads", 50},   //  50% loads,   25% stores,   25% deletes
+	{"0%-reads", 0},     //   0% loads,   50% stores,   50% deletes
 }
 
 func TestMapBucketStructSize(t *testing.T) {
@@ -198,7 +199,7 @@ func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int
 	for j := 0; j < numEntries; j++ {
 		if storeEach == 0 || j%storeEach == 0 {
 			m.Store(strconv.Itoa(j), j)
-			// Due to atomic snapshots we must either see no entry, or a "<j>"/j pair.
+			// Due to atomic snapshots we must see a "<j>"/j pair.
 			v, ok := m.Load(strconv.Itoa(j))
 			if !ok {
 				t.Errorf("value was not found for %d", j)
@@ -215,8 +216,8 @@ func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int
 
 func TestMapParallelStores(t *testing.T) {
 	const numStorers = 4
-	const numIters = 100_000
-	const numEntries = 100
+	const numIters = 10_000_000
+	const numEntries = 1000
 	m := NewMap()
 	cdone := make(chan bool)
 	for i := 0; i < numStorers; i++ {
@@ -230,13 +231,13 @@ func TestMapParallelStores(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		v, ok := m.Load(strconv.Itoa(i))
 		if !ok {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 		if v == nil {
-			t.Errorf("nil value found for %d", i)
+			t.Fatalf("nil value found for %d", i)
 		}
 		if vi, ok := v.(int); ok && vi != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }

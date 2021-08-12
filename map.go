@@ -79,33 +79,35 @@ func NewMap() *Map {
 // The ok result indicates whether value was found in the map.
 func (m *Map) Load(key string) (value interface{}, ok bool) {
 	hash := fnv32(key)
+	tablep := atomic.LoadPointer(&m.table)
+	table := *(*[]bucket)(tablep)
+	b := &table[uint32(len(table)-1)&hash]
 	for {
-	load_attempt:
-		tablep := atomic.LoadPointer(&m.table)
-		table := *(*[]bucket)(tablep)
-		b := &table[uint32(len(table)-1)&hash]
-		for {
-			for i := 0; i < entriesPerMapBucket; i++ {
+		for i := 0; i < entriesPerMapBucket; i++ {
+			// Start atomic snapshot.
+			for {
 				vp := atomic.LoadPointer(&b.values[i])
 				kp := atomic.LoadPointer(&b.keys[i])
 				if kp != nil && vp != nil {
-					k := *(*string)(kp)
-					if k == key {
+					if key == *(*string)(kp) {
 						if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
 							// Atomic snapshot succeeded.
 							return *(*interface{})(vp), true
 						}
-						// Concurrent update/remove detected, so go for another spin.
-						goto load_attempt
+						// Concurrent update/remove of the key case. Go for another spin.
+						continue
 					}
+					// Different key case. Fall into break.
 				}
+				// In progress update/remove case. Fall into break.
+				break
 			}
-			bucketPtr := atomic.LoadPointer(&b.next)
-			if bucketPtr == nil {
-				return nil, false
-			}
-			b = (*bucket)(bucketPtr)
 		}
+		bucketPtr := atomic.LoadPointer(&b.next)
+		if bucketPtr == nil {
+			return nil, false
+		}
+		b = (*bucket)(bucketPtr)
 	}
 }
 
@@ -144,7 +146,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 		table := *(*[]bucket)(tablep)
 		rootb := &table[uint32(len(table)-1)&hash]
 		b := rootb
-		chainSize := 0
+		chainLen := 0
 		rootb.mu.Lock()
 		if m.newerTableExists(tablep) {
 			// Someone resized the table. Go for another attempt.
@@ -187,7 +189,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 					rootb.mu.Unlock()
 					return
 				}
-				if chainSize == resizeMapThreshold {
+				if chainLen == resizeMapThreshold {
 					// Need to resize the table. Then go for another attempt.
 					rootb.mu.Unlock()
 					m.resize(tablep)
@@ -202,7 +204,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 				return
 			}
 			b = (*bucket)(b.next)
-			chainSize++
+			chainLen++
 		}
 	}
 }
