@@ -1,7 +1,6 @@
 package xsync
 
 import (
-	"reflect"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -404,55 +403,4 @@ func derefValue(valuePtr unsafe.Pointer) interface{} {
 		return nil
 	}
 	return value
-}
-
-//go:noescape
-//go:linkname memhash runtime.memhash
-func memhash(p unsafe.Pointer, h, s uintptr) uintptr
-
-func memhashMap(msg interface{}) uint64 {
-	switch val := msg.(type) {
-	case string:
-		strhv := *(*reflect.StringHeader)(unsafe.Pointer(&val))
-
-		return uint64(memhash(unsafe.Pointer(strhv.Data), 0, uintptr(strhv.Len)))
-	case []byte:
-		strhv := *(*reflect.SliceHeader)(unsafe.Pointer(&val))
-
-		return uint64(memhash(unsafe.Pointer(strhv.Data), 0, uintptr(strhv.Len)))
-	case int:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case uint:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case uintptr:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case int8:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case uint8:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case int16:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case uint16:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case int32:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case uint32:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case int64:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case uint64:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case float64:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case float32:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case bool:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case complex128:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	case complex64:
-		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
-	}
-
-	return uint64(memhash(unsafe.Pointer(&msg), 0, unsafe.Sizeof(msg)))
 }
