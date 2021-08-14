@@ -86,8 +86,8 @@ func TestMapRange(t *testing.T) {
 		m.Store(strconv.Itoa(i), i)
 	}
 	iters := 0
-	met := make(map[interface{}]int)
-	m.Range(func(key interface{}, value interface{}) bool {
+	met := make(map[string]int)
+	m.Range(func(key string, value interface{}) bool {
 		if key != strconv.Itoa(value.(int)) {
 			t.Errorf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
 			return false
@@ -112,7 +112,7 @@ func TestMapRange_FalseReturned(t *testing.T) {
 		m.Store(strconv.Itoa(i), i)
 	}
 	iters := 0
-	m.Range(func(key interface{}, value interface{}) bool {
+	m.Range(func(key string, value interface{}) bool {
 		iters++
 		return iters != 13
 	})
@@ -127,7 +127,7 @@ func TestMapRange_NestedDelete(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
-	m.Range(func(key interface{}, value interface{}) bool {
+	m.Range(func(key string, value interface{}) bool {
 		m.Delete(key)
 		return true
 	})
@@ -147,7 +147,7 @@ func TestMapSerialStore(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		v, ok := m.Load(strconv.Itoa(i))
 		if !ok {
-			t.Errorf("value not found for %d %v", i, v)
+			t.Errorf("value not found for %d", i)
 		}
 		if v == nil {
 			t.Errorf("nil value found for %d", i)
@@ -192,8 +192,8 @@ func TestMapSerialStoreThenLoadAndDelete(t *testing.T) {
 		m.Store(strconv.Itoa(i), i)
 	}
 	for i := 0; i < numEntries; i++ {
-		if v, loaded := m.LoadAndDelete(strconv.Itoa(i)); !loaded {
-			t.Errorf("value was not found for %d %v", i, v)
+		if _, loaded := m.LoadAndDelete(strconv.Itoa(i)); !loaded {
+			t.Errorf("value was not found for %d", i)
 		}
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
 			t.Errorf("value was not expected for %d", i)
@@ -208,7 +208,7 @@ func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int
 			// Due to atomic snapshots we must see a "<j>"/j pair.
 			v, ok := m.Load(strconv.Itoa(j))
 			if !ok {
-				t.Errorf("value was not found for %d %v", j, v)
+				t.Errorf("value was not found for %d", j)
 				break
 			}
 			if vi, ok := v.(int); !ok || vi != j {
@@ -237,7 +237,7 @@ func TestMapParallelStores(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		v, ok := m.Load(strconv.Itoa(i))
 		if !ok {
-			t.Fatalf("value not found for %d %v", i, v)
+			t.Fatalf("value not found for %d", i)
 		}
 		if v == nil {
 			t.Fatalf("nil value found for %d", i)
@@ -404,7 +404,7 @@ func BenchmarkMapRange(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
-			m.Range(func(key interface{}, value interface{}) bool {
+			m.Range(func(key string, value interface{}) bool {
 				foo++
 				return true
 			})
