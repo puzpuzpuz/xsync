@@ -7,12 +7,15 @@ const (
 )
 
 type (
-	Bucket   = bucket
-	MapStats = mapStats
+	Bucket = bucket
 )
 
+type MapStats struct {
+	mapStats
+}
+
 func CollectMapStats(m *Map) MapStats {
-	return m.stats()
+	return MapStats{m.stats()}
 }
 
 func MapSize(m *Map) int {
