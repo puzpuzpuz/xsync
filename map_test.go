@@ -31,6 +31,15 @@ var benchmarkCases = []struct {
 	{"0%-reads", 0},     //   0% loads,   50% stores,   50% deletes
 }
 
+var benchmarkKeys []string
+
+func init() {
+	benchmarkKeys = make([]string, benchmarkNumEntries)
+	for i := 0; i < benchmarkNumEntries; i++ {
+		benchmarkKeys[i] = benchmarkKeyPrefix + strconv.Itoa(i)
+	}
+}
+
 func TestMap_BucketStructSize(t *testing.T) {
 	if bits.UintSize != 64 {
 		return // skip for 32-bit builds
@@ -465,11 +474,11 @@ func benchmarkMap(
 			op := r.Intn(1000)
 			i := r.Intn(benchmarkNumEntries)
 			if op >= deleteThreshold {
-				deleteFn(benchmarkKeyPrefix + strconv.Itoa(i))
+				deleteFn(benchmarkKeys[i])
 			} else if op >= storeThreshold {
-				storeFn(benchmarkKeyPrefix+strconv.Itoa(i), i)
+				storeFn(benchmarkKeys[i], i)
 			} else {
-				loadFn(benchmarkKeyPrefix + strconv.Itoa(i))
+				loadFn(benchmarkKeys[i])
 			}
 		}
 	})
@@ -478,7 +487,7 @@ func benchmarkMap(
 func BenchmarkMapRange(b *testing.B) {
 	m := NewMap()
 	for i := 0; i < benchmarkNumEntries; i++ {
-		m.Store(benchmarkKeyPrefix+strconv.Itoa(i), i)
+		m.Store(benchmarkKeys[i], i)
 	}
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -496,7 +505,7 @@ func BenchmarkMapRange(b *testing.B) {
 func BenchmarkMapRangeStandard(b *testing.B) {
 	var m sync.Map
 	for i := 0; i < benchmarkNumEntries; i++ {
-		m.Store(benchmarkKeyPrefix+strconv.Itoa(i), i)
+		m.Store(benchmarkKeys[i], i)
 	}
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
