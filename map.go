@@ -238,8 +238,10 @@ func (m *Map) resize(tablePtr unsafe.Pointer) {
 	}
 	// Publish the new table and wake up all waiters.
 	atomic.StorePointer(&m.table, unsafe.Pointer(&newTable))
+	m.resizeMu.Lock()
 	atomic.StoreUint64(&m.resizing, 0)
 	m.resizeCond.Broadcast()
+	m.resizeMu.Unlock()
 }
 
 func copyBucket(b *bucket, table []bucket) {
