@@ -1,6 +1,7 @@
 package xsync
 
 import (
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -79,11 +80,11 @@ func NewMap() *Map {
 // Load returns the value stored in the map for a key, or nil if no
 // value is present.
 // The ok result indicates whether value was found in the map.
-func (m *Map) Load(key string) (value interface{}, ok bool) {
-	hash := fnv32(key)
+func (m *Map) Load(key interface{}) (value interface{}, ok bool) {
+	hash := memhashMap(key)
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*[]bucket)(tablep)
-	b := &table[uint32(len(table)-1)&hash]
+	b := &table[uint64(len(table)-1)&hash]
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			// Start atomic snapshot.
@@ -114,18 +115,18 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 }
 
 // Store sets the value for a key.
-func (m *Map) Store(key string, value interface{}) {
+func (m *Map) Store(key interface{}, value interface{}) {
 	m.doStore(key, value, false)
 }
 
 // LoadOrStore returns the existing value for the key if present.
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
-func (m *Map) LoadOrStore(key string, value interface{}) (actual interface{}, loaded bool) {
+func (m *Map) LoadOrStore(key interface{}, value interface{}) (actual interface{}, loaded bool) {
 	return m.doStore(key, value, true)
 }
 
-func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual interface{}, loaded bool) {
+func (m *Map) doStore(key interface{}, value interface{}, loadIfExists bool) (actual interface{}, loaded bool) {
 	if value == nil {
 		value = nilVal
 	}
@@ -136,13 +137,13 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 		}
 	}
 	// Write path.
-	hash := fnv32(key)
+	hash := memhashMap(key)
 	for {
 	store_attempt:
 		var emptykp, emptyvp *unsafe.Pointer
 		tablep := atomic.LoadPointer(&m.table)
 		table := *(*[]bucket)(tablep)
-		rootb := &table[uint32(len(table)-1)&hash]
+		rootb := &table[uint64(len(table)-1)&hash]
 		b := rootb
 		chainLen := 0
 		rootb.mu.Lock()
@@ -249,8 +250,8 @@ func copyBucket(b *bucket, table []bucket) {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
 				k := derefKey(b.keys[i])
-				hash := fnv32(k)
-				destb := &table[uint32(len(table)-1)&hash]
+				hash := memhashMap(k)
+				destb := &table[uint64(len(table)-1)&hash]
 				appendToBucket(destb, b.keys[i], b.values[i])
 			}
 		}
@@ -285,12 +286,12 @@ func appendToBucket(b *bucket, keyPtr, valPtr unsafe.Pointer) {
 // LoadAndDelete deletes the value for a key, returning the previous
 // value if any. The loaded result reports whether the key was
 // present.
-func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
-	hash := fnv32(key)
+func (m *Map) LoadAndDelete(key interface{}) (value interface{}, loaded bool) {
+	hash := memhashMap(key)
 	for {
 		tablep := atomic.LoadPointer(&m.table)
 		table := *(*[]bucket)(tablep)
-		rootb := &table[uint32(len(table)-1)&hash]
+		rootb := &table[uint64(len(table)-1)&hash]
 		b := rootb
 		rootb.mu.Lock()
 		if m.newerTableExists(tablep) {
@@ -330,7 +331,7 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 }
 
 // Delete deletes the value for a key.
-func (m *Map) Delete(key string) {
+func (m *Map) Delete(key interface{}) {
 	m.LoadAndDelete(key)
 }
 
@@ -346,7 +347,7 @@ func (m *Map) Delete(key string) {
 // It is safe to modify the map while iterating it. However, the
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
-func (m *Map) Range(f func(key string, value interface{}) bool) {
+func (m *Map) Range(f func(key interface{}, value interface{}) bool) {
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*[]bucket)(tablep)
 	bentries := make([]rangeEntry, 0, entriesPerMapBucket*(resizeMapThreshold+1))
@@ -393,8 +394,8 @@ func copyRangeEntries(bentries *[]rangeEntry, b *bucket) {
 	}
 }
 
-func derefKey(keyPtr unsafe.Pointer) string {
-	return *(*string)(keyPtr)
+func derefKey(keyPtr unsafe.Pointer) interface{} {
+	return *(*interface{})(keyPtr)
 }
 
 func derefValue(valuePtr unsafe.Pointer) interface{} {
@@ -403,4 +404,55 @@ func derefValue(valuePtr unsafe.Pointer) interface{} {
 		return nil
 	}
 	return value
+}
+
+//go:noescape
+//go:linkname memhash runtime.memhash
+func memhash(p unsafe.Pointer, h, s uintptr) uintptr
+
+func memhashMap(msg interface{}) uint64 {
+	switch val := msg.(type) {
+	case string:
+		strhv := *(*reflect.StringHeader)(unsafe.Pointer(&val))
+
+		return uint64(memhash(unsafe.Pointer(strhv.Data), 0, uintptr(strhv.Len)))
+	case []byte:
+		strhv := *(*reflect.SliceHeader)(unsafe.Pointer(&val))
+
+		return uint64(memhash(unsafe.Pointer(strhv.Data), 0, uintptr(strhv.Len)))
+	case int:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case uint:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case uintptr:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case int8:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case uint8:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case int16:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case uint16:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case int32:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case uint32:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case int64:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case uint64:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case float64:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case float32:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case bool:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case complex128:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	case complex64:
+		return uint64(memhash(unsafe.Pointer(&val), 0, unsafe.Sizeof(val)))
+	}
+
+	return uint64(memhash(unsafe.Pointer(&msg), 0, unsafe.Sizeof(msg)))
 }
