@@ -34,7 +34,7 @@ type Counter struct {
 
 type cstripe struct {
 	c   int64
-	pad [cacheLineSize - 8]byte //lint:ignore U1000 required to prevent false sharing
+	pad [cacheLineSize - 8]byte
 }
 
 // Inc increments the counter by 1.

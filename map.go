@@ -19,12 +19,12 @@ const (
 	// number of entries per bucket; 3 entries lead to size of 64B
 	// (cache line) on 64-bit machines
 	entriesPerMapBucket = 3
-	// max number of linked buckets (chain size) to trigger a table
-	// resize during insertion; thus, each chain holds up to
+	// threshold number of linked buckets (chain size) to trigger a
+	// table resize during insertion; thus, each chain holds up to
 	// resizeMapThreshold+1 buckets
 	resizeMapThreshold = 2
-	// shrink the table if it's occupied with 1/mapShrinkThreshold
-	// of its minimal capacity or less.
+	// threshold fraction of table occupation to start a table shrinking
+	// when deleting the last entry in a bucket chain
 	mapShrinkThreshold = 16
 	// minimal table size, i.e. number of buckets; thus, minimal map
 	// capacity can be calculated as entriesPerMapBucket*minMapTableLen
@@ -67,16 +67,16 @@ type Map struct {
 }
 
 type mapTable struct {
+	buckets []bucket
 	// striped counter for number of table entries;
 	// used to determine if a table shrinking is needed
 	// occupies min(buckets_memory/1024, 64KB) of memory
-	size    []counterStripe
-	buckets []bucket
+	size []counterStripe
 }
 
 type counterStripe struct {
 	c   int64
-	pad [cacheLineSize - 8]byte //lint:ignore U1000 required to prevent false sharing
+	pad [cacheLineSize - 8]byte
 }
 
 type bucket struct {
@@ -277,7 +277,7 @@ func (m *Map) resize(table *mapTable, hint mapResizeHint) {
 	// Fast path for shrink attempts.
 	if hint == mapShrinkHint {
 		shrinkThreshold = int64((tableLen * entriesPerMapBucket) / mapShrinkThreshold)
-		if tableLen == minMapTableLen || sumCounter(table) > shrinkThreshold {
+		if tableLen == minMapTableLen || sumSize(table) > shrinkThreshold {
 			return
 		}
 	}
@@ -294,7 +294,7 @@ func (m *Map) resize(table *mapTable, hint mapResizeHint) {
 		atomic.AddInt64(&m.totalGrowths, 1)
 		newTable = newMapTable(tableLen << 1)
 	case mapShrinkHint:
-		if sumCounter(table) <= shrinkThreshold {
+		if sumSize(table) <= shrinkThreshold {
 			// Shrink the table with factor of 2.
 			atomic.AddInt64(&m.totalShrinks, 1)
 			newTable = newMapTable(tableLen >> 1)
@@ -503,7 +503,7 @@ func copyRangeEntries(b *bucket, destEntries *[]rangeEntry) {
 // used in tests to verify the table counter
 func (m *Map) size() int {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
-	return int(sumCounter(table))
+	return int(sumSize(table))
 }
 
 func derefKey(keyPtr unsafe.Pointer) string {
@@ -532,7 +532,7 @@ func addSizeNonAtomic(table *mapTable, bucketIdx uint32, delta int) {
 	table.size[cidx].c += int64(delta)
 }
 
-func sumCounter(table *mapTable) int64 {
+func sumSize(table *mapTable) int64 {
 	sum := int64(0)
 	for i := range table.size {
 		sum += atomic.LoadInt64(&table.size[i].c)
@@ -575,7 +575,7 @@ func (m *Map) stats() mapStats {
 	}
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	stats.TableLen = len(table.buckets)
-	stats.Counter = int(sumCounter(table))
+	stats.Counter = int(sumSize(table))
 	stats.CounterLen = len(table.size)
 	for i := range table.buckets {
 		numEntries := 0

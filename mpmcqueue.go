@@ -17,15 +17,15 @@ import (
 type MPMCQueue struct {
 	cap   uint64
 	head  uint64
-	hpad  [cacheLineSize - 8]byte //lint:ignore U1000 required to prevent false sharing
+	hpad  [cacheLineSize - 8]byte
 	tail  uint64
-	tpad  [cacheLineSize - 8]byte //lint:ignore U1000 required to prevent false sharing
+	tpad  [cacheLineSize - 8]byte
 	slots []slot
 }
 
 type slot struct {
 	slotInternal
-	pad [cacheLineSize - unsafe.Sizeof(slotInternal{})]byte //lint:ignore U1000 required to prevent false sharing
+	pad [cacheLineSize - unsafe.Sizeof(slotInternal{})]byte
 }
 
 type slotInternal struct {
