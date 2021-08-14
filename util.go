@@ -21,8 +21,8 @@ func hash64(x uintptr) uint32 {
 // FNV-1a 32-bit hash
 func fnv32(key string) uint32 {
 	hash := fnv32Offset
-	keyLength := len(key)
-	for i := 0; i < keyLength; i++ {
+	keyLen := len(key)
+	for i := 0; i < keyLen; i++ {
 		hash ^= uint32(key[i])
 		hash *= fnv32Prime
 	}
