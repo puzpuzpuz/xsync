@@ -140,7 +140,7 @@ func benchmarkRBMutex(b *testing.B, localWork, writeRatio int) {
 			foo++
 			if writeRatio > 0 && foo%writeRatio == 0 {
 				m.Lock()
-				m.Unlock()
+				m.Unlock() //lint:ignore SA2001 critical section is empty due to no work scenario
 			} else {
 				tk := m.RLock()
 				for i := 0; i != localWork; i += 1 {
@@ -194,7 +194,7 @@ func benchmarkRWMutex(b *testing.B, localWork, writeRatio int) {
 			foo++
 			if writeRatio > 0 && foo%writeRatio == 0 {
 				m.Lock()
-				m.Unlock()
+				m.Unlock() //lint:ignore SA2001 critical section is empty due to no work scenario
 			} else {
 				m.RLock()
 				for i := 0; i != localWork; i += 1 {

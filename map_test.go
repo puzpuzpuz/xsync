@@ -21,7 +21,7 @@ const (
 
 var benchmarkCases = []struct {
 	name           string
-	writeThreshold int
+	readPercentage int
 }{
 	{"100%-reads", 100}, // 100% loads,    0% stores,    0% deletes
 	{"99%-reads", 99},   //  99% loads,  0.5% stores,  0.5% deletes
@@ -201,6 +201,78 @@ func TestMapSerialStoreThenLoadAndDelete(t *testing.T) {
 	}
 }
 
+func TestMapSize(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap()
+	size := MapSize(m)
+	if size != 0 {
+		t.Errorf("zero size expected: %d", size)
+	}
+	expectedSize := 0
+	for i := 0; i < numEntries; i++ {
+		m.Store(strconv.Itoa(i), i)
+		expectedSize++
+		size := MapSize(m)
+		if size != expectedSize {
+			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
+		}
+	}
+	for i := 0; i < numEntries; i++ {
+		m.Delete(strconv.Itoa(i))
+		expectedSize--
+		size := MapSize(m)
+		if size != expectedSize {
+			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
+		}
+	}
+}
+
+func TestMapResize(t *testing.T) {
+	const numEntries = 100_000
+	m := NewMap()
+
+	for i := 0; i < numEntries; i++ {
+		m.Store(strconv.Itoa(i), i)
+	}
+	stats := CollectMapStats(m)
+	if stats.Size != numEntries {
+		t.Errorf("size was too small: %d", stats.Size)
+	}
+	if stats.Capacity > capacityLimit(stats.TableLen) {
+		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, capacityLimit(stats.TableLen))
+	}
+	if stats.TableLen <= MinMapTableLen {
+		t.Errorf("table was too small: %d", stats.TableLen)
+	}
+	if stats.TotalGrowths == 0 {
+		t.Errorf("non-zero total growths expected: %d", stats.TotalGrowths)
+	}
+	if stats.TotalShrinks > 0 {
+		t.Errorf("zero total shrinks expected: %d", stats.TotalShrinks)
+	}
+
+	for i := 0; i < numEntries; i++ {
+		m.Delete(strconv.Itoa(i))
+	}
+	stats = CollectMapStats(m)
+	if stats.Size > 0 {
+		t.Errorf("zero size was expected: %d", stats.Size)
+	}
+	if stats.Capacity > capacityLimit(stats.TableLen) {
+		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, capacityLimit(stats.TableLen))
+	}
+	if stats.TableLen != MinMapTableLen {
+		t.Errorf("table was too large: %d", stats.TableLen)
+	}
+	if stats.TotalShrinks == 0 {
+		t.Errorf("non-zero total shrinks expected: %d", stats.TotalShrinks)
+	}
+}
+
+func capacityLimit(tableLen int) int {
+	return tableLen * EntriesPerMapBucket * (ResizeMapThreshold + 1)
+}
+
 func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int, cdone chan bool) {
 	for j := 0; j < numEntries; j++ {
 		if storeEach == 0 || j%storeEach == 0 {
@@ -302,6 +374,10 @@ type SyncMap interface {
 
 func BenchmarkMap_NoWarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
+		if bc.readPercentage == 100 {
+			// This benchmark doesn't make sense without a warm-up.
+			continue
+		}
 		b.Run(bc.name, func(b *testing.B) {
 			m := NewMap()
 			benchmarkMap(b, func(k string) (interface{}, bool) {
@@ -310,13 +386,17 @@ func BenchmarkMap_NoWarmUp(b *testing.B) {
 				m.Store(k, v)
 			}, func(k string) {
 				m.Delete(k)
-			}, bc.writeThreshold)
+			}, bc.readPercentage)
 		})
 	}
 }
 
 func BenchmarkMapStandard_NoWarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
+		if bc.readPercentage == 100 {
+			// This benchmark doesn't make sense without a warm-up.
+			continue
+		}
 		b.Run(bc.name, func(b *testing.B) {
 			var m sync.Map
 			benchmarkMap(b, func(k string) (interface{}, bool) {
@@ -325,7 +405,7 @@ func BenchmarkMapStandard_NoWarmUp(b *testing.B) {
 				m.Store(k, v)
 			}, func(k string) {
 				m.Delete(k)
-			}, bc.writeThreshold)
+			}, bc.readPercentage)
 		})
 	}
 }
@@ -343,7 +423,7 @@ func BenchmarkMap_WarmUp(b *testing.B) {
 				m.Store(k, v)
 			}, func(k string) {
 				m.Delete(k)
-			}, bc.writeThreshold)
+			}, bc.readPercentage)
 		})
 	}
 }
@@ -363,7 +443,7 @@ func BenchmarkMapStandard_WarmUp(b *testing.B) {
 				m.Store(k, v)
 			}, func(k string) {
 				m.Delete(k)
-			}, bc.writeThreshold)
+			}, bc.readPercentage)
 		})
 	}
 }
@@ -373,14 +453,14 @@ func benchmarkMap(
 	loadFn func(k string) (interface{}, bool),
 	storeFn func(k string, v interface{}),
 	deleteFn func(k string),
-	writeThreshold int) {
+	readPercentage int) {
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		// convert percent to permille to support 99% case
-		storeThreshold := 10 * writeThreshold
-		deleteThreshold := 10*writeThreshold + ((1000 - 10*writeThreshold) / 2)
+		storeThreshold := 10 * readPercentage
+		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
 		for pb.Next() {
 			op := r.Intn(1000)
 			i := r.Intn(benchmarkNumEntries)

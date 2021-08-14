@@ -1,9 +1,18 @@
 package xsync
 
 import (
+	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"unsafe"
+)
+
+type mapResizeHint int
+
+const (
+	mapGrowHint   mapResizeHint = 0
+	mapShrinkHint mapResizeHint = 1
 )
 
 const (
@@ -14,9 +23,14 @@ const (
 	// resize during insertion; thus, each chain holds up to
 	// resizeMapThreshold+1 buckets
 	resizeMapThreshold = 2
-	// initial table size, i.e. number of buckets; thus, initial
-	// capacity can be calculated as entriesPerMapBucket*initialMapTableLen
-	initialMapTableLen = 32
+	// shrink the table if it's occupied with 1/mapShrinkThreshold
+	// of its minimal capacity or less.
+	mapShrinkThreshold = 16
+	// minimal table size, i.e. number of buckets; thus, minimal map
+	// capacity can be calculated as entriesPerMapBucket*minMapTableLen
+	minMapTableLen = 32
+	// maximum counter stripes to use; stands for around 8KB of memory
+	maxMapCounterLen = 128
 )
 
 // Map is like a Go map[string]interface{} but is safe for concurrent
@@ -44,10 +58,25 @@ const (
 // should not be an issue in many cases since updates happen in-place
 // leaving no tombstone entries.
 type Map struct {
-	table      unsafe.Pointer // []bucket
-	resizing   uint64         // resize in progress flag; updated atomically
-	resizeMu   sync.Mutex     // only used along with resizeCond
-	resizeCond sync.Cond      // used for resize waiters (concurrent modifications)
+	table        unsafe.Pointer // *mapTable
+	resizing     int64          // resize in progress flag; updated atomically
+	resizeMu     sync.Mutex     // only used along with resizeCond
+	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
+	totalGrowths int64
+	totalShrinks int64
+}
+
+type mapTable struct {
+	// striped counter for number of table entries;
+	// used to determine if a table shrinking is needed
+	// occupies min(buckets_memory/1024, 64KB) of memory
+	size    []counterStripe
+	buckets []bucket
+}
+
+type counterStripe struct {
+	c   int64
+	pad [cacheLineSize - 8]byte //lint:ignore U1000 required to prevent false sharing
 }
 
 type bucket struct {
@@ -71,9 +100,25 @@ var nilVal = new(nilValue)
 func NewMap() *Map {
 	m := &Map{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
-	table := make([]bucket, initialMapTableLen)
-	atomic.StorePointer(&m.table, unsafe.Pointer(&table))
+	table := newMapTable(minMapTableLen)
+	atomic.StorePointer(&m.table, unsafe.Pointer(table))
 	return m
+}
+
+func newMapTable(size int) *mapTable {
+	buckets := make([]bucket, size)
+	counterLen := size >> 10
+	if counterLen < minMapTableLen {
+		counterLen = minMapTableLen
+	} else if counterLen > maxMapCounterLen {
+		counterLen = maxMapCounterLen
+	}
+	counter := make([]counterStripe, counterLen)
+	t := &mapTable{
+		buckets: buckets,
+		size:    counter,
+	}
+	return t
 }
 
 // Load returns the value stored in the map for a key, or nil if no
@@ -81,9 +126,9 @@ func NewMap() *Map {
 // The ok result indicates whether value was found in the map.
 func (m *Map) Load(key string) (value interface{}, ok bool) {
 	hash := fnv32(key)
-	tablep := atomic.LoadPointer(&m.table)
-	table := *(*[]bucket)(tablep)
-	b := &table[uint32(len(table)-1)&hash]
+	table := (*mapTable)(atomic.LoadPointer(&m.table))
+	bidx := bucketIdx(table, hash)
+	b := &table.buckets[bidx]
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			// Start atomic snapshot.
@@ -140,13 +185,13 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 	for {
 	store_attempt:
 		var emptykp, emptyvp *unsafe.Pointer
-		tablep := atomic.LoadPointer(&m.table)
-		table := *(*[]bucket)(tablep)
-		rootb := &table[uint32(len(table)-1)&hash]
+		table := (*mapTable)(atomic.LoadPointer(&m.table))
+		bidx := bucketIdx(table, hash)
+		rootb := &table.buckets[bidx]
 		b := rootb
 		chainLen := 0
 		rootb.mu.Lock()
-		if m.newerTableExists(tablep) {
+		if m.newerTableExists(table) {
 			// Someone resized the table. Go for another attempt.
 			rootb.mu.Unlock()
 			goto store_attempt
@@ -185,12 +230,13 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 					atomic.StorePointer(emptyvp, unsafe.Pointer(&value))
 					atomic.StorePointer(emptykp, unsafe.Pointer(&key))
 					rootb.mu.Unlock()
+					addSize(table, bidx, 1)
 					return
 				}
 				if chainLen == resizeMapThreshold {
-					// Need to resize the table. Then go for another attempt.
+					// Need to grow the table. Then go for another attempt.
 					rootb.mu.Unlock()
-					m.resize(tablep)
+					m.resize(table, mapGrowHint)
 					goto store_attempt
 				}
 				// Create and append a new bucket.
@@ -199,6 +245,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 				newb.values[0] = unsafe.Pointer(&value)
 				atomic.StorePointer(&b.next, unsafe.Pointer(newb))
 				rootb.mu.Unlock()
+				addSize(table, bidx, 1)
 				return
 			}
 			b = (*bucket)(b.next)
@@ -207,13 +254,13 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 	}
 }
 
-func (m *Map) newerTableExists(tablePtr unsafe.Pointer) bool {
+func (m *Map) newerTableExists(table *mapTable) bool {
 	curTablePtr := atomic.LoadPointer(&m.table)
-	return uintptr(curTablePtr) != uintptr(tablePtr)
+	return uintptr(curTablePtr) != uintptr(unsafe.Pointer(table))
 }
 
 func (m *Map) resizeInProgress() bool {
-	return atomic.LoadUint64(&m.resizing) == 1
+	return atomic.LoadInt64(&m.resizing) == 1
 }
 
 func (m *Map) waitForResize() {
@@ -224,27 +271,57 @@ func (m *Map) waitForResize() {
 	m.resizeMu.Unlock()
 }
 
-func (m *Map) resize(tablePtr unsafe.Pointer) {
-	if !atomic.CompareAndSwapUint64(&m.resizing, 0, 1) {
+func (m *Map) resize(table *mapTable, hint mapResizeHint) {
+	var shrinkThreshold int64
+	tableLen := len(table.buckets)
+	// Fast path for shrink attempts.
+	if hint == mapShrinkHint {
+		shrinkThreshold = int64((tableLen * entriesPerMapBucket) / mapShrinkThreshold)
+		if tableLen == minMapTableLen || sumCounter(table) > shrinkThreshold {
+			return
+		}
+	}
+	// Slow path.
+	if !atomic.CompareAndSwapInt64(&m.resizing, 0, 1) {
 		// Someone else started resize. Wait for it to finish.
 		m.waitForResize()
 		return
 	}
-	table := *(*[]bucket)(tablePtr)
-	// Grow the table with factor of 2.
-	newTable := make([]bucket, len(table)<<1)
-	for i := 0; i < len(table); i++ {
-		copyBucket(&table[i], newTable)
+	var newTable *mapTable
+	switch hint {
+	case mapGrowHint:
+		// Grow the table with factor of 2.
+		atomic.AddInt64(&m.totalGrowths, 1)
+		newTable = newMapTable(tableLen << 1)
+	case mapShrinkHint:
+		if sumCounter(table) <= shrinkThreshold {
+			// Shrink the table with factor of 2.
+			atomic.AddInt64(&m.totalShrinks, 1)
+			newTable = newMapTable(tableLen >> 1)
+		} else {
+			// No need to shrink. Wake up all waiters and give up.
+			m.resizeMu.Lock()
+			atomic.StoreInt64(&m.resizing, 0)
+			m.resizeCond.Broadcast()
+			m.resizeMu.Unlock()
+			return
+		}
+	default:
+		panic(fmt.Sprintf("unexpected resize hint: %d", hint))
+	}
+	for i := 0; i < tableLen; i++ {
+		copied := copyBucket(&table.buckets[i], newTable)
+		addSizeNonAtomic(newTable, uint32(i), copied)
 	}
 	// Publish the new table and wake up all waiters.
-	atomic.StorePointer(&m.table, unsafe.Pointer(&newTable))
+	atomic.StorePointer(&m.table, unsafe.Pointer(newTable))
 	m.resizeMu.Lock()
-	atomic.StoreUint64(&m.resizing, 0)
+	atomic.StoreInt64(&m.resizing, 0)
 	m.resizeCond.Broadcast()
 	m.resizeMu.Unlock()
 }
 
-func copyBucket(b *bucket, table []bucket) {
+func copyBucket(b *bucket, destTable *mapTable) (copied int) {
 	rootb := b
 	rootb.mu.Lock()
 	for {
@@ -252,8 +329,10 @@ func copyBucket(b *bucket, table []bucket) {
 			if b.keys[i] != nil {
 				k := derefKey(b.keys[i])
 				hash := fnv32(k)
-				destb := &table[uint32(len(table)-1)&hash]
-				appendToBucket(destb, b.keys[i], b.values[i])
+				bidx := bucketIdx(destTable, hash)
+				destb := &destTable.buckets[bidx]
+				appendToBucket(b.keys[i], b.values[i], destb)
+				copied++
 			}
 		}
 		if b.next == nil {
@@ -264,23 +343,23 @@ func copyBucket(b *bucket, table []bucket) {
 	}
 }
 
-func appendToBucket(b *bucket, keyPtr, valPtr unsafe.Pointer) {
+func appendToBucket(keyPtr, valPtr unsafe.Pointer, destBucket *bucket) {
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
-			if b.keys[i] == nil {
-				b.keys[i] = keyPtr
-				b.values[i] = valPtr
+			if destBucket.keys[i] == nil {
+				destBucket.keys[i] = keyPtr
+				destBucket.values[i] = valPtr
 				return
 			}
 		}
-		if b.next == nil {
+		if destBucket.next == nil {
 			newb := new(bucket)
 			newb.keys[0] = keyPtr
 			newb.values[0] = valPtr
-			b.next = unsafe.Pointer(newb)
+			destBucket.next = unsafe.Pointer(newb)
 			return
 		}
-		b = (*bucket)(b.next)
+		destBucket = (*bucket)(destBucket.next)
 	}
 }
 
@@ -290,12 +369,13 @@ func appendToBucket(b *bucket, keyPtr, valPtr unsafe.Pointer) {
 func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 	hash := fnv32(key)
 	for {
-		tablep := atomic.LoadPointer(&m.table)
-		table := *(*[]bucket)(tablep)
-		rootb := &table[uint32(len(table)-1)&hash]
+		hintNonEmpty := 0
+		table := (*mapTable)(atomic.LoadPointer(&m.table))
+		bidx := bucketIdx(table, hash)
+		rootb := &table.buckets[bidx]
 		b := rootb
 		rootb.mu.Lock()
-		if m.newerTableExists(tablep) {
+		if m.newerTableExists(table) {
 			// Someone resized the table. Go for another attempt.
 			rootb.mu.Unlock()
 			continue
@@ -317,9 +397,19 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 						// This is important for atomic snapshot states.
 						atomic.StorePointer(&b.values[i], nil)
 						atomic.StorePointer(&b.keys[i], nil)
+						addSize(table, bidx, -1)
+						leftEmpty := false
+						if hintNonEmpty == 0 {
+							leftEmpty = isEmpty(rootb)
+						}
 						rootb.mu.Unlock()
+						// Might need to shrink the table.
+						if leftEmpty {
+							m.resize(table, mapShrinkHint)
+						}
 						return derefValue(vp), true
 					}
+					hintNonEmpty++
 				}
 			}
 			if b.next == nil {
@@ -336,6 +426,21 @@ func (m *Map) Delete(key string) {
 	m.LoadAndDelete(key)
 }
 
+func isEmpty(rootb *bucket) bool {
+	b := rootb
+	for {
+		for i := 0; i < entriesPerMapBucket; i++ {
+			if b.keys[i] != nil {
+				return false
+			}
+		}
+		if b.next == nil {
+			return true
+		}
+		b = (*bucket)(b.next)
+	}
+}
+
 // Range calls f sequentially for each key and value present in the
 // map. If f returns false, range stops the iteration.
 //
@@ -350,10 +455,10 @@ func (m *Map) Delete(key string) {
 // reflected in the subsequently iterated entries.
 func (m *Map) Range(f func(key string, value interface{}) bool) {
 	tablep := atomic.LoadPointer(&m.table)
-	table := *(*[]bucket)(tablep)
+	table := *(*mapTable)(tablep)
 	bentries := make([]rangeEntry, 0, entriesPerMapBucket*(resizeMapThreshold+1))
-	for i := range table {
-		copyRangeEntries(&bentries, &table[i])
+	for i := range table.buckets {
+		copyRangeEntries(&table.buckets[i], &bentries)
 		for j := range bentries {
 			if bentries[j].key == nil {
 				break
@@ -367,12 +472,12 @@ func (m *Map) Range(f func(key string, value interface{}) bool) {
 	}
 }
 
-func copyRangeEntries(bentries *[]rangeEntry, b *bucket) {
+func copyRangeEntries(b *bucket, destEntries *[]rangeEntry) {
 	// Clean up the slice.
-	for i := range *bentries {
-		(*bentries)[i] = rangeEntry{}
+	for i := range *destEntries {
+		(*destEntries)[i] = rangeEntry{}
 	}
-	*bentries = (*bentries)[:0]
+	*destEntries = (*destEntries)[:0]
 	// Make a copy.
 	idx := 0
 	rootb := b
@@ -380,7 +485,7 @@ func copyRangeEntries(bentries *[]rangeEntry, b *bucket) {
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
-				*bentries = append(*bentries, rangeEntry{
+				*destEntries = append(*destEntries, rangeEntry{
 					key:   b.keys[i],
 					value: b.values[i],
 				})
@@ -395,6 +500,12 @@ func copyRangeEntries(bentries *[]rangeEntry, b *bucket) {
 	}
 }
 
+// used in tests to verify the table counter
+func (m *Map) size() int {
+	table := (*mapTable)(atomic.LoadPointer(&m.table))
+	return int(sumCounter(table))
+}
+
 func derefKey(keyPtr unsafe.Pointer) string {
 	return *(*string)(keyPtr)
 }
@@ -405,4 +516,89 @@ func derefValue(valuePtr unsafe.Pointer) interface{} {
 		return nil
 	}
 	return value
+}
+
+func bucketIdx(table *mapTable, hash uint32) uint32 {
+	return uint32(len(table.buckets)-1) & hash
+}
+
+func addSize(table *mapTable, bucketIdx uint32, delta int) {
+	cidx := uint32(len(table.size)-1) & bucketIdx
+	atomic.AddInt64(&table.size[cidx].c, int64(delta))
+}
+
+func addSizeNonAtomic(table *mapTable, bucketIdx uint32, delta int) {
+	cidx := uint32(len(table.size)-1) & bucketIdx
+	table.size[cidx].c += int64(delta)
+}
+
+func sumCounter(table *mapTable) int64 {
+	sum := int64(0)
+	for i := range table.size {
+		sum += atomic.LoadInt64(&table.size[i].c)
+	}
+	return sum
+}
+
+type mapStats struct {
+	TableLen     int
+	Capacity     int
+	Size         int // calculated number of entries
+	Counter      int // number of entries according to table counter
+	CounterLen   int // number of counter stripes
+	MinEntries   int // min entries per chain of buckets
+	MaxEntries   int // max entries per chain of buckets
+	TotalGrowths int64
+	TotalShrinks int64
+}
+
+func (s *mapStats) Print() {
+	fmt.Println("---")
+	fmt.Printf("TableLen:     %d\n", s.TableLen)
+	fmt.Printf("Capacity:     %d\n", s.Capacity)
+	fmt.Printf("Size:         %d\n", s.Size)
+	fmt.Printf("Counter:      %d\n", s.Counter)
+	fmt.Printf("CounterLen:   %d\n", s.CounterLen)
+	fmt.Printf("MinEntries:   %d\n", s.MinEntries)
+	fmt.Printf("MaxEntries:   %d\n", s.MaxEntries)
+	fmt.Printf("TotalGrowths: %d\n", s.TotalGrowths)
+	fmt.Printf("TotalShrinks: %d\n", s.TotalShrinks)
+	fmt.Println("---")
+}
+
+// O(N) operation; use for debug purposes only
+func (m *Map) stats() mapStats {
+	stats := mapStats{
+		TotalGrowths: atomic.LoadInt64(&m.totalGrowths),
+		TotalShrinks: atomic.LoadInt64(&m.totalShrinks),
+		MinEntries:   math.MaxInt32,
+	}
+	table := (*mapTable)(atomic.LoadPointer(&m.table))
+	stats.TableLen = len(table.buckets)
+	stats.Counter = int(sumCounter(table))
+	stats.CounterLen = len(table.size)
+	for i := range table.buckets {
+		numEntries := 0
+		b := &table.buckets[i]
+		for {
+			stats.Capacity += entriesPerMapBucket
+			for i := 0; i < entriesPerMapBucket; i++ {
+				if atomic.LoadPointer(&b.keys[i]) != nil {
+					stats.Size++
+					numEntries++
+				}
+			}
+			if b.next == nil {
+				break
+			}
+			b = (*bucket)(b.next)
+		}
+		if numEntries < stats.MinEntries {
+			stats.MinEntries = numEntries
+		}
+		if numEntries > stats.MaxEntries {
+			stats.MaxEntries = numEntries
+		}
+	}
+	return stats
 }
