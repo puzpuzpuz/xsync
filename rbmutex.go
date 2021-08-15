@@ -59,7 +59,7 @@ func (m *RBMutex) RLock() *RToken {
 		if !ok {
 			t = new(RToken)
 			// Since rslots is a power of two, we can use & instead of %.
-			t.slot = hash64(uintptr(unsafe.Pointer(t))) & (rslots - 1)
+			t.slot = uint32(hash64(uintptr(unsafe.Pointer(t))) & (rslots - 1))
 		}
 		if atomic.CompareAndSwapInt32(&m.readers[t.slot], 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
