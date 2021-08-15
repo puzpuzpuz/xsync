@@ -11,7 +11,7 @@ const (
 	// memory footprint and performance; 128B usage may give ~30%
 	// improvement on NUMA machines
 	cacheLineSize = 64
-	// this seed is an absolutely arbitrary choice
+	// the seed value is of an absolutely arbitrary choice
 	maphashSeed = 42
 )
 
