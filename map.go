@@ -460,9 +460,6 @@ func (m *Map) Range(f func(key string, value interface{}) bool) {
 	for i := range table.buckets {
 		copyRangeEntries(&table.buckets[i], &bentries)
 		for j := range bentries {
-			if bentries[j].key == nil {
-				break
-			}
 			k := derefKey(bentries[j].key)
 			v := derefValue(bentries[j].value)
 			if !f(k, v) {
@@ -479,7 +476,6 @@ func copyRangeEntries(b *bucket, destEntries *[]rangeEntry) {
 	}
 	*destEntries = (*destEntries)[:0]
 	// Make a copy.
-	idx := 0
 	rootb := b
 	rootb.mu.Lock()
 	for {
@@ -489,7 +485,6 @@ func copyRangeEntries(b *bucket, destEntries *[]rangeEntry) {
 					key:   b.keys[i],
 					value: b.values[i],
 				})
-				idx++
 			}
 		}
 		if b.next == nil {
