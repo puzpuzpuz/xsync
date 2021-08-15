@@ -2,7 +2,7 @@
 
 Concurrent data structures for Go. An extension for the standard `sync` package.
 
-This library should be considered experimental, so make sure to run benchmarks for your use cases before starting to use it in your application.
+This library should be considered experimental, so make sure to run tests and benchmarks for your use cases before adding it to your application.
 
 ### Benchmarks
 
