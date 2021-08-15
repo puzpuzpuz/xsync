@@ -311,7 +311,7 @@ func (m *Map) resize(table *mapTable, hint mapResizeHint) {
 	}
 	for i := 0; i < tableLen; i++ {
 		copied := copyBucket(&table.buckets[i], newTable)
-		addSizeNonAtomic(newTable, uint32(i), copied)
+		addSizeNonAtomic(newTable, uint64(i), copied)
 	}
 	// Publish the new table and wake up all waiters.
 	atomic.StorePointer(&m.table, unsafe.Pointer(newTable))
@@ -513,17 +513,17 @@ func derefValue(valuePtr unsafe.Pointer) interface{} {
 	return value
 }
 
-func bucketIdx(table *mapTable, hash uint64) uint32 {
-	return uint32(uint64(len(table.buckets)-1) & hash)
+func bucketIdx(table *mapTable, hash uint64) uint64 {
+	return uint64(len(table.buckets)-1) & hash
 }
 
-func addSize(table *mapTable, bucketIdx uint32, delta int) {
-	cidx := uint32(len(table.size)-1) & bucketIdx
+func addSize(table *mapTable, bucketIdx uint64, delta int) {
+	cidx := uint64(len(table.size)-1) & bucketIdx
 	atomic.AddInt64(&table.size[cidx].c, int64(delta))
 }
 
-func addSizeNonAtomic(table *mapTable, bucketIdx uint32, delta int) {
-	cidx := uint32(len(table.size)-1) & bucketIdx
+func addSizeNonAtomic(table *mapTable, bucketIdx uint64, delta int) {
+	cidx := uint64(len(table.size)-1) & bucketIdx
 	table.size[cidx].c += int64(delta)
 }
 
