@@ -54,7 +54,7 @@ inserted := q.TryEnqueue("bar")
 // consumer obtains an item from the queue
 item := q.Dequeue()
 // optimistic obtain attempt; doesn't block
-item, ok := q.Dequeue()
+item, ok := q.TryDequeue()
 ```
 
 Based on the algorithm from the [MPMCQueue](https://github.com/rigtorp/MPMCQueue) C++ library which in its turn references D.Vyukov's [MPMC queue](https://www.1024cores.net/home/lock-free-algorithms/queues/bounded-mpmc-queue). According to the following [classification](https://www.1024cores.net/home/lock-free-algorithms/queues), the queue is array-based, fails on overflow, provides causal FIFO, has blocking producers and consumers.
