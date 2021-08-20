@@ -1,3 +1,6 @@
+[![GoDoc reference](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/puzpuzpuz/xsync)
+[![GoReport](https://goreportcard.com/badge/github.com/puzpuzpuz/xsync)](https://goreportcard.com/report/github.com/puzpuzpuz/xsync)
+
 # xsync
 
 Concurrent data structures for Go. An extension for the standard `sync` package.
