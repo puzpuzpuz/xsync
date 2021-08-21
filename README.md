@@ -18,7 +18,7 @@ Benchmark results may be found [here](BENCHMARKS.md).
 A `Counter` is a striped int64 counter inspired by the j.u.c.a.LongAdder class from Java standard library.
 
 ```go
-var c Counter
+var c xsync.Counter
 // increment and decrement the counter
 c.Inc()
 c.Dec()
@@ -33,7 +33,7 @@ Works better in comparison with a single atomically updated int64 counter in hig
 A `Map` is like a concurrent hash table based map. It follows the interface of sync.Map.
 
 ```go
-m := NewMap()
+m := xsync.NewMap()
 m.Store("foo", "bar")
 v, ok := m.Load("foo")
 ```
@@ -49,7 +49,7 @@ One important difference with sync.Map is that only string keys are supported. T
 A `MPMCQeueue` is a bounded multi-producer multi-consumer concurrent queue.
 
 ```go
-q := NewMPMCQueue(1024)
+q := xsync.NewMPMCQueue(1024)
 // producer inserts an item into the queue
 q.Enqueue("foo")
 // optimistic insertion attempt; doesn't block
@@ -73,7 +73,7 @@ To get the optimal performance, you may want to set the queue size to be large e
 A `RBMutex` is a reader biased reader/writer mutual exclusion lock. The lock can be held by an many readers or a single writer.
 
 ```go
-var m RBMutex
+var m xsync.RBMutex
 // reader lock calls return a token
 t := m.RLock()
 // the token must be later used to unlock the mutex
