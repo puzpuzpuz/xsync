@@ -14,6 +14,12 @@ import (
 	. "github.com/puzpuzpuz/xsync"
 )
 
+func TestQueue_InvalidSize(t *testing.T) {
+	defer func() { recover() }()
+	NewMPMCQueue(0)
+	t.Fatal("no panic detected")
+}
+
 func TestQueueEnqueueDequeue(t *testing.T) {
 	q := NewMPMCQueue(10)
 	for i := 0; i < 10; i++ {
