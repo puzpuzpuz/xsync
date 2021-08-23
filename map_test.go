@@ -64,6 +64,21 @@ func TestMap_MissingEntry(t *testing.T) {
 	}
 }
 
+func TestMap_EmptyStringKey(t *testing.T) {
+	m := NewMap()
+	m.Store("", "foobar")
+	v, ok := m.Load("")
+	if !ok {
+		t.Error("value was expected")
+	}
+	if v == nil {
+		t.Errorf("non-nil value was expected")
+	}
+	if vs, ok := v.(string); ok && vs != "foobar" {
+		t.Errorf("value does not match: %v", v)
+	}
+}
+
 func TestMapStore_NilValue(t *testing.T) {
 	m := NewMap()
 	m.Store("foo", nil)
@@ -283,6 +298,23 @@ func TestMapResize(t *testing.T) {
 
 func capacityLimit(tableLen int) int {
 	return tableLen * EntriesPerMapBucket * (ResizeMapThreshold + 1)
+}
+
+func TestMapResize_CounterLenLimit(t *testing.T) {
+	const numEntries = 1_000_000
+	m := NewMap()
+
+	for i := 0; i < numEntries; i++ {
+		m.Store("foo"+strconv.Itoa(i), "bar"+strconv.Itoa(i))
+	}
+	stats := CollectMapStats(m)
+	if stats.Size != numEntries {
+		t.Errorf("size was too small: %d", stats.Size)
+	}
+	if stats.CounterLen != MaxMapCounterLen {
+		t.Errorf("number of counter stripes was too large: %d, expected: %d",
+			stats.CounterLen, MaxMapCounterLen)
+	}
 }
 
 func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int, cdone chan bool) {
