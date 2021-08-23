@@ -1,5 +1,6 @@
 [![GoDoc reference](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/puzpuzpuz/xsync)
 [![GoReport](https://goreportcard.com/badge/github.com/puzpuzpuz/xsync)](https://goreportcard.com/report/github.com/puzpuzpuz/xsync)
+[![codecov](https://codecov.io/gh/puzpuzpuz/xsync/branch/main/graph/badge.svg?token=TR5UFTG9YY)](https://codecov.io/gh/puzpuzpuz/xsync)
 
 # xsync
 
