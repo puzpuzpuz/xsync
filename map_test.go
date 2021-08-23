@@ -259,6 +259,8 @@ func TestMapResize(t *testing.T) {
 	if stats.TotalShrinks > 0 {
 		t.Errorf("zero total shrinks expected: %d", stats.TotalShrinks)
 	}
+	// This is useful when debugging table resize and occupancy.
+	stats.Print()
 
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
@@ -276,6 +278,7 @@ func TestMapResize(t *testing.T) {
 	if stats.TotalShrinks == 0 {
 		t.Errorf("non-zero total shrinks expected: %d", stats.TotalShrinks)
 	}
+	stats.Print()
 }
 
 func capacityLimit(tableLen int) int {
