@@ -208,6 +208,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 					k := derefKey(b.keys[i])
 					if k == key {
 						if loadIfExists {
+							rootb.mu.Unlock()
 							return derefValue(b.values[i]), true
 						}
 						// In-place update case. Luckily we get a copy of the value
@@ -397,12 +398,12 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 						// This is important for atomic snapshot states.
 						atomic.StorePointer(&b.values[i], nil)
 						atomic.StorePointer(&b.keys[i], nil)
-						addSize(table, bidx, -1)
 						leftEmpty := false
 						if hintNonEmpty == 0 {
 							leftEmpty = isEmpty(rootb)
 						}
 						rootb.mu.Unlock()
+						addSize(table, bidx, -1)
 						// Might need to shrink the table.
 						if leftEmpty {
 							m.resize(table, mapShrinkHint)

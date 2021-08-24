@@ -71,9 +71,6 @@ func TestMap_EmptyStringKey(t *testing.T) {
 	if !ok {
 		t.Error("value was expected")
 	}
-	if v == nil {
-		t.Errorf("non-nil value was expected")
-	}
 	if vs, ok := v.(string); ok && vs != "foobar" {
 		t.Errorf("value does not match: %v", v)
 	}
@@ -172,9 +169,6 @@ func TestMapSerialStore(t *testing.T) {
 		v, ok := m.Load(strconv.Itoa(i))
 		if !ok {
 			t.Errorf("value not found for %d", i)
-		}
-		if v == nil {
-			t.Errorf("nil value found for %d", i)
 		}
 		if vi, ok := v.(int); ok && vi != i {
 			t.Errorf("values do not match for %d: %v", i, v)
@@ -355,29 +349,34 @@ func TestMapParallelStores(t *testing.T) {
 		if !ok {
 			t.Fatalf("value not found for %d", i)
 		}
-		if v == nil {
-			t.Fatalf("nil value found for %d", i)
-		}
 		if vi, ok := v.(int); ok && vi != i {
 			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func parallelRandStorer(m *Map, numIters, numEntries int, cdone chan bool) {
+func parallelRandStorer(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
-		m.Store(strconv.Itoa(j), j)
+		if v, loaded := m.LoadOrStore(strconv.Itoa(j), j); loaded {
+			if vi, ok := v.(int); !ok || vi != j {
+				t.Errorf("value was not expected for %d: %d", j, vi)
+			}
+		}
 	}
 	cdone <- true
 }
 
-func parallelRandDeleter(m *Map, numIters, numEntries int, cdone chan bool) {
+func parallelRandDeleter(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
-		m.Delete(strconv.Itoa(j))
+		if v, loaded := m.LoadAndDelete(strconv.Itoa(j)); loaded {
+			if vi, ok := v.(int); !ok || vi != j {
+				t.Errorf("value was not expected for %d: %d", j, vi)
+			}
+		}
 	}
 	cdone <- true
 }
@@ -401,12 +400,29 @@ func TestMapAtomicSnapshot(t *testing.T) {
 	const numEntries = 100
 	m := NewMap()
 	cdone := make(chan bool)
-	// Update or delete each entry in parallel with loads.
-	go parallelRandStorer(m, numIters, numEntries, cdone)
-	go parallelRandDeleter(m, numIters, numEntries, cdone)
+	// Update or delete random entry in parallel with loads.
+	go parallelRandStorer(t, m, numIters, numEntries, cdone)
+	go parallelRandDeleter(t, m, numIters, numEntries, cdone)
 	go parallelLoader(t, m, numIters, numEntries, cdone)
 	// Wait for the goroutines to finish.
 	for i := 0; i < 3; i++ {
+		<-cdone
+	}
+}
+
+func TestMapParallelStoresAndDeletes(t *testing.T) {
+	const numWorkers = 2
+	const numIters = 100_000
+	const numEntries = 1000
+	m := NewMap()
+	cdone := make(chan bool)
+	// Update random entry in parallel with deletes.
+	for i := 0; i < numWorkers; i++ {
+		go parallelRandStorer(t, m, numIters, numEntries, cdone)
+		go parallelRandDeleter(t, m, numIters, numEntries, cdone)
+	}
+	// Wait for the goroutines to finish.
+	for i := 0; i < 2*numWorkers; i++ {
 		<-cdone
 	}
 }
