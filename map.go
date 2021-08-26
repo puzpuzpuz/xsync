@@ -208,8 +208,9 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 					k := derefKey(b.keys[i])
 					if k == key {
 						if loadIfExists {
+							vp := b.values[i]
 							rootb.mu.Unlock()
-							return derefValue(b.values[i]), true
+							return derefValue(vp), true
 						}
 						// In-place update case. Luckily we get a copy of the value
 						// interface{} on each call, thus the live value pointers are
