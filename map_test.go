@@ -427,6 +427,48 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 	}
 }
 
+func TestMapTaggedPointer_Key(t *testing.T) {
+	key := "foo"
+	hash := uint64(0xd4000000000000ff) // tag is 110
+	keyPtr := TagKeyPtr(&key, hash)
+	tag := uintptr(keyPtr) & uintptr(0b111)
+	if tag != uintptr(0b110) {
+		t.Errorf("key tag mismatch for %#b: %#b", &key, keyPtr)
+	}
+	untaggedKey := DerefKeyPtr(keyPtr)
+	if key != untaggedKey {
+		t.Errorf("dereferenced key mismatch for %s: %s", key, untaggedKey)
+	}
+}
+
+func TestMapTaggedPointer_Value(t *testing.T) {
+	var value interface{} = 42
+	hash := uint64(0xd4000000000000af) // tag is 101
+	valuePtr := TagValuePtr(&value, hash)
+	tag := uintptr(valuePtr) & uintptr(0b111)
+	if tag != uintptr(0b101) {
+		t.Errorf("key tag mismatch for %#b: %#b", &value, valuePtr)
+	}
+	untaggedValue := DerefValuePtr(valuePtr)
+	if value != untaggedValue {
+		t.Errorf("dereferenced value mismatch for %v: %v", value, untaggedValue)
+	}
+}
+
+func TestMapTaggedPointer_HashMatch(t *testing.T) {
+	key := "foo"
+	var value interface{} = 42
+	hash := uint64(0xd4000000000000af) // tags are 110 and 101
+	keyPtr := TagKeyPtr(&key, hash)
+	valuePtr := TagValuePtr(&value, hash)
+	if !EntryHashMatch(keyPtr, valuePtr, hash) {
+		t.Error("hash was expected to match")
+	}
+	if EntryHashMatch(keyPtr, valuePtr, hash>>6) {
+		t.Error("hash was expected to mismatch")
+	}
+}
+
 type SyncMap interface {
 	Load(key string) (value interface{}, ok bool)
 	Store(key string, value interface{})
