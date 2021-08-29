@@ -45,8 +45,8 @@ func TestMap_BucketStructSize(t *testing.T) {
 		return // skip for 32-bit builds
 	}
 	size := unsafe.Sizeof(Bucket{})
-	if size != 64 {
-		t.Errorf("size of 64B (cache line) is expected, got: %d", size)
+	if size != 128 {
+		t.Errorf("size of 128B (2 cache lines) is expected, got: %d", size)
 	}
 }
 
@@ -291,7 +291,7 @@ func TestMapResize(t *testing.T) {
 }
 
 func capacityLimit(tableLen int) int {
-	return tableLen * EntriesPerMapBucket * (ResizeMapThreshold + 1)
+	return tableLen * EntriesPerMapBucket
 }
 
 func TestMapResize_CounterLenLimit(t *testing.T) {
@@ -315,7 +315,7 @@ func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int
 	for j := 0; j < numEntries; j++ {
 		if storeEach == 0 || j%storeEach == 0 {
 			m.Store(strconv.Itoa(j), j)
-			// Due to atomic snapshots we must see a "<j>"/j pair.
+			// Due to epoch-based snapshots we must see a "<j>"/j pair.
 			v, ok := m.Load(strconv.Itoa(j))
 			if !ok {
 				t.Errorf("value was not found for %d", j)
@@ -384,7 +384,7 @@ func parallelRandDeleter(t *testing.T, m *Map, numIters, numEntries int, cdone c
 func parallelLoader(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
-			// Due to atomic snapshots we must either see no entry, or a "<j>"/j pair.
+			// Due to epoch-based snapshots we must either see no entry, or a "<j>"/j pair.
 			if v, ok := m.Load(strconv.Itoa(j)); ok {
 				if vi, ok := v.(int); !ok || vi != j {
 					t.Errorf("value was not expected for %d: %d", j, vi)
@@ -395,7 +395,7 @@ func parallelLoader(t *testing.T, m *Map, numIters, numEntries int, cdone chan b
 	cdone <- true
 }
 
-func TestMapAtomicSnapshot(t *testing.T) {
+func TestMapEpochBasedSnapshot(t *testing.T) {
 	const numIters = 100_000
 	const numEntries = 100
 	m := NewMap()
