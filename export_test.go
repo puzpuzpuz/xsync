@@ -2,7 +2,6 @@ package xsync
 
 const (
 	EntriesPerMapBucket = entriesPerMapBucket
-	ResizeMapThreshold  = resizeMapThreshold
 	MinMapTableLen      = minMapTableLen
 	MaxMapCounterLen    = maxMapCounterLen
 )
