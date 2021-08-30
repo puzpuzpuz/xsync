@@ -312,18 +312,20 @@ func TestMapResize_CounterLenLimit(t *testing.T) {
 }
 
 func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int, cdone chan bool) {
-	for j := 0; j < numEntries; j++ {
-		if storeEach == 0 || j%storeEach == 0 {
-			m.Store(strconv.Itoa(j), j)
-			// Due to atomic snapshots we must see a "<j>"/j pair.
-			v, ok := m.Load(strconv.Itoa(j))
-			if !ok {
-				t.Errorf("value was not found for %d", j)
-				break
-			}
-			if vi, ok := v.(int); !ok || vi != j {
-				t.Errorf("value was not expected for %d: %d", j, vi)
-				break
+	for i := 0; i < numIters; i++ {
+		for j := 0; j < numEntries; j++ {
+			if storeEach == 0 || j%storeEach == 0 {
+				m.Store(strconv.Itoa(j), j)
+				// Due to atomic snapshots we must see a "<j>"/j pair.
+				v, ok := m.Load(strconv.Itoa(j))
+				if !ok {
+					t.Errorf("value was not found for %d", j)
+					break
+				}
+				if vi, ok := v.(int); !ok || vi != j {
+					t.Errorf("value was not expected for %d: %d", j, vi)
+					break
+				}
 			}
 		}
 	}
@@ -332,8 +334,8 @@ func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int
 
 func TestMapParallelStores(t *testing.T) {
 	const numStorers = 4
-	const numIters = 10_000_000
-	const numEntries = 1000
+	const numIters = 10_000
+	const numEntries = 100
 	m := NewMap()
 	cdone := make(chan bool)
 	for i := 0; i < numStorers; i++ {

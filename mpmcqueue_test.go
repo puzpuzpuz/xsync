@@ -215,9 +215,9 @@ func TestQueueNonBlockingCalls(t *testing.T) {
 	if testing.Short() {
 		n = 1
 	}
-	hammerQueueNonBlockingCalls(t, 1, 10*n, n)
-	hammerQueueNonBlockingCalls(t, 4, 100*n, 2*n)
-	hammerQueueNonBlockingCalls(t, 8, 1000*n, 4*n)
+	hammerQueueNonBlockingCalls(t, 1, n, n)
+	hammerQueueNonBlockingCalls(t, 2, 10*n, 2*n)
+	hammerQueueNonBlockingCalls(t, 4, 100*n, 4*n)
 }
 
 func benchmarkQueueProdCons(b *testing.B, queueSize, localWork int) {
