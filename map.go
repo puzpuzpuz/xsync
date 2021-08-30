@@ -31,6 +31,10 @@ const (
 	minMapTableLen = 32
 	// maximum counter stripes to use; stands for around 8KB of memory
 	maxMapCounterLen = 128
+	// number of bits per pointer stored in key/value pointers;
+	// only 64-bit builds are assumed for now
+	mapTaggedPtrBits = 3
+	mapTaggedPtrMask = uintptr(1<<mapTaggedPtrBits - 1)
 )
 
 // Map is like a Go map[string]interface{} but is safe for concurrent
@@ -136,10 +140,10 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 				vp := atomic.LoadPointer(&b.values[i])
 				kp := atomic.LoadPointer(&b.keys[i])
 				if kp != nil && vp != nil {
-					if key == derefKey(kp) {
+					if entryHashMatch(kp, vp, hash) && derefKeyPtr(kp) == key {
 						if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
 							// Atomic snapshot succeeded.
-							return derefValue(vp), true
+							return derefValuePtr(vp), true
 						}
 						// Concurrent update/remove of the key case. Go for another spin.
 						continue
@@ -205,18 +209,17 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 		for {
 			for i := 0; i < entriesPerMapBucket; i++ {
 				if b.keys[i] != nil {
-					k := derefKey(b.keys[i])
-					if k == key {
+					if entryHashMatch(b.keys[i], b.values[i], hash) && derefKeyPtr(b.keys[i]) == key {
 						if loadIfExists {
 							vp := b.values[i]
 							rootb.mu.Unlock()
-							return derefValue(vp), true
+							return derefValuePtr(vp), true
 						}
 						// In-place update case. Luckily we get a copy of the value
 						// interface{} on each call, thus the live value pointers are
 						// unique. Otherwise atomic snapshot won't be correct in case
 						// of multiple Store calls using the same value.
-						atomic.StorePointer(&b.values[i], unsafe.Pointer(&value))
+						atomic.StorePointer(&b.values[i], tagValuePtr(&value, hash))
 						rootb.mu.Unlock()
 						return
 					}
@@ -229,8 +232,8 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 				if emptykp != nil {
 					// Insertion case. First we update the value, then the key.
 					// This is important for atomic snapshot states.
-					atomic.StorePointer(emptyvp, unsafe.Pointer(&value))
-					atomic.StorePointer(emptykp, unsafe.Pointer(&key))
+					atomic.StorePointer(emptyvp, tagValuePtr(&value, hash))
+					atomic.StorePointer(emptykp, tagKeyPtr(&key, hash))
 					rootb.mu.Unlock()
 					addSize(table, bidx, 1)
 					return
@@ -243,8 +246,8 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 				}
 				// Create and append a new bucket.
 				newb := new(bucket)
-				newb.keys[0] = unsafe.Pointer(&key)
-				newb.values[0] = unsafe.Pointer(&value)
+				newb.keys[0] = tagKeyPtr(&key, hash)
+				newb.values[0] = tagValuePtr(&value, hash)
 				atomic.StorePointer(&b.next, unsafe.Pointer(newb))
 				rootb.mu.Unlock()
 				addSize(table, bidx, 1)
@@ -329,7 +332,7 @@ func copyBucket(b *bucket, destTable *mapTable) (copied int) {
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
-				k := derefKey(b.keys[i])
+				k := derefKeyPtr(b.keys[i])
 				hash := maphash64(k)
 				bidx := bucketIdx(destTable, hash)
 				destb := &destTable.buckets[bidx]
@@ -392,7 +395,7 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 			for i := 0; i < entriesPerMapBucket; i++ {
 				kp := b.keys[i]
 				if kp != nil {
-					k := derefKey(kp)
+					k := derefKeyPtr(kp)
 					if k == key {
 						vp := b.values[i]
 						// Deletion case. First we update the value, then the key.
@@ -409,7 +412,7 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 						if leftEmpty {
 							m.resize(table, mapShrinkHint)
 						}
-						return derefValue(vp), true
+						return derefValuePtr(vp), true
 					}
 					hintNonEmpty++
 				}
@@ -462,8 +465,8 @@ func (m *Map) Range(f func(key string, value interface{}) bool) {
 	for i := range table.buckets {
 		copyRangeEntries(&table.buckets[i], &bentries)
 		for j := range bentries {
-			k := derefKey(bentries[j].key)
-			v := derefValue(bentries[j].value)
+			k := derefKeyPtr(bentries[j].key)
+			v := derefValuePtr(bentries[j].value)
 			if !f(k, v) {
 				return
 			}
@@ -503,12 +506,40 @@ func (m *Map) size() int {
 	return int(sumSize(table))
 }
 
-func derefKey(keyPtr unsafe.Pointer) string {
-	return *(*string)(keyPtr)
+func entryHashMatch(keyPtr, valuePtr unsafe.Pointer, hash uint64) bool {
+	keyTag := uintptr(keyPtr) & mapTaggedPtrMask
+	firstBits := uintptr(hash >> 61)
+	if keyTag != firstBits {
+		return false
+	}
+	valueTag := uintptr(valuePtr) & mapTaggedPtrMask
+	secondBits := uintptr((hash << 3) >> 61)
+	return valueTag == secondBits
 }
 
-func derefValue(valuePtr unsafe.Pointer) interface{} {
-	value := *(*interface{})(valuePtr)
+// tags the key pointer with first 3 MSBs
+func tagKeyPtr(key *string, hash uint64) unsafe.Pointer {
+	tag := hash >> 61
+	return unsafe.Pointer(uintptr(unsafe.Pointer(key)) | uintptr(tag))
+}
+
+// tags the key pointer with second 3 MSBs
+func tagValuePtr(value *interface{}, hash uint64) unsafe.Pointer {
+	tag := (hash << 3) >> 61
+	return unsafe.Pointer(uintptr(unsafe.Pointer(value)) | uintptr(tag))
+}
+
+// untags and dereferences the given pointer
+func derefKeyPtr(ptr unsafe.Pointer) string {
+	untaggedPtr := unsafe.Pointer(uintptr(ptr) &^ mapTaggedPtrMask)
+	return *(*string)(untaggedPtr)
+}
+
+// includes pointer untagging
+// untags and dereferences the given pointer
+func derefValuePtr(ptr unsafe.Pointer) interface{} {
+	untaggedPtr := unsafe.Pointer(uintptr(ptr) &^ mapTaggedPtrMask)
+	value := *(*interface{})(untaggedPtr)
 	if _, ok := value.(*nilValue); ok {
 		return nil
 	}
