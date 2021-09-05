@@ -45,8 +45,8 @@ func TestMap_BucketStructSize(t *testing.T) {
 		return // skip for 32-bit builds
 	}
 	size := unsafe.Sizeof(Bucket{})
-	if size != 64 {
-		t.Errorf("size of 64B (cache line) is expected, got: %d", size)
+	if size != 128 {
+		t.Errorf("size of 128B (2 cache lines) is expected, got: %d", size)
 	}
 }
 
@@ -256,8 +256,9 @@ func TestMapResize(t *testing.T) {
 	if stats.Size != numEntries {
 		t.Errorf("size was too small: %d", stats.Size)
 	}
-	if stats.Capacity > capacityLimit(stats.TableLen) {
-		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, capacityLimit(stats.TableLen))
+	expectedCapacity := stats.TableLen * EntriesPerMapBucket
+	if stats.Capacity > expectedCapacity {
+		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
 	if stats.TableLen <= MinMapTableLen {
 		t.Errorf("table was too small: %d", stats.TableLen)
@@ -278,8 +279,9 @@ func TestMapResize(t *testing.T) {
 	if stats.Size > 0 {
 		t.Errorf("zero size was expected: %d", stats.Size)
 	}
-	if stats.Capacity > capacityLimit(stats.TableLen) {
-		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, capacityLimit(stats.TableLen))
+	expectedCapacity = stats.TableLen * EntriesPerMapBucket
+	if stats.Capacity != expectedCapacity {
+		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
 	if stats.TableLen != MinMapTableLen {
 		t.Errorf("table was too large: %d", stats.TableLen)
@@ -288,10 +290,6 @@ func TestMapResize(t *testing.T) {
 		t.Errorf("non-zero total shrinks expected: %d", stats.TotalShrinks)
 	}
 	stats.Print()
-}
-
-func capacityLimit(tableLen int) int {
-	return tableLen * EntriesPerMapBucket * (ResizeMapThreshold + 1)
 }
 
 func TestMapResize_CounterLenLimit(t *testing.T) {
