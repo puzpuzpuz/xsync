@@ -76,9 +76,13 @@ type counterStripe struct {
 }
 
 type bucket struct {
-	mu        sync.Mutex
-	keys      [entriesPerMapBucket]unsafe.Pointer
-	values    [entriesPerMapBucket]unsafe.Pointer
+	mu     sync.Mutex
+	keys   [entriesPerMapBucket]unsafe.Pointer
+	values [entriesPerMapBucket]unsafe.Pointer
+	// contains packed top bytes (8 MSBs) of hash codes for keys
+	// stored in the bucket:
+	// | key 0's top hash | ... | key 7's top hash | bitmap for keys |
+	// |      1 byte      | ... |      1 byte      |     1 byte      |
 	topHashes uint64
 }
 
@@ -125,7 +129,11 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	bidx := bucketIdx(table, hash)
 	b := &table.buckets[bidx]
+	topHashes := atomic.LoadUint64(&b.topHashes)
 	for i := 0; i < entriesPerMapBucket; i++ {
+		if !topHashMatch(hash, topHashes, i) {
+			continue
+		}
 	atomic_snapshot:
 		// Start atomic snapshot.
 		vp := atomic.LoadPointer(&b.values[i])
@@ -169,7 +177,10 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 	// Write path.
 	hash := maphash64(key)
 	for {
-		var emptykp, emptyvp *unsafe.Pointer
+		var (
+			emptykp, emptyvp *unsafe.Pointer
+			emptyidx         int
+		)
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
 		bidx := bucketIdx(table, hash)
 		b := &table.buckets[bidx]
@@ -186,30 +197,36 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 			continue
 		}
 		for i := 0; i < entriesPerMapBucket; i++ {
-			if b.keys[i] != nil {
-				k := derefKey(b.keys[i])
-				if k == key {
-					if loadIfExists {
-						vp := b.values[i]
-						b.mu.Unlock()
-						return derefValue(vp), true
-					}
-					// In-place update case. Luckily we get a copy of the value
-					// interface{} on each call, thus the live value pointers are
-					// unique. Otherwise atomic snapshot won't be correct in case
-					// of multiple Store calls using the same value.
-					atomic.StorePointer(&b.values[i], unsafe.Pointer(&value))
-					b.mu.Unlock()
-					return
+			if b.keys[i] == nil {
+				if emptykp == nil {
+					emptykp = &b.keys[i]
+					emptyvp = &b.values[i]
+					emptyidx = i
 				}
-			} else if emptykp == nil {
-				emptykp = &b.keys[i]
-				emptyvp = &b.values[i]
+				continue
+			}
+			if !topHashMatch(hash, b.topHashes, i) {
+				continue
+			}
+			if key == derefKey(b.keys[i]) {
+				if loadIfExists {
+					vp := b.values[i]
+					b.mu.Unlock()
+					return derefValue(vp), true
+				}
+				// In-place update case. Luckily we get a copy of the value
+				// interface{} on each call, thus the live value pointers are
+				// unique. Otherwise atomic snapshot won't be correct in case
+				// of multiple Store calls using the same value.
+				atomic.StorePointer(&b.values[i], unsafe.Pointer(&value))
+				b.mu.Unlock()
+				return
 			}
 		}
 		if emptykp != nil {
 			// Insertion case. First we update the value, then the key.
 			// This is important for atomic snapshot states.
+			atomic.StoreUint64(&b.topHashes, storeTopHash(hash, b.topHashes, emptyidx))
 			atomic.StorePointer(emptyvp, unsafe.Pointer(&value))
 			atomic.StorePointer(emptykp, unsafe.Pointer(&key))
 			b.mu.Unlock()
@@ -303,7 +320,7 @@ func copyBucket(b *bucket, destTable *mapTable) (copied int, ok bool) {
 			hash := maphash64(k)
 			bidx := bucketIdx(destTable, hash)
 			destb := &destTable.buckets[bidx]
-			appended := appendToBucket(b.keys[i], b.values[i], destb)
+			appended := appendToBucket(hash, b.keys[i], b.values[i], destb)
 			if !appended {
 				b.mu.Unlock()
 				return 0, false
@@ -315,11 +332,12 @@ func copyBucket(b *bucket, destTable *mapTable) (copied int, ok bool) {
 	return copied, true
 }
 
-func appendToBucket(keyPtr, valPtr unsafe.Pointer, destBucket *bucket) (appended bool) {
+func appendToBucket(hash uint64, keyPtr, valPtr unsafe.Pointer, b *bucket) (appended bool) {
 	for i := 0; i < entriesPerMapBucket; i++ {
-		if destBucket.keys[i] == nil {
-			destBucket.keys[i] = keyPtr
-			destBucket.values[i] = valPtr
+		if b.keys[i] == nil {
+			b.keys[i] = keyPtr
+			b.values[i] = valPtr
+			b.topHashes = storeTopHash(hash, b.topHashes, i)
 			return true
 		}
 	}
@@ -350,28 +368,29 @@ delete_attempt:
 	}
 	for i := 0; i < entriesPerMapBucket; i++ {
 		kp := b.keys[i]
-		if kp != nil {
-			k := derefKey(kp)
-			if k == key {
-				vp := b.values[i]
-				// Deletion case. First we update the value, then the key.
-				// This is important for atomic snapshot states.
-				atomic.StorePointer(&b.values[i], nil)
-				atomic.StorePointer(&b.keys[i], nil)
-				leftEmpty := false
-				if hintNonEmpty == 0 {
-					leftEmpty = isEmpty(b)
-				}
-				b.mu.Unlock()
-				addSize(table, bidx, -1)
-				// Might need to shrink the table.
-				if leftEmpty {
-					m.resize(table, mapShrinkHint)
-				}
-				return derefValue(vp), true
-			}
-			hintNonEmpty++
+		if kp == nil || !topHashMatch(hash, b.topHashes, i) {
+			continue
 		}
+		if key == derefKey(kp) {
+			vp := b.values[i]
+			// Deletion case. First we update the value, then the key.
+			// This is important for atomic snapshot states.
+			atomic.StoreUint64(&b.topHashes, eraseTopHash(b.topHashes, i))
+			atomic.StorePointer(&b.values[i], nil)
+			atomic.StorePointer(&b.keys[i], nil)
+			leftEmpty := false
+			if hintNonEmpty == 0 {
+				leftEmpty = isEmpty(b)
+			}
+			b.mu.Unlock()
+			addSize(table, bidx, -1)
+			// Might need to shrink the table.
+			if leftEmpty {
+				m.resize(table, mapShrinkHint)
+			}
+			return derefValue(vp), true
+		}
+		hintNonEmpty++
 	}
 	b.mu.Unlock()
 	return nil, false
@@ -458,6 +477,30 @@ func derefValue(valuePtr unsafe.Pointer) interface{} {
 
 func bucketIdx(table *mapTable, hash uint64) uint64 {
 	return uint64(len(table.buckets)-1) & hash
+}
+
+func topHashMatch(hash, topHashes uint64, idx int) bool {
+	if topHashes&(1<<idx) == 0 {
+		// Entry is not present.
+		return false
+	}
+	top := uint8(hash >> 56)
+	topHashes = topHashes >> (8 * (entriesPerMapBucket - idx))
+	return top == uint8(topHashes)
+}
+
+func storeTopHash(hash, topHashes uint64, idx int) uint64 {
+	// Zero out top hash at idx.
+	mask := uint64(255) << (8 * (entriesPerMapBucket - idx))
+	topHashes = topHashes &^ mask
+	// Store top byte of the given hash.
+	top := (hash >> 56) << (8 * (entriesPerMapBucket - idx))
+	topHashes = topHashes | top
+	return topHashes | (1 << idx)
+}
+
+func eraseTopHash(topHashes uint64, idx int) uint64 {
+	return topHashes &^ (1 << idx)
 }
 
 func addSize(table *mapTable, bucketIdx uint64, delta int) {

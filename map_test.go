@@ -427,6 +427,72 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 	}
 }
 
+func TestMapTopHash_Store(t *testing.T) {
+	hash := uint64(0xd400000000000000) // top hash is 11010100
+	topHashes := uint64(0)
+	for i := 0; i < EntriesPerMapBucket; i++ {
+		if TopHashMatch(hash, topHashes, i) {
+			t.Errorf("top hash match for all zeros for index %d", i)
+		}
+
+		prevOnes := bits.OnesCount64(topHashes)
+		topHashes = StoreTopHash(hash, topHashes, i)
+		newOnes := bits.OnesCount64(topHashes)
+		expectedInc := bits.OnesCount64(hash) + 1
+		if newOnes != prevOnes+expectedInc {
+			t.Errorf("unexpected bits change after store for index %d: %d, %d, %#b",
+				i, newOnes, prevOnes+expectedInc, topHashes)
+		}
+
+		if !TopHashMatch(hash, topHashes, i) {
+			t.Errorf("top hash mismatch after store for index %d: %#b", i, topHashes)
+		}
+	}
+}
+
+func TestMapTopHash_Erase(t *testing.T) {
+	hash := uint64(0xabababababababab) // top hash is 10101011
+	topHashes := uint64(0)
+	for i := 0; i < EntriesPerMapBucket; i++ {
+		topHashes = StoreTopHash(hash, topHashes, i)
+		ones := bits.OnesCount64(topHashes)
+
+		topHashes = EraseTopHash(topHashes, i)
+		if TopHashMatch(hash, topHashes, i) {
+			t.Errorf("top hash match after erase for index %d: %#b", i, topHashes)
+		}
+
+		erasedBits := ones - bits.OnesCount64(topHashes)
+		if erasedBits != 1 {
+			t.Errorf("more than one bit changed after erase: %d, %d", i, erasedBits)
+		}
+	}
+}
+
+func TestMapTopHash_StoreAfterErase(t *testing.T) {
+	hashOne := uint64(0xd400000000000000) // top hash is 11010100
+	hashTwo := uint64(0xab00000000000000) // top hash is 10101011
+	idx := 3
+	topHashes := uint64(0)
+
+	topHashes = StoreTopHash(hashOne, topHashes, idx)
+	if !TopHashMatch(hashOne, topHashes, idx) {
+		t.Errorf("top hash mismatch for hash one: %#b, %#b", hashOne, topHashes)
+	}
+	if TopHashMatch(hashTwo, topHashes, idx) {
+		t.Errorf("top hash match for hash two: %#b, %#b", hashTwo, topHashes)
+	}
+
+	topHashes = EraseTopHash(topHashes, idx)
+	topHashes = StoreTopHash(hashTwo, topHashes, idx)
+	if TopHashMatch(hashOne, topHashes, idx) {
+		t.Errorf("top hash match for hash one: %#b, %#b", hashOne, topHashes)
+	}
+	if !TopHashMatch(hashTwo, topHashes, idx) {
+		t.Errorf("top hash mismatch for hash two: %#b, %#b", hashTwo, topHashes)
+	}
+}
+
 type SyncMap interface {
 	Load(key string) (value interface{}, ok bool)
 	Store(key string, value interface{})
