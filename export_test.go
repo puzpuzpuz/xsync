@@ -14,11 +14,11 @@ type MapStats struct {
 	mapStats
 }
 
-func CollectMapStats(m *Map) MapStats {
+func CollectMapStats[V any](m *MapOf[V]) MapStats {
 	return MapStats{m.stats()}
 }
 
-func MapSize(m *Map) int {
+func MapSize[V any](m *MapOf[V]) int {
 	return m.size()
 }
 

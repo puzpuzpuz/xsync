@@ -51,7 +51,7 @@ func TestMap_BucketStructSize(t *testing.T) {
 }
 
 func TestMap_MissingEntry(t *testing.T) {
-	m := NewMap()
+	m := NewMapOf[string]()
 	v, ok := m.Load("foo")
 	if ok {
 		t.Errorf("value was not expected: %v", v)
@@ -65,19 +65,19 @@ func TestMap_MissingEntry(t *testing.T) {
 }
 
 func TestMap_EmptyStringKey(t *testing.T) {
-	m := NewMap()
+	m := NewMapOf[string]()
 	m.Store("", "foobar")
 	v, ok := m.Load("")
 	if !ok {
 		t.Error("value was expected")
 	}
-	if vs, ok := v.(string); ok && vs != "foobar" {
+	if v != "foobar" {
 		t.Errorf("value does not match: %v", v)
 	}
 }
 
 func TestMapStore_NilValue(t *testing.T) {
-	m := NewMap()
+	m := NewMapOf[*struct{}]()
 	m.Store("foo", nil)
 	v, ok := m.Load("foo")
 	if !ok {
@@ -89,7 +89,7 @@ func TestMapStore_NilValue(t *testing.T) {
 }
 
 func TestMapLoadOrStore_NilValue(t *testing.T) {
-	m := NewMap()
+	m := NewMapOf[*struct{}]()
 	m.LoadOrStore("foo", nil)
 	v, loaded := m.LoadOrStore("foo", nil)
 	if !loaded {
@@ -102,14 +102,14 @@ func TestMapLoadOrStore_NilValue(t *testing.T) {
 
 func TestMapRange(t *testing.T) {
 	const numEntries = 1000
-	m := NewMap()
+	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
 	iters := 0
 	met := make(map[string]int)
-	m.Range(func(key string, value interface{}) bool {
-		if key != strconv.Itoa(value.(int)) {
+	m.Range(func(key string, value int) bool {
+		if key != strconv.Itoa(value) {
 			t.Errorf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
 			return false
 		}
@@ -128,12 +128,12 @@ func TestMapRange(t *testing.T) {
 }
 
 func TestMapRange_FalseReturned(t *testing.T) {
-	m := NewMap()
+	m := NewMapOf[int]()
 	for i := 0; i < 100; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
 	iters := 0
-	m.Range(func(key string, value interface{}) bool {
+	m.Range(func(key string, value int) bool {
 		iters++
 		return iters != 13
 	})
@@ -144,11 +144,11 @@ func TestMapRange_FalseReturned(t *testing.T) {
 
 func TestMapRange_NestedDelete(t *testing.T) {
 	const numEntries = 256
-	m := NewMap()
+	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
-	m.Range(func(key string, value interface{}) bool {
+	m.Range(func(key string, value int) bool {
 		m.Delete(key)
 		return true
 	})
@@ -161,7 +161,7 @@ func TestMapRange_NestedDelete(t *testing.T) {
 
 func TestMapSerialStore(t *testing.T) {
 	const numEntries = 128
-	m := NewMap()
+	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -170,7 +170,7 @@ func TestMapSerialStore(t *testing.T) {
 		if !ok {
 			t.Errorf("value not found for %d", i)
 		}
-		if vi, ok := v.(int); ok && vi != i {
+		if v != i {
 			t.Errorf("values do not match for %d: %v", i, v)
 		}
 	}
@@ -178,7 +178,7 @@ func TestMapSerialStore(t *testing.T) {
 
 func TestMapSerialLoadOrStore(t *testing.T) {
 	const numEntries = 1000
-	m := NewMap()
+	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -191,7 +191,7 @@ func TestMapSerialLoadOrStore(t *testing.T) {
 
 func TestMapSerialStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
-	m := NewMap()
+	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -205,7 +205,7 @@ func TestMapSerialStoreThenDelete(t *testing.T) {
 
 func TestMapSerialStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
-	m := NewMap()
+	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -221,7 +221,7 @@ func TestMapSerialStoreThenLoadAndDelete(t *testing.T) {
 
 func TestMapSize(t *testing.T) {
 	const numEntries = 1000
-	m := NewMap()
+	m := NewMapOf[int]()
 	size := MapSize(m)
 	if size != 0 {
 		t.Errorf("zero size expected: %d", size)
@@ -247,7 +247,7 @@ func TestMapSize(t *testing.T) {
 
 func TestMapResize(t *testing.T) {
 	const numEntries = 100_000
-	m := NewMap()
+	m := NewMapOf[int]()
 
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
@@ -294,7 +294,7 @@ func TestMapResize(t *testing.T) {
 
 func TestMapResize_CounterLenLimit(t *testing.T) {
 	const numEntries = 1_000_000
-	m := NewMap()
+	m := NewMapOf[string]()
 
 	for i := 0; i < numEntries; i++ {
 		m.Store("foo"+strconv.Itoa(i), "bar"+strconv.Itoa(i))
@@ -309,7 +309,7 @@ func TestMapResize_CounterLenLimit(t *testing.T) {
 	}
 }
 
-func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int, cdone chan bool) {
+func parallelSeqStorer(t *testing.T, m *MapOf[int], storeEach, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			if storeEach == 0 || j%storeEach == 0 {
@@ -320,8 +320,8 @@ func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int
 					t.Errorf("value was not found for %d", j)
 					break
 				}
-				if vi, ok := v.(int); !ok || vi != j {
-					t.Errorf("value was not expected for %d: %d", j, vi)
+				if v != j {
+					t.Errorf("value was not expected for %d: %d", j, v)
 					break
 				}
 			}
@@ -334,7 +334,7 @@ func TestMapParallelStores(t *testing.T) {
 	const numStorers = 4
 	const numIters = 10_000
 	const numEntries = 100
-	m := NewMap()
+	m := NewMapOf[int]()
 	cdone := make(chan bool)
 	for i := 0; i < numStorers; i++ {
 		go parallelSeqStorer(t, m, i, numIters, numEntries, cdone)
@@ -349,45 +349,45 @@ func TestMapParallelStores(t *testing.T) {
 		if !ok {
 			t.Fatalf("value not found for %d", i)
 		}
-		if vi, ok := v.(int); ok && vi != i {
+		if v != i {
 			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func parallelRandStorer(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
+func parallelRandStorer(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
 		if v, loaded := m.LoadOrStore(strconv.Itoa(j), j); loaded {
-			if vi, ok := v.(int); !ok || vi != j {
-				t.Errorf("value was not expected for %d: %d", j, vi)
+			if v != j {
+				t.Errorf("value was not expected for %d: %d", j, v)
 			}
 		}
 	}
 	cdone <- true
 }
 
-func parallelRandDeleter(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
+func parallelRandDeleter(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
 		if v, loaded := m.LoadAndDelete(strconv.Itoa(j)); loaded {
-			if vi, ok := v.(int); !ok || vi != j {
-				t.Errorf("value was not expected for %d: %d", j, vi)
+			if v != j {
+				t.Errorf("value was not expected for %d: %d", j, v)
 			}
 		}
 	}
 	cdone <- true
 }
 
-func parallelLoader(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
+func parallelLoader(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			// Due to atomic snapshots we must either see no entry, or a "<j>"/j pair.
 			if v, ok := m.Load(strconv.Itoa(j)); ok {
-				if vi, ok := v.(int); !ok || vi != j {
-					t.Errorf("value was not expected for %d: %d", j, vi)
+				if v != j {
+					t.Errorf("value was not expected for %d: %d", j, v)
 				}
 			}
 		}
@@ -398,7 +398,7 @@ func parallelLoader(t *testing.T, m *Map, numIters, numEntries int, cdone chan b
 func TestMapAtomicSnapshot(t *testing.T) {
 	const numIters = 100_000
 	const numEntries = 100
-	m := NewMap()
+	m := NewMapOf[int]()
 	cdone := make(chan bool)
 	// Update or delete random entry in parallel with loads.
 	go parallelRandStorer(t, m, numIters, numEntries, cdone)
@@ -414,7 +414,7 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 	const numWorkers = 2
 	const numIters = 100_000
 	const numEntries = 1000
-	m := NewMap()
+	m := NewMapOf[int]()
 	cdone := make(chan bool)
 	// Update random entry in parallel with deletes.
 	for i := 0; i < numWorkers; i++ {
@@ -505,7 +505,7 @@ func BenchmarkMap_NoWarmUp(b *testing.B) {
 			continue
 		}
 		b.Run(bc.name, func(b *testing.B) {
-			m := NewMap()
+			m := NewMapOf[any]()
 			benchmarkMap(b, func(k string) (interface{}, bool) {
 				return m.Load(k)
 			}, func(k string, v interface{}) {
@@ -539,7 +539,7 @@ func BenchmarkMapStandard_NoWarmUp(b *testing.B) {
 func BenchmarkMap_WarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
 		b.Run(bc.name, func(b *testing.B) {
-			m := NewMap()
+			m := NewMapOf[any]()
 			for i := 0; i < benchmarkNumEntries; i++ {
 				m.Store(benchmarkKeyPrefix+strconv.Itoa(i), i)
 			}
@@ -602,7 +602,7 @@ func benchmarkMap(
 }
 
 func BenchmarkMapRange(b *testing.B) {
-	m := NewMap()
+	m := NewMapOf[int]()
 	for i := 0; i < benchmarkNumEntries; i++ {
 		m.Store(benchmarkKeys[i], i)
 	}
@@ -610,7 +610,7 @@ func BenchmarkMapRange(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
-			m.Range(func(key string, value interface{}) bool {
+			m.Range(func(key string, value int) bool {
 				foo++
 				return true
 			})
