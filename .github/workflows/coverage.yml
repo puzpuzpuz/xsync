@@ -6,14 +6,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.16.x]
+        go-version: [1.18rc1]
     name: Build with Go ${{ matrix.go-version }}
     steps:
       - uses: actions/checkout@v2.3.4
-      - name: Install Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: ${{ matrix.go-version }}
+      - name: Install Go 1.18 RC1
+        run: |
+          curl -sL https://go.dev/dl/go1.18rc1.linux-amd64.tar.gz -o go1.18rc1.linux-amd64.tar.gz
+          ls -lah go1.18rc1.linux-amd64.tar.gz
+          mkdir -p ~/sdk/go1.18rc1
+          tar -C ~/sdk/go1.18rc1 -xzf go1.18rc1.linux-amd64.tar.gz
+          ~/sdk/go1.18rc1/go/bin/go version
+          echo "PATH=$HOME/go/bin:$HOME/sdk/go1.18rc1/go/bin/:$PATH" >> $GITHUB_ENV
 
       - name: Run coverage
         run: go test -race -coverprofile=coverage.out -covermode=atomic
