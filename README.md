@@ -45,6 +45,14 @@ CLHT is built around idea to organize the hash table in cache-line-sized buckets
 
 One important difference with sync.Map is that only string keys are supported. That's because Golang standard library does not expose the built-in hash functions for `interface{}` values.
 
+`MapOf[V]` is an implementation with parametrized value type. It is available for Go 1.18 or later.
+
+```go
+m := xsync.NewMapOf[string]()
+m.Store("foo", "bar")
+v, ok := m.Load("foo")
+```
+
 ## MPMCQueue
 
 A `MPMCQeueue` is a bounded multi-producer multi-consumer concurrent queue.

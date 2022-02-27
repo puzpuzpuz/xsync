@@ -6,13 +6,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.16.x, 1.17.x]
+        go-version: [1.16.x, 1.17.x, 1.18.0-rc1]
     name: Build with Go ${{ matrix.go-version }}
     steps:
       - uses: actions/checkout@v2.3.4
       - name: Install Go
         uses: actions/setup-go@v2
         with:
+          stable: false
           go-version: ${{ matrix.go-version }}
 
       - name: Install golint
