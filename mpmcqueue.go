@@ -15,16 +15,19 @@ import (
 // Based on the data structure from the following C++ library:
 // https://github.com/rigtorp/MPMCQueue
 type MPMCQueue struct {
-	cap   uint64
-	head  uint64
-	hpad  [cacheLineSize - 8]byte
-	tail  uint64
+	cap  uint64
+	head uint64
+	//lint:ignore U1000 prevents false sharing
+	hpad [cacheLineSize - 8]byte
+	tail uint64
+	//lint:ignore U1000 prevents false sharing
 	tpad  [cacheLineSize - 8]byte
 	slots []slot
 }
 
 type slot struct {
 	slotInternal
+	//lint:ignore U1000 prevents false sharing
 	pad [cacheLineSize - unsafe.Sizeof(slotInternal{})]byte
 }
 

@@ -33,7 +33,8 @@ type Counter struct {
 }
 
 type cstripe struct {
-	c   int64
+	c int64
+	//lint:ignore U1000 prevents false sharing
 	pad [cacheLineSize - 8]byte
 }
 
