@@ -48,11 +48,6 @@ const (
 // One important difference with sync.Map is that only string keys
 // are supported. That's because Golang standard library does not
 // expose the built-in hash functions for interface{} values.
-//
-// Also note that, unlike in sync.Map, the underlying hash table used
-// by Map never shrinks and only grows on demand. However, this
-// should not be an issue in many cases since updates happen in-place
-// leaving no tombstone entries.
 type Map struct {
 	table        unsafe.Pointer // *mapTable
 	resizing     int64          // resize in progress flag; updated atomically
@@ -165,11 +160,10 @@ func (m *Map) LoadOrStore(key string, value interface{}) (actual interface{}, lo
 	return m.doStore(key, value, true)
 }
 
-func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual interface{}, loaded bool) {
+func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (interface{}, bool) {
 	if value == nil {
 		value = nilVal
 	}
-	actual = value
 	// Read-only path.
 	if loadIfExists {
 		if v, ok := m.Load(key); ok {
@@ -222,7 +216,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 				// of multiple Store calls using the same value.
 				atomic.StorePointer(&b.values[i], unsafe.Pointer(&value))
 				b.mu.Unlock()
-				return
+				return value, false
 			}
 		}
 		if emptykp != nil {
@@ -233,7 +227,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 			atomic.StorePointer(emptykp, unsafe.Pointer(&key))
 			b.mu.Unlock()
 			addSize(table, bidx, 1)
-			return
+			return value, false
 		}
 		// Need to grow the table. Then go for another attempt.
 		b.mu.Unlock()
