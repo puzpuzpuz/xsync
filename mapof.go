@@ -103,6 +103,7 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (actual V, lo
 			return v, true
 		}
 	}
+	actual = value
 	// Write path.
 	hash := maphash64(key)
 	for {

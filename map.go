@@ -169,6 +169,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (actual 
 	if value == nil {
 		value = nilVal
 	}
+	actual = value
 	// Read-only path.
 	if loadIfExists {
 		if v, ok := m.Load(key); ok {
