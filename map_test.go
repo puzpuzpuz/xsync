@@ -100,6 +100,19 @@ func TestMapLoadOrStore_NilValue(t *testing.T) {
 	}
 }
 
+func TestMapLoadOrStore_NonNilValue(t *testing.T) {
+	type foo struct{}
+	m := NewMap()
+	newv := &foo{}
+	v, loaded := m.LoadOrStore("foo", newv)
+	if loaded {
+		t.Error("no value was expected")
+	}
+	if v != newv {
+		t.Errorf("value was not newv: %v", v)
+	}
+}
+
 func TestMapRange(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
@@ -579,8 +592,8 @@ func benchmarkMap(
 	loadFn func(k string) (interface{}, bool),
 	storeFn func(k string, v interface{}),
 	deleteFn func(k string),
-	readPercentage int) {
-
+	readPercentage int,
+) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))

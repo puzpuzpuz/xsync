@@ -4,11 +4,12 @@
 package xsync_test
 
 import (
-	. "github.com/puzpuzpuz/xsync"
 	"math/rand"
 	"strconv"
 	"testing"
 	"time"
+
+	. "github.com/puzpuzpuz/xsync"
 )
 
 func TestMapOf_MissingEntry(t *testing.T) {
@@ -58,6 +59,19 @@ func TestMapOfLoadOrStore_NilValue(t *testing.T) {
 	}
 	if v != nil {
 		t.Errorf("value was not nil: %v", v)
+	}
+}
+
+func TestMapOfLoadOrStore_NonNilValue(t *testing.T) {
+	type foo struct{}
+	m := NewMapOf[*foo]()
+	newv := &foo{}
+	v, loaded := m.LoadOrStore("foo", newv)
+	if loaded {
+		t.Error("no value was expected")
+	}
+	if v != newv {
+		t.Errorf("value was not newv: %v", v)
 	}
 }
 
@@ -430,8 +444,8 @@ func benchmarkMapInt(
 	loadFn func(k string) (int, bool),
 	storeFn func(k string, v int),
 	deleteFn func(k string),
-	readPercentage int) {
-
+	readPercentage int,
+) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
