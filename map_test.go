@@ -109,7 +109,7 @@ func TestMapLoadOrStore_NonNilValue(t *testing.T) {
 		t.Error("no value was expected")
 	}
 	if v != newv {
-		t.Errorf("value was not newv: %v", v)
+		t.Errorf("value does not match: %v", v)
 	}
 }
 

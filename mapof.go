@@ -30,11 +30,6 @@ import (
 // One important difference with sync.Map is that only string keys
 // are supported. That's because Golang standard library does not
 // expose the built-in hash functions for interface{} values.
-//
-// Also note that, unlike in sync.Map, the underlying hash table used
-// by MapOf never shrinks and only grows on demand. However, this
-// should not be an issue in many cases since updates happen in-place
-// leaving no tombstone entries.
 type MapOf[V any] struct {
 	table        unsafe.Pointer // *mapTable
 	resizing     int64          // resize in progress flag; updated atomically
@@ -96,14 +91,13 @@ func (m *MapOf[V]) LoadOrStore(key string, value V) (actual V, loaded bool) {
 	return m.doStore(key, value, true)
 }
 
-func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (actual V, loaded bool) {
+func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 	// Read-only path.
 	if loadIfExists {
 		if v, ok := m.Load(key); ok {
 			return v, true
 		}
 	}
-	actual = value
 	// Write path.
 	hash := maphash64(key)
 	for {
@@ -150,7 +144,7 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (actual V, lo
 				// of multiple Store calls using the same value.
 				atomic.StorePointer(&b.values[i], unsafe.Pointer(&value))
 				b.mu.Unlock()
-				return
+				return value, false
 			}
 		}
 		if emptykp != nil {
@@ -161,7 +155,7 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (actual V, lo
 			atomic.StorePointer(emptykp, unsafe.Pointer(&key))
 			b.mu.Unlock()
 			addSize(table, bidx, 1)
-			return
+			return value, false
 		}
 		// Need to grow the table. Then go for another attempt.
 		b.mu.Unlock()
