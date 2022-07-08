@@ -453,8 +453,8 @@ func copyRangeEntries(b *bucket, destEntries *[]rangeEntry) {
 	b.mu.Unlock()
 }
 
-// used in tests to verify the table counter
-func (m *Map) size() int {
+// Size returns current size of the map.
+func (m *Map) Size() int {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	return int(sumSize(table))
 }

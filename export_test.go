@@ -18,10 +18,6 @@ func CollectMapStats(m *Map) MapStats {
 	return MapStats{m.stats()}
 }
 
-func MapSize(m *Map) int {
-	return m.size()
-}
-
 func TopHashMatch(hash, topHashes uint64, idx int) bool {
 	return topHashMatch(hash, topHashes, idx)
 }
