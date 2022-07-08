@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.18.0-rc1]
+        go-version: [1.18.x]
     name: Build with Go ${{ matrix.go-version }}
     steps:
       - uses: actions/checkout@v2.3.4

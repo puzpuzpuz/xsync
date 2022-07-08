@@ -235,7 +235,7 @@ func TestMapSerialStoreThenLoadAndDelete(t *testing.T) {
 func TestMapSize(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
-	size := MapSize(m)
+	size := m.Size()
 	if size != 0 {
 		t.Errorf("zero size expected: %d", size)
 	}
@@ -243,7 +243,7 @@ func TestMapSize(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 		expectedSize++
-		size := MapSize(m)
+		size := m.Size()
 		if size != expectedSize {
 			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
 		}
@@ -251,7 +251,7 @@ func TestMapSize(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
 		expectedSize--
-		size := MapSize(m)
+		size := m.Size()
 		if size != expectedSize {
 			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
 		}
