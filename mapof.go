@@ -91,6 +91,14 @@ func (m *MapOf[V]) LoadOrStore(key string, value V) (actual V, loaded bool) {
 	return m.doStore(key, value, true)
 }
 
+// LoadAndStore returns the existing value for the key if present,
+// while setting the new value for the key.
+// Otherwise, it stores and returns the given value.
+// The loaded result is true if the value was loaded, false otherwise.
+func (m *MapOf[V]) LoadAndStore(key string, value V) (actual V, loaded bool) {
+	return m.doStore(key, value, false)
+}
+
 func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 	// Read-only path.
 	if loadIfExists {
@@ -133,8 +141,8 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 				continue
 			}
 			if key == derefKey(b.keys[i]) {
+				vp := b.values[i]
 				if loadIfExists {
-					vp := b.values[i]
 					b.mu.Unlock()
 					return derefTypedValue[V](vp), true
 				}
@@ -144,7 +152,7 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 				// of multiple Store calls using the same value.
 				atomic.StorePointer(&b.values[i], unsafe.Pointer(&value))
 				b.mu.Unlock()
-				return value, false
+				return derefTypedValue[V](vp), true
 			}
 		}
 		if emptykp != nil {

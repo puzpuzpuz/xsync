@@ -113,6 +113,53 @@ func TestMapLoadOrStore_NonNilValue(t *testing.T) {
 	}
 }
 
+func TestMapLoadAndStore_NilValue(t *testing.T) {
+	m := NewMap()
+	m.LoadAndStore("foo", nil)
+	v, loaded := m.LoadAndStore("foo", nil)
+	if !loaded {
+		t.Error("nil value was expected")
+	}
+	if v != nil {
+		t.Errorf("value was not nil: %v", v)
+	}
+	v, loaded = m.Load("foo")
+	if !loaded {
+		t.Error("nil value was expected")
+	}
+	if v != nil {
+		t.Errorf("value was not nil: %v", v)
+	}
+}
+
+func TestMapLoadAndStore_NonNilValue(t *testing.T) {
+	type foo struct{}
+	m := NewMap()
+	v1 := &foo{}
+	v, loaded := m.LoadAndStore("foo", v1)
+	if loaded {
+		t.Error("no value was expected")
+	}
+	if v != v1 {
+		t.Errorf("value does not match: %v", v)
+	}
+	v2 := 2
+	v, loaded = m.LoadAndStore("foo", v2)
+	if !loaded {
+		t.Error("value was expected")
+	}
+	if v != v1 {
+		t.Errorf("value does not match: %v", v)
+	}
+	v, loaded = m.Load("foo")
+	if !loaded {
+		t.Error("value was expected")
+	}
+	if v != v2 {
+		t.Errorf("value does not match: %v", v)
+	}
+}
+
 func TestMapRange(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
