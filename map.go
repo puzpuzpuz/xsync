@@ -49,12 +49,12 @@ const (
 // are supported. That's because Golang standard library does not
 // expose the built-in hash functions for interface{} values.
 type Map struct {
-	table        unsafe.Pointer // *mapTable
+	totalGrowths int64
+	totalShrinks int64
 	resizing     int64          // resize in progress flag; updated atomically
 	resizeMu     sync.Mutex     // only used along with resizeCond
 	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
-	totalGrowths int64
-	totalShrinks int64
+	table        unsafe.Pointer // *mapTable
 }
 
 type mapTable struct {
