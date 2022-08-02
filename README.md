@@ -8,8 +8,6 @@ Concurrent data structures for Go. An extension for the standard `sync` package.
 
 This library should be considered experimental, so make sure to run tests and benchmarks for your use cases before adding it to your application.
 
-*Important note*. Only 64-bit builds are officially supported at the moment. If you need to run a 32-bit build, make sure to test it and open a GH issue in case of any problems.
-
 ### Benchmarks
 
 Benchmark results may be found [here](BENCHMARKS.md).
