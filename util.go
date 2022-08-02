@@ -16,11 +16,12 @@ const (
 )
 
 // murmurhash3 64-bit finalizer
-func hash64(x uintptr) uint64 {
+func hash64(v uintptr) uint64 {
+	x := uint64(v)
 	x = ((x >> 33) ^ x) * 0xff51afd7ed558ccd
 	x = ((x >> 33) ^ x) * 0xc4ceb9fe1a85ec53
 	x = (x >> 33) ^ x
-	return uint64(x)
+	return x
 }
 
 // exposes the built-in memhash function
