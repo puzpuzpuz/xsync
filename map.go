@@ -427,12 +427,12 @@ func isEmpty(b *bucket) bool {
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
 func (m *Map) Range(f func(key string, value interface{}) bool) {
+	var bentries [entriesPerMapBucket]rangeEntry
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*mapTable)(tablep)
-	bentries := make([]rangeEntry, 0, entriesPerMapBucket)
 	for i := range table.buckets {
-		copyRangeEntries(&table.buckets[i], &bentries)
-		for j := range bentries {
+		n := copyRangeEntries(&table.buckets[i], &bentries)
+		for j := 0; j < n; j++ {
 			k := derefKey(bentries[j].key)
 			v := derefValue(bentries[j].value)
 			if !f(k, v) {
@@ -442,23 +442,28 @@ func (m *Map) Range(f func(key string, value interface{}) bool) {
 	}
 }
 
-func copyRangeEntries(b *bucket, destEntries *[]rangeEntry) {
-	// Clean up the slice.
-	for i := range *destEntries {
-		(*destEntries)[i] = rangeEntry{}
-	}
-	*destEntries = (*destEntries)[:0]
-	// Make a copy.
-	b.mu.Lock()
+func copyRangeEntries(b *bucket, destEntries *[entriesPerMapBucket]rangeEntry) int {
+	n := 0
 	for i := 0; i < entriesPerMapBucket; i++ {
-		if b.keys[i] != nil {
-			*destEntries = append(*destEntries, rangeEntry{
-				key:   b.keys[i],
-				value: b.values[i],
-			})
+	atomic_snapshot:
+		// Start atomic snapshot.
+		vp := atomic.LoadPointer(&b.values[i])
+		kp := atomic.LoadPointer(&b.keys[i])
+		if kp != nil && vp != nil {
+			if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
+				// Atomic snapshot succeeded.
+				destEntries[n] = rangeEntry{
+					key:   kp,
+					value: vp,
+				}
+				n++
+				continue
+			}
+			// Concurrent update/remove. Go for another spin.
+			goto atomic_snapshot
 		}
 	}
-	b.mu.Unlock()
+	return n
 }
 
 // Size returns current size of the map.

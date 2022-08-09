@@ -314,12 +314,12 @@ func (m *MapOf[V]) Delete(key string) {
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
 func (m *MapOf[V]) Range(f func(key string, value V) bool) {
+	var bentries [entriesPerMapBucket]rangeEntry
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*mapTable)(tablep)
-	bentries := make([]rangeEntry, 0, entriesPerMapBucket)
 	for i := range table.buckets {
-		copyRangeEntries(&table.buckets[i], &bentries)
-		for j := range bentries {
+		n := copyRangeEntries(&table.buckets[i], &bentries)
+		for j := 0; j < n; j++ {
 			k := derefKey(bentries[j].key)
 			v := derefTypedValue[V](bentries[j].value)
 			if !f(k, v) {
