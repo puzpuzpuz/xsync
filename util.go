@@ -5,6 +5,9 @@ import (
 	"unsafe"
 )
 
+// test-only assert()-like flag
+var assertionsEnabled = false
+
 const (
 	// used in paddings to prevent false sharing;
 	// 64B are used instead of 128B as a compromise between

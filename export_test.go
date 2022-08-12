@@ -29,3 +29,11 @@ func StoreTopHash(hash, topHashes uint64, idx int) uint64 {
 func EraseTopHash(topHashes uint64, idx int) uint64 {
 	return eraseTopHash(topHashes, idx)
 }
+
+func EnableAssertions() {
+	assertionsEnabled = true
+}
+
+func DisableAssertions() {
+	assertionsEnabled = false
+}

@@ -146,11 +146,16 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 					b.mu.Unlock()
 					return derefTypedValue[V](vp), true
 				}
-				// In-place update case. Luckily we get a copy of the value
+				// In-place update case. We get a copy of the value via an
 				// interface{} on each call, thus the live value pointers are
 				// unique. Otherwise atomic snapshot won't be correct in case
 				// of multiple Store calls using the same value.
-				atomic.StorePointer(&b.values[i], unsafe.Pointer(&value))
+				var wv interface{} = value
+				nvp := unsafe.Pointer(&wv)
+				if assertionsEnabled && vp == nvp {
+					panic("non-unique value pointer")
+				}
+				atomic.StorePointer(&b.values[i], nvp)
 				b.mu.Unlock()
 				return derefTypedValue[V](vp), true
 			}
@@ -159,7 +164,8 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 			// Insertion case. First we update the value, then the key.
 			// This is important for atomic snapshot states.
 			atomic.StoreUint64(&b.topHashes, storeTopHash(hash, b.topHashes, emptyidx))
-			atomic.StorePointer(emptyvp, unsafe.Pointer(&value))
+			var wv interface{} = value
+			atomic.StorePointer(emptyvp, unsafe.Pointer(&wv))
 			atomic.StorePointer(emptykp, unsafe.Pointer(&key))
 			b.mu.Unlock()
 			addSize(table, bidx, 1)
@@ -336,7 +342,7 @@ func (m *MapOf[V]) Size() int {
 }
 
 func derefTypedValue[V any](valuePtr unsafe.Pointer) (val V) {
-	return *(*V)(valuePtr)
+	return (*(*interface{})(valuePtr)).(V)
 }
 
 // O(N) operation; use for debug purposes only

@@ -87,11 +87,6 @@ type rangeEntry struct {
 	value unsafe.Pointer
 }
 
-// special type to mark nil values
-type nilValue struct{}
-
-var nilVal = new(nilValue)
-
 // NewMap creates a new Map instance.
 func NewMap() *Map {
 	m := &Map{}
@@ -169,9 +164,6 @@ func (m *Map) LoadAndStore(key string, value interface{}) (actual interface{}, l
 }
 
 func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (interface{}, bool) {
-	if value == nil {
-		value = nilVal
-	}
 	// Read-only path.
 	if loadIfExists {
 		if v, ok := m.Load(key); ok {
@@ -222,7 +214,11 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (interfa
 				// interface{} on each call, thus the live value pointers are
 				// unique. Otherwise atomic snapshot won't be correct in case
 				// of multiple Store calls using the same value.
-				atomic.StorePointer(&b.values[i], unsafe.Pointer(&value))
+				nvp := unsafe.Pointer(&value)
+				if assertionsEnabled && vp == nvp {
+					panic("non-unique value pointer")
+				}
+				atomic.StorePointer(&b.values[i], nvp)
 				b.mu.Unlock()
 				return derefValue(vp), true
 			}
@@ -477,11 +473,7 @@ func derefKey(keyPtr unsafe.Pointer) string {
 }
 
 func derefValue(valuePtr unsafe.Pointer) interface{} {
-	value := *(*interface{})(valuePtr)
-	if _, ok := value.(*nilValue); ok {
-		return nil
-	}
-	return value
+	return *(*interface{})(valuePtr)
 }
 
 func bucketIdx(table *mapTable, hash uint64) uint64 {

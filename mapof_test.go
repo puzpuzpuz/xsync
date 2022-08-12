@@ -12,6 +12,61 @@ import (
 	. "github.com/puzpuzpuz/xsync"
 )
 
+func TestMapOf_UniqueValuePointers_Int(t *testing.T) {
+	EnableAssertions()
+	m := NewMapOf[int]()
+	v := 42
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMapOf_UniqueValuePointers_Struct(t *testing.T) {
+	type foo struct{}
+	EnableAssertions()
+	m := NewMapOf[foo]()
+	v := foo{}
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMapOf_UniqueValuePointers_Pointer(t *testing.T) {
+	type foo struct{}
+	EnableAssertions()
+	m := NewMapOf[*foo]()
+	v := &foo{}
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMapOf_UniqueValuePointers_Slice(t *testing.T) {
+	EnableAssertions()
+	m := NewMapOf[[]int]()
+	v := make([]int, 13)
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMapOf_UniqueValuePointers_String(t *testing.T) {
+	EnableAssertions()
+	m := NewMapOf[string]()
+	v := "bar"
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMapOf_UniqueValuePointers_Nil(t *testing.T) {
+	EnableAssertions()
+	m := NewMapOf[*struct{}]()
+	m.Store("foo", nil)
+	m.Store("foo", nil)
+	DisableAssertions()
+}
+
 func TestMapOf_MissingEntry(t *testing.T) {
 	m := NewMapOf[string]()
 	v, ok := m.Load("foo")
