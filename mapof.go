@@ -30,19 +30,29 @@ import (
 // One important difference with sync.Map is that only string keys
 // are supported. That's because Golang standard library does not
 // expose the built-in hash functions for interface{} values.
-type MapOf[V any] struct {
+type MapOf[K, V any] struct {
 	totalGrowths int64
 	totalShrinks int64
 	resizing     int64          // resize in progress flag; updated atomically
 	resizeMu     sync.Mutex     // only used along with resizeCond
 	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
 	table        unsafe.Pointer // *mapTable
+	hasher       func(K) uint64
 }
 
-// NewMapOf creates a new MapOf instance.
-func NewMapOf[V any]() *MapOf[V] {
-	m := &MapOf[V]{}
+// NewMapOf creates a new MapOf instance with string keys
+func NewMapOf[V any]() *MapOf[string, V] {
+	return NewTypedMapOf[string, V](func(k string) uint64 {
+		return maphash64(k)
+	})
+}
+
+// NewTypedMapOf creates a new MapOf instance with arbitrarily typed keys.
+// Keys are hashed to uint64 using the hasher fn.
+func NewTypedMapOf[K, V any](hasher func(K) uint64) *MapOf[K, V] {
+	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
+	m.hasher = hasher
 	table := newMapTable(minMapTableLen)
 	atomic.StorePointer(&m.table, unsafe.Pointer(table))
 	return m
@@ -51,8 +61,8 @@ func NewMapOf[V any]() *MapOf[V] {
 // Load returns the value stored in the map for a key, or nil if no
 // value is present.
 // The ok result indicates whether value was found in the map.
-func (m *MapOf[V]) Load(key string) (value V, ok bool) {
-	hash := maphash64(key)
+func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
+	hash := m.hasher(key)
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	bidx := bucketIdx(table, hash)
 	b := &table.buckets[bidx]
@@ -66,7 +76,7 @@ func (m *MapOf[V]) Load(key string) (value V, ok bool) {
 		vp := atomic.LoadPointer(&b.values[i])
 		kp := atomic.LoadPointer(&b.keys[i])
 		if kp != nil && vp != nil {
-			if key == derefKey(kp) {
+			if hash == m.hasher(derefTypedValue[K](kp)) {
 				if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
 					// Atomic snapshot succeeded.
 					return derefTypedValue[V](vp), true
@@ -80,14 +90,14 @@ func (m *MapOf[V]) Load(key string) (value V, ok bool) {
 }
 
 // Store sets the value for a key.
-func (m *MapOf[V]) Store(key string, value V) {
+func (m *MapOf[K, V]) Store(key K, value V) {
 	m.doStore(key, value, false)
 }
 
 // LoadOrStore returns the existing value for the key if present.
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
-func (m *MapOf[V]) LoadOrStore(key string, value V) (actual V, loaded bool) {
+func (m *MapOf[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 	return m.doStore(key, value, true)
 }
 
@@ -95,11 +105,11 @@ func (m *MapOf[V]) LoadOrStore(key string, value V) (actual V, loaded bool) {
 // while setting the new value for the key.
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false otherwise.
-func (m *MapOf[V]) LoadAndStore(key string, value V) (actual V, loaded bool) {
+func (m *MapOf[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 	return m.doStore(key, value, false)
 }
 
-func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
+func (m *MapOf[K, V]) doStore(key K, value V, loadIfExists bool) (V, bool) {
 	// Read-only path.
 	if loadIfExists {
 		if v, ok := m.Load(key); ok {
@@ -107,7 +117,7 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 		}
 	}
 	// Write path.
-	hash := maphash64(key)
+	hash := m.hasher(key)
 	for {
 		var (
 			emptykp, emptyvp *unsafe.Pointer
@@ -140,7 +150,7 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 			if !topHashMatch(hash, b.topHashes, i) {
 				continue
 			}
-			if key == derefKey(b.keys[i]) {
+			if hash == m.hasher(derefTypedValue[K](b.keys[i])) {
 				vp := b.values[i]
 				if loadIfExists {
 					b.mu.Unlock()
@@ -171,16 +181,16 @@ func (m *MapOf[V]) doStore(key string, value V, loadIfExists bool) (V, bool) {
 	}
 }
 
-func (m *MapOf[V]) newerTableExists(table *mapTable) bool {
+func (m *MapOf[K, V]) newerTableExists(table *mapTable) bool {
 	curTablePtr := atomic.LoadPointer(&m.table)
 	return uintptr(curTablePtr) != uintptr(unsafe.Pointer(table))
 }
 
-func (m *MapOf[V]) resizeInProgress() bool {
+func (m *MapOf[K, V]) resizeInProgress() bool {
 	return atomic.LoadInt64(&m.resizing) == 1
 }
 
-func (m *MapOf[V]) waitForResize() {
+func (m *MapOf[K, V]) waitForResize() {
 	m.resizeMu.Lock()
 	for m.resizeInProgress() {
 		m.resizeCond.Wait()
@@ -188,7 +198,7 @@ func (m *MapOf[V]) waitForResize() {
 	m.resizeMu.Unlock()
 }
 
-func (m *MapOf[V]) resize(table *mapTable, hint mapResizeHint) {
+func (m *MapOf[K, V]) resize(table *mapTable, hint mapResizeHint) {
 	var shrinkThreshold int64
 	tableLen := len(table.buckets)
 	// Fast path for shrink attempts.
@@ -228,7 +238,7 @@ func (m *MapOf[V]) resize(table *mapTable, hint mapResizeHint) {
 	}
 copy:
 	for i := 0; i < tableLen; i++ {
-		copied, ok := copyBucket(&table.buckets[i], newTable)
+		copied, ok := copyBucketOf(&table.buckets[i], newTable, m.hasher)
 		if !ok {
 			// Table size is insufficient, need to grow it.
 			newTable = newMapTable(len(newTable.buckets) << 1)
@@ -244,11 +254,30 @@ copy:
 	m.resizeMu.Unlock()
 }
 
+func copyBucketOf[K any](b *bucket, destTable *mapTable, hasher func(K) uint64) (copied int, ok bool) {
+	b.mu.Lock()
+	for i := 0; i < entriesPerMapBucket; i++ {
+		if b.keys[i] != nil {
+			hash := hasher(derefTypedValue[K](b.keys[i]))
+			bidx := bucketIdx(destTable, hash)
+			destb := &destTable.buckets[bidx]
+			appended := appendToBucket(hash, b.keys[i], b.values[i], destb)
+			if !appended {
+				b.mu.Unlock()
+				return 0, false
+			}
+			copied++
+		}
+	}
+	b.mu.Unlock()
+	return copied, true
+}
+
 // LoadAndDelete deletes the value for a key, returning the previous
 // value if any. The loaded result reports whether the key was
 // present.
-func (m *MapOf[V]) LoadAndDelete(key string) (value V, loaded bool) {
-	hash := maphash64(key)
+func (m *MapOf[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
+	hash := m.hasher(key)
 delete_attempt:
 	hintNonEmpty := 0
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
@@ -271,7 +300,7 @@ delete_attempt:
 		if kp == nil || !topHashMatch(hash, b.topHashes, i) {
 			continue
 		}
-		if key == derefKey(kp) {
+		if hash == m.hasher(derefTypedValue[K](kp)) {
 			vp := b.values[i]
 			// Deletion case. First we update the value, then the key.
 			// This is important for atomic snapshot states.
@@ -297,7 +326,7 @@ delete_attempt:
 }
 
 // Delete deletes the value for a key.
-func (m *MapOf[V]) Delete(key string) {
+func (m *MapOf[K, V]) Delete(key K) {
 	m.LoadAndDelete(key)
 }
 
@@ -313,14 +342,14 @@ func (m *MapOf[V]) Delete(key string) {
 // It is safe to modify the map while iterating it. However, the
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
-func (m *MapOf[V]) Range(f func(key string, value V) bool) {
+func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 	var bentries [entriesPerMapBucket]rangeEntry
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*mapTable)(tablep)
 	for i := range table.buckets {
 		n := copyRangeEntries(&table.buckets[i], &bentries)
 		for j := 0; j < n; j++ {
-			k := derefKey(bentries[j].key)
+			k := derefTypedValue[K](bentries[j].key)
 			v := derefTypedValue[V](bentries[j].value)
 			if !f(k, v) {
 				return
@@ -330,7 +359,7 @@ func (m *MapOf[V]) Range(f func(key string, value V) bool) {
 }
 
 // Size returns current size of the map.
-func (m *MapOf[V]) Size() int {
+func (m *MapOf[K, V]) Size() int {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	return int(sumSize(table))
 }
@@ -340,7 +369,7 @@ func derefTypedValue[V any](valuePtr unsafe.Pointer) (val V) {
 }
 
 // O(N) operation; use for debug purposes only
-func (m *MapOf[V]) stats() mapStats {
+func (m *MapOf[K, V]) stats() mapStats {
 	stats := mapStats{
 		TotalGrowths: atomic.LoadInt64(&m.totalGrowths),
 		TotalShrinks: atomic.LoadInt64(&m.totalShrinks),

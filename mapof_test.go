@@ -330,7 +330,7 @@ func TestMapOfResize_CounterLenLimit(t *testing.T) {
 	}
 }
 
-func parallelSeqTypedStorer(t *testing.T, m *MapOf[int], storeEach, numIters, numEntries int, cdone chan bool) {
+func parallelSeqTypedStorer(t *testing.T, m *MapOf[string, int], storeEach, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			if storeEach == 0 || j%storeEach == 0 {
@@ -376,7 +376,7 @@ func TestMapOfParallelStores(t *testing.T) {
 	}
 }
 
-func parallelRandTypedStorer(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedStorer(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
@@ -389,7 +389,7 @@ func parallelRandTypedStorer(t *testing.T, m *MapOf[int], numIters, numEntries i
 	cdone <- true
 }
 
-func parallelRandTypedDeleter(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedDeleter(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
@@ -402,7 +402,7 @@ func parallelRandTypedDeleter(t *testing.T, m *MapOf[int], numIters, numEntries 
 	cdone <- true
 }
 
-func parallelTypedLoader(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
+func parallelTypedLoader(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			// Due to atomic snapshots we must either see no entry, or a "<j>"/j pair.
