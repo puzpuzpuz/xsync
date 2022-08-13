@@ -30,7 +30,7 @@ import (
 // One important difference with sync.Map is that only string keys
 // are supported. That's because Golang standard library does not
 // expose the built-in hash functions for interface{} values.
-type MapOf[K, V any] struct {
+type MapOf[K comparable, V any] struct {
 	totalGrowths int64
 	totalShrinks int64
 	resizing     int64          // resize in progress flag; updated atomically
@@ -47,9 +47,23 @@ func NewMapOf[V any]() *MapOf[string, V] {
 	})
 }
 
+// IntegerConstraint represents any integer type.
+type IntegerConstraint interface {
+	// Recreation of golang.org/x/exp/constraints.Integer to avoid taking a dependency on an
+	// experimental package.
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr
+}
+
+// NewIntegerMapOf creates a new MapOf instance with integer typed keys.
+func NewIntegerMapOf[K IntegerConstraint, V any]() *MapOf[K, V] {
+	return NewTypedMapOf[K, V](func(k K) uint64 {
+		return uint64(k)
+	})
+}
+
 // NewTypedMapOf creates a new MapOf instance with arbitrarily typed keys.
 // Keys are hashed to uint64 using the hasher fn.
-func NewTypedMapOf[K, V any](hasher func(K) uint64) *MapOf[K, V] {
+func NewTypedMapOf[K comparable, V any](hasher func(K) uint64) *MapOf[K, V] {
 	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
 	m.hasher = hasher
@@ -76,7 +90,7 @@ func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 		vp := atomic.LoadPointer(&b.values[i])
 		kp := atomic.LoadPointer(&b.keys[i])
 		if kp != nil && vp != nil {
-			if hash == m.hasher(derefTypedValue[K](kp)) {
+			if key == derefTypedValue[K](kp) {
 				if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
 					// Atomic snapshot succeeded.
 					return derefTypedValue[V](vp), true
@@ -150,7 +164,7 @@ func (m *MapOf[K, V]) doStore(key K, value V, loadIfExists bool) (V, bool) {
 			if !topHashMatch(hash, b.topHashes, i) {
 				continue
 			}
-			if hash == m.hasher(derefTypedValue[K](b.keys[i])) {
+			if key == derefTypedValue[K](b.keys[i]) {
 				vp := b.values[i]
 				if loadIfExists {
 					b.mu.Unlock()
@@ -300,7 +314,7 @@ delete_attempt:
 		if kp == nil || !topHashMatch(hash, b.topHashes, i) {
 			continue
 		}
-		if hash == m.hasher(derefTypedValue[K](kp)) {
+		if key == derefTypedValue[K](kp) {
 			vp := b.values[i]
 			// Deletion case. First we update the value, then the key.
 			// This is important for atomic snapshot states.
