@@ -2,12 +2,13 @@ package xsync
 
 const (
 	EntriesPerMapBucket = entriesPerMapBucket
+	MapLoadFactor       = mapLoadFactor
 	MinMapTableLen      = minMapTableLen
 	MaxMapCounterLen    = maxMapCounterLen
 )
 
 type (
-	Bucket = bucket
+	BucketPadded = bucketPadded
 )
 
 type MapStats struct {
@@ -16,6 +17,14 @@ type MapStats struct {
 
 func CollectMapStats(m *Map) MapStats {
 	return MapStats{m.stats()}
+}
+
+func LockBucket(mu *uint64) {
+	lockBucket(mu)
+}
+
+func UnlockBucket(mu *uint64) {
+	unlockBucket(mu)
 }
 
 func TopHashMatch(hash, topHashes uint64, idx int) bool {

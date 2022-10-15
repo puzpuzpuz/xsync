@@ -4,6 +4,7 @@
 package xsync_test
 
 import (
+	"math"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -332,7 +333,7 @@ func TestMapOfResize(t *testing.T) {
 	if stats.Size != numEntries {
 		t.Errorf("size was too small: %d", stats.Size)
 	}
-	expectedCapacity := stats.TableLen * EntriesPerMapBucket
+	expectedCapacity := int(math.RoundToEven(MapLoadFactor+1)) * stats.TableLen * EntriesPerMapBucket
 	if stats.Capacity > expectedCapacity {
 		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}

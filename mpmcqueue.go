@@ -22,16 +22,16 @@ type MPMCQueue struct {
 	tail uint64
 	//lint:ignore U1000 prevents false sharing
 	tpad  [cacheLineSize - 8]byte
-	slots []slot
+	slots []slotPadded
+}
+
+type slotPadded struct {
+	slot
+	//lint:ignore U1000 prevents false sharing
+	pad [cacheLineSize - unsafe.Sizeof(slot{})]byte
 }
 
 type slot struct {
-	slotInternal
-	//lint:ignore U1000 prevents false sharing
-	pad [cacheLineSize - unsafe.Sizeof(slotInternal{})]byte
-}
-
-type slotInternal struct {
 	turn uint64
 	item interface{}
 }
@@ -44,7 +44,7 @@ func NewMPMCQueue(capacity int) *MPMCQueue {
 	}
 	return &MPMCQueue{
 		cap:   uint64(capacity),
-		slots: make([]slot, capacity),
+		slots: make([]slotPadded, capacity),
 	}
 }
 
