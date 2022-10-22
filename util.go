@@ -28,6 +28,8 @@ func mixhash64ptr(v uintptr) uint64 {
 }
 
 // murmurhash3 64-bit finalizer
+//
+//lint:ignore U1000 used in MapOf
 func mixhash64(v uint64) uint64 {
 	v = ((v >> 33) ^ v) * 0xff51afd7ed558ccd
 	v = ((v >> 33) ^ v) * 0xc4ceb9fe1a85ec53
