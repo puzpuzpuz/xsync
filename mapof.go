@@ -114,25 +114,52 @@ func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 
 // Store sets the value for a key.
 func (m *MapOf[K, V]) Store(key K, value V) {
-	m.doStore(key, value, false)
+	m.doStore(
+		key,
+		func() V {
+			return value
+		},
+		false,
+	)
 }
 
 // LoadOrStore returns the existing value for the key if present.
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
 func (m *MapOf[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
-	return m.doStore(key, value, true)
+	return m.doStore(
+		key,
+		func() V {
+			return value
+		},
+		true,
+	)
 }
 
 // LoadAndStore returns the existing value for the key if present,
 // while setting the new value for the key.
-// Otherwise, it stores and returns the given value.
-// The loaded result is true if the value was loaded, false otherwise.
+// It stores the new value and returns the existing one, if present.
+// The loaded result is true if the existing value was loaded,
+// false otherwise.
 func (m *MapOf[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
-	return m.doStore(key, value, false)
+	return m.doStore(
+		key,
+		func() V {
+			return value
+		},
+		false,
+	)
 }
 
-func (m *MapOf[K, V]) doStore(key K, value V, loadIfExists bool) (V, bool) {
+// LoadOrCompute returns the existing value for the key if present.
+// Otherwise, it computes the value using the provided function and
+// returns the computed value. The loaded result is true if the value
+// was loaded, false if stored.
+func (m *MapOf[K, V]) LoadOrCompute(key K, valueFn func() V) (actual V, loaded bool) {
+	return m.doStore(key, valueFn, true)
+}
+
+func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bool) {
 	// Read-only path.
 	if loadIfExists {
 		if v, ok := m.Load(key); ok {
@@ -188,6 +215,7 @@ func (m *MapOf[K, V]) doStore(key K, value V, loadIfExists bool) (V, bool) {
 					// interface{} on each call, thus the live value pointers are
 					// unique. Otherwise atomic snapshot won't be correct in case
 					// of multiple Store calls using the same value.
+					value := valueFn()
 					var wv interface{} = value
 					nvp := unsafe.Pointer(&wv)
 					if assertionsEnabled && vp == nvp {
@@ -195,6 +223,7 @@ func (m *MapOf[K, V]) doStore(key K, value V, loadIfExists bool) (V, bool) {
 					}
 					atomic.StorePointer(&b.values[i], nvp)
 					unlockBucket(&rootb.topHashMutex)
+					// LoadAndStore expects the old value to be returned.
 					return derefTypedValue[V](vp), true
 				}
 			}
@@ -203,7 +232,8 @@ func (m *MapOf[K, V]) doStore(key K, value V, loadIfExists bool) (V, bool) {
 					// Insertion case. First we update the value, then the key.
 					// This is important for atomic snapshot states.
 					atomic.StoreUint64(&b.topHashMutex, storeTopHash(hash, topHashes, emptyidx))
-					var wv interface{} = value
+					value := valueFn()
+					var wv interface{} = valueFn()
 					atomic.StorePointer(emptyvp, unsafe.Pointer(&wv))
 					atomic.StorePointer(emptykp, unsafe.Pointer(&key))
 					unlockBucket(&rootb.topHashMutex)
@@ -220,6 +250,7 @@ func (m *MapOf[K, V]) doStore(key K, value V, loadIfExists bool) (V, bool) {
 				// Create and append a new bucket.
 				newb := new(bucketPadded)
 				newb.keys[0] = unsafe.Pointer(&key)
+				value := valueFn()
 				var wv interface{} = value
 				newb.values[0] = unsafe.Pointer(&wv)
 				newb.topHashMutex = storeTopHash(hash, topHashes, emptyidx)
