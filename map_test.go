@@ -26,12 +26,10 @@ var benchmarkCases = []struct {
 	name           string
 	readPercentage int
 }{
-	{"100%-reads", 100}, // 100% loads,    0% stores,    0% deletes
-	{"99%-reads", 99},   //  99% loads,  0.5% stores,  0.5% deletes
-	{"90%-reads", 90},   //  90% loads,    5% stores,    5% deletes
-	{"75%-reads", 75},   //  75% loads, 12.5% stores, 12.5% deletes
-	{"50%-reads", 50},   //  50% loads,   25% stores,   25% deletes
-	{"0%-reads", 0},     //   0% loads,   50% stores,   50% deletes
+	{"reads=100%", 100},     // 100% loads,    0% stores,    0% deletes
+	{"reads=99%", 99},       //  99% loads,  0.5% stores,  0.5% deletes
+	{"reads=90%-reads", 90}, //  90% loads,    5% stores,    5% deletes
+	{"reads=75%-reads", 75}, //  75% loads, 12.5% stores, 12.5% deletes
 }
 
 var benchmarkKeys []string

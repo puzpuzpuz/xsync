@@ -56,12 +56,12 @@ One important difference with `Map` is that `MapOf` supports arbitrary `comparab
 
 ```go
 type point struct {
-    x int
-    y int
+	x int
+	y int
 }
 // provide a hash function when creating the MapOf
 m := NewTypedMapOf[point, int](func(p point) uint64 {
-    return uint64(31*p.x + p.y)
+	return uint64(31*p.x + p.y)
 })
 m.Store(point{42, 42}, 42)
 v, ok := m.Load(point{42, 42})
