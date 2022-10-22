@@ -319,6 +319,27 @@ func TestTypedMapOfSerialStore_StructKeys_StructValues(t *testing.T) {
 	}
 }
 
+func TestTypedMapOfSerialStore_HashCodeCollisions(t *testing.T) {
+	const numEntries = 1000
+	m := NewTypedMapOf[int, int](func(i int) uint64 {
+		// We intentionally use an awful hash function here to make sure
+		// that the map copes with key collisions.
+		return 42
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(i)
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
 func TestMapOfSerialLoadOrStore(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
