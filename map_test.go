@@ -1,10 +1,13 @@
 package xsync_test
 
 import (
+	"fmt"
+	"math"
 	"math/bits"
 	"math/rand"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
@@ -44,10 +47,65 @@ func TestMap_BucketStructSize(t *testing.T) {
 	if bits.UintSize != 64 {
 		return // skip for 32-bit builds
 	}
-	size := unsafe.Sizeof(Bucket{})
+	size := unsafe.Sizeof(BucketPadded{})
 	if size != 128 {
 		t.Errorf("size of 128B (2 cache lines) is expected, got: %d", size)
 	}
+}
+
+func TestMap_UniqueValuePointers_Int(t *testing.T) {
+	EnableAssertions()
+	m := NewMap()
+	v := 42
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMap_UniqueValuePointers_Struct(t *testing.T) {
+	type foo struct{}
+	EnableAssertions()
+	m := NewMap()
+	v := foo{}
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMap_UniqueValuePointers_Pointer(t *testing.T) {
+	type foo struct{}
+	EnableAssertions()
+	m := NewMap()
+	v := &foo{}
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMap_UniqueValuePointers_Slice(t *testing.T) {
+	EnableAssertions()
+	m := NewMap()
+	v := make([]int, 13)
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMap_UniqueValuePointers_String(t *testing.T) {
+	EnableAssertions()
+	m := NewMap()
+	v := "bar"
+	m.Store("foo", v)
+	m.Store("foo", v)
+	DisableAssertions()
+}
+
+func TestMap_UniqueValuePointers_Nil(t *testing.T) {
+	EnableAssertions()
+	m := NewMap()
+	m.Store("foo", nil)
+	m.Store("foo", nil)
+	DisableAssertions()
 }
 
 func TestMap_MissingEntry(t *testing.T) {
@@ -316,7 +374,7 @@ func TestMapResize(t *testing.T) {
 	if stats.Size != numEntries {
 		t.Errorf("size was too small: %d", stats.Size)
 	}
-	expectedCapacity := stats.TableLen * EntriesPerMapBucket
+	expectedCapacity := int(math.RoundToEven(MapLoadFactor+1)) * stats.TableLen * EntriesPerMapBucket
 	if stats.Capacity > expectedCapacity {
 		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
@@ -487,69 +545,133 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 	}
 }
 
-func TestMapTopHash_Store(t *testing.T) {
+func TestMapTopHashMutex(t *testing.T) {
+	const (
+		numLockers    = 4
+		numIterations = 1000
+	)
+	var (
+		activity int32
+		mu       uint64
+	)
+	cdone := make(chan bool)
+	for i := 0; i < numLockers; i++ {
+		go func() {
+			for i := 0; i < numIterations; i++ {
+				LockBucket(&mu)
+				n := atomic.AddInt32(&activity, 1)
+				if n != 1 {
+					UnlockBucket(&mu)
+					panic(fmt.Sprintf("lock(%d)\n", n))
+				}
+				atomic.AddInt32(&activity, -1)
+				UnlockBucket(&mu)
+			}
+			cdone <- true
+		}()
+	}
+	// Wait for all lockers to finish.
+	for i := 0; i < numLockers; i++ {
+		<-cdone
+	}
+}
+
+func TestMapTopHashMutex_Set_NoLock(t *testing.T) {
+	mu := uint64(0)
+	testMapTopHashMutex_Set(t, &mu)
+}
+
+func TestMapTopHashMutex_Set_WhileLocked(t *testing.T) {
+	mu := uint64(0)
+	LockBucket(&mu)
+	defer UnlockBucket(&mu)
+	testMapTopHashMutex_Set(t, &mu)
+}
+
+func testMapTopHashMutex_Set(t *testing.T, topHashes *uint64) {
 	hash := uint64(0xd400000000000000) // top hash is 11010100
-	topHashes := uint64(0)
 	for i := 0; i < EntriesPerMapBucket; i++ {
-		if TopHashMatch(hash, topHashes, i) {
+		if TopHashMatch(hash, *topHashes, i) {
 			t.Errorf("top hash match for all zeros for index %d", i)
 		}
 
-		prevOnes := bits.OnesCount64(topHashes)
-		topHashes = StoreTopHash(hash, topHashes, i)
-		newOnes := bits.OnesCount64(topHashes)
+		prevOnes := bits.OnesCount64(*topHashes)
+		*topHashes = StoreTopHash(hash, *topHashes, i)
+		newOnes := bits.OnesCount64(*topHashes)
 		expectedInc := bits.OnesCount64(hash) + 1
 		if newOnes != prevOnes+expectedInc {
 			t.Errorf("unexpected bits change after store for index %d: %d, %d, %#b",
-				i, newOnes, prevOnes+expectedInc, topHashes)
+				i, newOnes, prevOnes+expectedInc, *topHashes)
 		}
 
-		if !TopHashMatch(hash, topHashes, i) {
-			t.Errorf("top hash mismatch after store for index %d: %#b", i, topHashes)
+		if !TopHashMatch(hash, *topHashes, i) {
+			t.Errorf("top hash mismatch after store for index %d: %#b", i, *topHashes)
 		}
 	}
 }
 
-func TestMapTopHash_Erase(t *testing.T) {
-	hash := uint64(0xabababababababab) // top hash is 10101011
-	topHashes := uint64(0)
-	for i := 0; i < EntriesPerMapBucket; i++ {
-		topHashes = StoreTopHash(hash, topHashes, i)
-		ones := bits.OnesCount64(topHashes)
+func TestMapTopHashMutex_Delete_NoLock(t *testing.T) {
+	mu := uint64(0)
+	testMapTopHashMutex_Delete(t, &mu)
+}
 
-		topHashes = EraseTopHash(topHashes, i)
-		if TopHashMatch(hash, topHashes, i) {
-			t.Errorf("top hash match after erase for index %d: %#b", i, topHashes)
+func TestMapTopHashMutex_Delete_WhileLocked(t *testing.T) {
+	mu := uint64(0)
+	LockBucket(&mu)
+	defer UnlockBucket(&mu)
+	testMapTopHashMutex_Delete(t, &mu)
+}
+
+func testMapTopHashMutex_Delete(t *testing.T, topHashes *uint64) {
+	hash := uint64(0xabababababababab) // top hash is 10101011
+	for i := 0; i < EntriesPerMapBucket; i++ {
+		*topHashes = StoreTopHash(hash, *topHashes, i)
+		ones := bits.OnesCount64(*topHashes)
+
+		*topHashes = EraseTopHash(*topHashes, i)
+		if TopHashMatch(hash, *topHashes, i) {
+			t.Errorf("top hash match after erase for index %d: %#b", i, *topHashes)
 		}
 
-		erasedBits := ones - bits.OnesCount64(topHashes)
+		erasedBits := ones - bits.OnesCount64(*topHashes)
 		if erasedBits != 1 {
 			t.Errorf("more than one bit changed after erase: %d, %d", i, erasedBits)
 		}
 	}
 }
 
-func TestMapTopHash_StoreAfterErase(t *testing.T) {
+func TestMapTopHashMutex_SetAfterDelete_NoLock(t *testing.T) {
+	mu := uint64(0)
+	testMapTopHashMutex_SetAfterDelete(t, &mu)
+}
+
+func TestMapTopHashMutex_SetAfterDelete_WhileLocked(t *testing.T) {
+	mu := uint64(0)
+	LockBucket(&mu)
+	defer UnlockBucket(&mu)
+	testMapTopHashMutex_SetAfterDelete(t, &mu)
+}
+
+func testMapTopHashMutex_SetAfterDelete(t *testing.T, topHashes *uint64) {
 	hashOne := uint64(0xd400000000000000) // top hash is 11010100
 	hashTwo := uint64(0xab00000000000000) // top hash is 10101011
 	idx := 3
-	topHashes := uint64(0)
 
-	topHashes = StoreTopHash(hashOne, topHashes, idx)
-	if !TopHashMatch(hashOne, topHashes, idx) {
-		t.Errorf("top hash mismatch for hash one: %#b, %#b", hashOne, topHashes)
+	*topHashes = StoreTopHash(hashOne, *topHashes, idx)
+	if !TopHashMatch(hashOne, *topHashes, idx) {
+		t.Errorf("top hash mismatch for hash one: %#b, %#b", hashOne, *topHashes)
 	}
-	if TopHashMatch(hashTwo, topHashes, idx) {
-		t.Errorf("top hash match for hash two: %#b, %#b", hashTwo, topHashes)
+	if TopHashMatch(hashTwo, *topHashes, idx) {
+		t.Errorf("top hash match for hash two: %#b, %#b", hashTwo, *topHashes)
 	}
 
-	topHashes = EraseTopHash(topHashes, idx)
-	topHashes = StoreTopHash(hashTwo, topHashes, idx)
-	if TopHashMatch(hashOne, topHashes, idx) {
-		t.Errorf("top hash match for hash one: %#b, %#b", hashOne, topHashes)
+	*topHashes = EraseTopHash(*topHashes, idx)
+	*topHashes = StoreTopHash(hashTwo, *topHashes, idx)
+	if TopHashMatch(hashOne, *topHashes, idx) {
+		t.Errorf("top hash match for hash one: %#b, %#b", hashOne, *topHashes)
 	}
-	if !TopHashMatch(hashTwo, topHashes, idx) {
-		t.Errorf("top hash mismatch for hash two: %#b, %#b", hashTwo, topHashes)
+	if !TopHashMatch(hashTwo, *topHashes, idx) {
+		t.Errorf("top hash mismatch for hash two: %#b, %#b", hashTwo, *topHashes)
 	}
 }
 
