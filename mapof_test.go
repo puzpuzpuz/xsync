@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -671,7 +672,7 @@ func BenchmarkMapOf_NoWarmUp(b *testing.B) {
 		}
 		b.Run(bc.name, func(b *testing.B) {
 			m := NewMapOf[int]()
-			benchmarkMapInt(b, func(k string) (int, bool) {
+			benchmarkMapOfStringKeys(b, func(k string) (int, bool) {
 				return m.Load(k)
 			}, func(k string, v int) {
 				m.Store(k, v)
@@ -689,7 +690,7 @@ func BenchmarkMapOf_WarmUp(b *testing.B) {
 			for i := 0; i < benchmarkNumEntries; i++ {
 				m.Store(benchmarkKeyPrefix+strconv.Itoa(i), i)
 			}
-			benchmarkMapInt(b, func(k string) (int, bool) {
+			benchmarkMapOfStringKeys(b, func(k string) (int, bool) {
 				return m.Load(k)
 			}, func(k string, v int) {
 				m.Store(k, v)
@@ -700,7 +701,7 @@ func BenchmarkMapOf_WarmUp(b *testing.B) {
 	}
 }
 
-func benchmarkMapInt(
+func benchmarkMapOfStringKeys(
 	b *testing.B,
 	loadFn func(k string) (int, bool),
 	storeFn func(k string, v int),
@@ -722,6 +723,119 @@ func benchmarkMapInt(
 				storeFn(benchmarkKeys[i], i)
 			} else {
 				loadFn(benchmarkKeys[i])
+			}
+		}
+	})
+}
+
+func BenchmarkIntegerMapOf_NoWarmUp(b *testing.B) {
+	for _, bc := range benchmarkCases {
+		if bc.readPercentage == 100 {
+			// This benchmark doesn't make sense without a warm-up.
+			continue
+		}
+		b.Run(bc.name, func(b *testing.B) {
+			m := NewIntegerMapOf[int, int]()
+			benchmarkMapOfIntegerKeys(b, func(k int) (int, bool) {
+				return m.Load(k)
+			}, func(k int, v int) {
+				m.Store(k, v)
+			}, func(k int) {
+				m.Delete(k)
+			}, bc.readPercentage)
+		})
+	}
+}
+
+func BenchmarkIntegerMapOf_WarmUp(b *testing.B) {
+	for _, bc := range benchmarkCases {
+		b.Run(bc.name, func(b *testing.B) {
+			m := NewIntegerMapOf[int, int]()
+			for i := 0; i < benchmarkNumEntries; i++ {
+				m.Store(i, i)
+			}
+			benchmarkMapOfIntegerKeys(b, func(k int) (int, bool) {
+				return m.Load(k)
+			}, func(k int, v int) {
+				m.Store(k, v)
+			}, func(k int) {
+				m.Delete(k)
+			}, bc.readPercentage)
+		})
+	}
+}
+
+func BenchmarkIntegerMapStandard_NoWarmUp(b *testing.B) {
+	for _, bc := range benchmarkCases {
+		if bc.readPercentage == 100 {
+			// This benchmark doesn't make sense without a warm-up.
+			continue
+		}
+		b.Run(bc.name, func(b *testing.B) {
+			var m sync.Map
+			benchmarkMapOfIntegerKeys(b, func(k int) (value int, ok bool) {
+				v, ok := m.Load(k)
+				if ok {
+					return v.(int), ok
+				} else {
+					return 0, false
+				}
+			}, func(k int, v int) {
+				m.Store(k, v)
+			}, func(k int) {
+				m.Delete(k)
+			}, bc.readPercentage)
+		})
+	}
+}
+
+// This is a nice scenario for sync.Map since a lot of updates
+// will hit the readOnly part of the map.
+func BenchmarkIntegerMapStandard_WarmUp(b *testing.B) {
+	for _, bc := range benchmarkCases {
+		b.Run(bc.name, func(b *testing.B) {
+			var m sync.Map
+			for i := 0; i < benchmarkNumEntries; i++ {
+				m.Store(i, i)
+			}
+			benchmarkMapOfIntegerKeys(b, func(k int) (value int, ok bool) {
+				v, ok := m.Load(k)
+				if ok {
+					return v.(int), ok
+				} else {
+					return 0, false
+				}
+			}, func(k int, v int) {
+				m.Store(k, v)
+			}, func(k int) {
+				m.Delete(k)
+			}, bc.readPercentage)
+		})
+	}
+}
+
+func benchmarkMapOfIntegerKeys(
+	b *testing.B,
+	loadFn func(k int) (int, bool),
+	storeFn func(k int, v int),
+	deleteFn func(k int),
+	readPercentage int,
+) {
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		// convert percent to permille to support 99% case
+		storeThreshold := 10 * readPercentage
+		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
+		for pb.Next() {
+			op := r.Intn(1000)
+			i := r.Intn(benchmarkNumEntries)
+			if op >= deleteThreshold {
+				deleteFn(i)
+			} else if op >= storeThreshold {
+				storeFn(i, i)
+			} else {
+				loadFn(i)
 			}
 		}
 	})
