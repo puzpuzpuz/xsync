@@ -66,7 +66,10 @@ func NewIntegerMapOf[K IntegerConstraint, V any]() *MapOf[K, V] {
 func NewTypedMapOf[K comparable, V any](hasher func(K) uint64) *MapOf[K, V] {
 	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
-	m.hasher = hasher
+	m.hasher = func(k K) uint64 {
+		// Apply finalizer to mitigate poor quality hash functions.
+		return mixhash64(hasher(k))
+	}
 	table := newMapTable(minMapTableLen)
 	atomic.StorePointer(&m.table, unsafe.Pointer(table))
 	return m
@@ -91,7 +94,7 @@ func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 			vp := atomic.LoadPointer(&b.values[i])
 			kp := atomic.LoadPointer(&b.keys[i])
 			if kp != nil && vp != nil {
-				if key == derefTypedValue[K](kp) {
+				if key == derefTypedKey[K](kp) {
 					if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
 						// Atomic snapshot succeeded.
 						return derefTypedValue[V](vp), true
@@ -175,7 +178,7 @@ func (m *MapOf[K, V]) doStore(key K, value V, loadIfExists bool) (V, bool) {
 				if !topHashMatch(hash, topHashes, i) {
 					continue
 				}
-				if key == derefTypedValue[K](b.keys[i]) {
+				if key == derefTypedKey[K](b.keys[i]) {
 					vp := b.values[i]
 					if loadIfExists {
 						unlockBucket(&rootb.topHashMutex)
@@ -297,13 +300,13 @@ func (m *MapOf[K, V]) resize(table *mapTable, hint mapResizeHint) {
 	m.resizeMu.Unlock()
 }
 
-func copyBucketOf[K any](b *bucketPadded, destTable *mapTable, hasher func(K) uint64) (copied int) {
+func copyBucketOf[K comparable](b *bucketPadded, destTable *mapTable, hasher func(K) uint64) (copied int) {
 	rootb := b
 	lockBucket(&rootb.topHashMutex)
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
-				hash := hasher(derefTypedValue[K](b.keys[i]))
+				hash := hasher(derefTypedKey[K](b.keys[i]))
 				bidx := bucketIdx(destTable, hash)
 				destb := &destTable.buckets[bidx]
 				appendToBucket(hash, b.keys[i], b.values[i], destb)
@@ -348,7 +351,7 @@ func (m *MapOf[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 				if kp == nil || !topHashMatch(hash, topHashes, i) {
 					continue
 				}
-				if key == derefTypedValue[K](kp) {
+				if key == derefTypedKey[K](kp) {
 					vp := b.values[i]
 					// Deletion case. First we update the value, then the key.
 					// This is important for atomic snapshot states.
@@ -404,7 +407,7 @@ func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 		for {
 			n := copyRangeEntries(b, &bentries)
 			for j := 0; j < n; j++ {
-				k := derefTypedValue[K](bentries[j].key)
+				k := derefTypedKey[K](bentries[j].key)
 				v := derefTypedValue[V](bentries[j].value)
 				if !f(k, v) {
 					return
@@ -423,6 +426,10 @@ func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 func (m *MapOf[K, V]) Size() int {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	return int(table.sumSize())
+}
+
+func derefTypedKey[K comparable](keyPtr unsafe.Pointer) (key K) {
+	return *(*K)(keyPtr)
 }
 
 func derefTypedValue[V any](valuePtr unsafe.Pointer) (val V) {
