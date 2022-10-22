@@ -253,6 +253,72 @@ func TestMapOfSerialStore(t *testing.T) {
 	}
 }
 
+func TestIntegerMapOfSerialStore(t *testing.T) {
+	const numEntries = 128
+	m := NewIntegerMapOf[int, int]()
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(i)
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStore_StructKeys_IntValues(t *testing.T) {
+	type foo struct {
+		x int
+		y int
+	}
+	const numEntries = 128
+	m := NewTypedMapOf[foo, int](func(f foo) uint64 {
+		return uint64(31*f.x + f.y)
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(foo{i, -i}, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(foo{i, -i})
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStore_StructKeys_StructValues(t *testing.T) {
+	type foo struct {
+		x int
+		y int
+	}
+	const numEntries = 128
+	m := NewTypedMapOf[foo, foo](func(f foo) uint64 {
+		return uint64(31*f.x + f.y)
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(foo{i, -i}, foo{-i, i})
+	}
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(foo{i, -i})
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if v.x != -i {
+			t.Errorf("x value does not match for %d: %v", i, v)
+		}
+		if v.y != i {
+			t.Errorf("y value does not match for %d: %v", i, v)
+		}
+	}
+}
+
 func TestMapOfSerialLoadOrStore(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
@@ -280,6 +346,40 @@ func TestMapOfSerialStoreThenDelete(t *testing.T) {
 	}
 }
 
+func TestIntegerMapOfSerialStoreThenDelete(t *testing.T) {
+	const numEntries = 1000
+	m := NewIntegerMapOf[int32, int32]()
+	for i := 0; i < numEntries; i++ {
+		m.Store(int32(i), int32(i))
+	}
+	for i := 0; i < numEntries; i++ {
+		m.Delete(int32(i))
+		if _, ok := m.Load(int32(i)); ok {
+			t.Errorf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStoreThenDelete(t *testing.T) {
+	type foo struct {
+		x int
+		y int
+	}
+	const numEntries = 1000
+	m := NewTypedMapOf[foo, string](func(f foo) uint64 {
+		return uint64(31*f.x + f.y)
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(foo{i, 42}, strconv.Itoa(i))
+	}
+	for i := 0; i < numEntries; i++ {
+		m.Delete(foo{i, 42})
+		if _, ok := m.Load(foo{i, 42}); ok {
+			t.Errorf("value was not expected for %d", i)
+		}
+	}
+}
+
 func TestMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
@@ -291,6 +391,44 @@ func TestMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
 			t.Errorf("value was not found for %d", i)
 		}
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
+			t.Errorf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestIntegerMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
+	const numEntries = 1000
+	m := NewIntegerMapOf[int, int]()
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		if _, loaded := m.LoadAndDelete(i); !loaded {
+			t.Errorf("value was not found for %d", i)
+		}
+		if _, ok := m.Load(i); ok {
+			t.Errorf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
+	type foo struct {
+		x int
+		y int
+	}
+	const numEntries = 1000
+	m := NewTypedMapOf[foo, int](func(f foo) uint64 {
+		return uint64(31*f.x + f.y)
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(foo{42, i}, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		if _, loaded := m.LoadAndDelete(foo{42, i}); !loaded {
+			t.Errorf("value was not found for %d", i)
+		}
+		if _, ok := m.Load(foo{42, i}); ok {
 			t.Errorf("value was not expected for %d", i)
 		}
 	}
