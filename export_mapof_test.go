@@ -3,6 +3,6 @@
 
 package xsync
 
-func CollectMapOfStats[V any](m *MapOf[V]) MapStats {
+func CollectMapOfStats[K comparable, V any](m *MapOf[K, V]) MapStats {
 	return MapStats{m.stats()}
 }

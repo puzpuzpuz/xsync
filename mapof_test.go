@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -253,6 +254,93 @@ func TestMapOfSerialStore(t *testing.T) {
 	}
 }
 
+func TestIntegerMapOfSerialStore(t *testing.T) {
+	const numEntries = 128
+	m := NewIntegerMapOf[int, int]()
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(i)
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStore_StructKeys_IntValues(t *testing.T) {
+	type foo struct {
+		x int
+		y int
+	}
+	const numEntries = 128
+	m := NewTypedMapOf[foo, int](func(f foo) uint64 {
+		return uint64(31*f.x + f.y)
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(foo{i, -i}, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(foo{i, -i})
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStore_StructKeys_StructValues(t *testing.T) {
+	type foo struct {
+		x int
+		y int
+	}
+	const numEntries = 128
+	m := NewTypedMapOf[foo, foo](func(f foo) uint64 {
+		return uint64(31*f.x + f.y)
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(foo{i, -i}, foo{-i, i})
+	}
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(foo{i, -i})
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if v.x != -i {
+			t.Errorf("x value does not match for %d: %v", i, v)
+		}
+		if v.y != i {
+			t.Errorf("y value does not match for %d: %v", i, v)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStore_HashCodeCollisions(t *testing.T) {
+	const numEntries = 1000
+	m := NewTypedMapOf[int, int](func(i int) uint64 {
+		// We intentionally use an awful hash function here to make sure
+		// that the map copes with key collisions.
+		return 42
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(i)
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
 func TestMapOfSerialLoadOrStore(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
@@ -280,6 +368,40 @@ func TestMapOfSerialStoreThenDelete(t *testing.T) {
 	}
 }
 
+func TestIntegerMapOfSerialStoreThenDelete(t *testing.T) {
+	const numEntries = 1000
+	m := NewIntegerMapOf[int32, int32]()
+	for i := 0; i < numEntries; i++ {
+		m.Store(int32(i), int32(i))
+	}
+	for i := 0; i < numEntries; i++ {
+		m.Delete(int32(i))
+		if _, ok := m.Load(int32(i)); ok {
+			t.Errorf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStoreThenDelete(t *testing.T) {
+	type foo struct {
+		x int
+		y int
+	}
+	const numEntries = 1000
+	m := NewTypedMapOf[foo, string](func(f foo) uint64 {
+		return uint64(31*f.x + f.y)
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(foo{i, 42}, strconv.Itoa(i))
+	}
+	for i := 0; i < numEntries; i++ {
+		m.Delete(foo{i, 42})
+		if _, ok := m.Load(foo{i, 42}); ok {
+			t.Errorf("value was not expected for %d", i)
+		}
+	}
+}
+
 func TestMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
@@ -291,6 +413,44 @@ func TestMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
 			t.Errorf("value was not found for %d", i)
 		}
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
+			t.Errorf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestIntegerMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
+	const numEntries = 1000
+	m := NewIntegerMapOf[int, int]()
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		if _, loaded := m.LoadAndDelete(i); !loaded {
+			t.Errorf("value was not found for %d", i)
+		}
+		if _, ok := m.Load(i); ok {
+			t.Errorf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestTypedMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
+	type foo struct {
+		x int
+		y int
+	}
+	const numEntries = 1000
+	m := NewTypedMapOf[foo, int](func(f foo) uint64 {
+		return uint64(31*f.x + f.y)
+	})
+	for i := 0; i < numEntries; i++ {
+		m.Store(foo{42, i}, i)
+	}
+	for i := 0; i < numEntries; i++ {
+		if _, loaded := m.LoadAndDelete(foo{42, i}); !loaded {
+			t.Errorf("value was not found for %d", i)
+		}
+		if _, ok := m.Load(foo{42, i}); ok {
 			t.Errorf("value was not expected for %d", i)
 		}
 	}
@@ -386,7 +546,7 @@ func TestMapOfResize_CounterLenLimit(t *testing.T) {
 	}
 }
 
-func parallelSeqTypedStorer(t *testing.T, m *MapOf[int], storeEach, numIters, numEntries int, cdone chan bool) {
+func parallelSeqTypedStorer(t *testing.T, m *MapOf[string, int], storeEach, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			if storeEach == 0 || j%storeEach == 0 {
@@ -432,7 +592,7 @@ func TestMapOfParallelStores(t *testing.T) {
 	}
 }
 
-func parallelRandTypedStorer(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedStorer(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
@@ -445,7 +605,7 @@ func parallelRandTypedStorer(t *testing.T, m *MapOf[int], numIters, numEntries i
 	cdone <- true
 }
 
-func parallelRandTypedDeleter(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedDeleter(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
@@ -458,7 +618,7 @@ func parallelRandTypedDeleter(t *testing.T, m *MapOf[int], numIters, numEntries 
 	cdone <- true
 }
 
-func parallelTypedLoader(t *testing.T, m *MapOf[int], numIters, numEntries int, cdone chan bool) {
+func parallelTypedLoader(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			// Due to atomic snapshots we must either see no entry, or a "<j>"/j pair.
@@ -512,7 +672,7 @@ func BenchmarkMapOf_NoWarmUp(b *testing.B) {
 		}
 		b.Run(bc.name, func(b *testing.B) {
 			m := NewMapOf[int]()
-			benchmarkMapInt(b, func(k string) (int, bool) {
+			benchmarkMapOfStringKeys(b, func(k string) (int, bool) {
 				return m.Load(k)
 			}, func(k string, v int) {
 				m.Store(k, v)
@@ -530,7 +690,7 @@ func BenchmarkMapOf_WarmUp(b *testing.B) {
 			for i := 0; i < benchmarkNumEntries; i++ {
 				m.Store(benchmarkKeyPrefix+strconv.Itoa(i), i)
 			}
-			benchmarkMapInt(b, func(k string) (int, bool) {
+			benchmarkMapOfStringKeys(b, func(k string) (int, bool) {
 				return m.Load(k)
 			}, func(k string, v int) {
 				m.Store(k, v)
@@ -541,7 +701,7 @@ func BenchmarkMapOf_WarmUp(b *testing.B) {
 	}
 }
 
-func benchmarkMapInt(
+func benchmarkMapOfStringKeys(
 	b *testing.B,
 	loadFn func(k string) (int, bool),
 	storeFn func(k string, v int),
@@ -563,6 +723,119 @@ func benchmarkMapInt(
 				storeFn(benchmarkKeys[i], i)
 			} else {
 				loadFn(benchmarkKeys[i])
+			}
+		}
+	})
+}
+
+func BenchmarkIntegerMapOf_NoWarmUp(b *testing.B) {
+	for _, bc := range benchmarkCases {
+		if bc.readPercentage == 100 {
+			// This benchmark doesn't make sense without a warm-up.
+			continue
+		}
+		b.Run(bc.name, func(b *testing.B) {
+			m := NewIntegerMapOf[int, int]()
+			benchmarkMapOfIntegerKeys(b, func(k int) (int, bool) {
+				return m.Load(k)
+			}, func(k int, v int) {
+				m.Store(k, v)
+			}, func(k int) {
+				m.Delete(k)
+			}, bc.readPercentage)
+		})
+	}
+}
+
+func BenchmarkIntegerMapOf_WarmUp(b *testing.B) {
+	for _, bc := range benchmarkCases {
+		b.Run(bc.name, func(b *testing.B) {
+			m := NewIntegerMapOf[int, int]()
+			for i := 0; i < benchmarkNumEntries; i++ {
+				m.Store(i, i)
+			}
+			benchmarkMapOfIntegerKeys(b, func(k int) (int, bool) {
+				return m.Load(k)
+			}, func(k int, v int) {
+				m.Store(k, v)
+			}, func(k int) {
+				m.Delete(k)
+			}, bc.readPercentage)
+		})
+	}
+}
+
+func BenchmarkIntegerMapStandard_NoWarmUp(b *testing.B) {
+	for _, bc := range benchmarkCases {
+		if bc.readPercentage == 100 {
+			// This benchmark doesn't make sense without a warm-up.
+			continue
+		}
+		b.Run(bc.name, func(b *testing.B) {
+			var m sync.Map
+			benchmarkMapOfIntegerKeys(b, func(k int) (value int, ok bool) {
+				v, ok := m.Load(k)
+				if ok {
+					return v.(int), ok
+				} else {
+					return 0, false
+				}
+			}, func(k int, v int) {
+				m.Store(k, v)
+			}, func(k int) {
+				m.Delete(k)
+			}, bc.readPercentage)
+		})
+	}
+}
+
+// This is a nice scenario for sync.Map since a lot of updates
+// will hit the readOnly part of the map.
+func BenchmarkIntegerMapStandard_WarmUp(b *testing.B) {
+	for _, bc := range benchmarkCases {
+		b.Run(bc.name, func(b *testing.B) {
+			var m sync.Map
+			for i := 0; i < benchmarkNumEntries; i++ {
+				m.Store(i, i)
+			}
+			benchmarkMapOfIntegerKeys(b, func(k int) (value int, ok bool) {
+				v, ok := m.Load(k)
+				if ok {
+					return v.(int), ok
+				} else {
+					return 0, false
+				}
+			}, func(k int, v int) {
+				m.Store(k, v)
+			}, func(k int) {
+				m.Delete(k)
+			}, bc.readPercentage)
+		})
+	}
+}
+
+func benchmarkMapOfIntegerKeys(
+	b *testing.B,
+	loadFn func(k int) (int, bool),
+	storeFn func(k int, v int),
+	deleteFn func(k int),
+	readPercentage int,
+) {
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		// convert percent to permille to support 99% case
+		storeThreshold := 10 * readPercentage
+		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
+		for pb.Next() {
+			op := r.Intn(1000)
+			i := r.Intn(benchmarkNumEntries)
+			if op >= deleteThreshold {
+				deleteFn(i)
+			} else if op >= storeThreshold {
+				storeFn(i, i)
+			} else {
+				loadFn(i)
 			}
 		}
 	})
