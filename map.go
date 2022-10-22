@@ -167,25 +167,52 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 
 // Store sets the value for a key.
 func (m *Map) Store(key string, value interface{}) {
-	m.doStore(key, value, false)
+	m.doStore(
+		key,
+		func() interface{} {
+			return value
+		},
+		false,
+	)
 }
 
 // LoadOrStore returns the existing value for the key if present.
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
 func (m *Map) LoadOrStore(key string, value interface{}) (actual interface{}, loaded bool) {
-	return m.doStore(key, value, true)
+	return m.doStore(
+		key,
+		func() interface{} {
+			return value
+		},
+		true,
+	)
 }
 
 // LoadAndStore returns the existing value for the key if present,
 // while setting the new value for the key.
-// Otherwise, it stores and returns the given value.
-// The loaded result is true if the value was loaded, false otherwise.
+// It stores the new value and returns the existing one, if present.
+// The loaded result is true if the existing value was loaded,
+// false otherwise.
 func (m *Map) LoadAndStore(key string, value interface{}) (actual interface{}, loaded bool) {
-	return m.doStore(key, value, false)
+	return m.doStore(
+		key,
+		func() interface{} {
+			return value
+		},
+		false,
+	)
 }
 
-func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (interface{}, bool) {
+// LoadOrCompute returns the existing value for the key if present.
+// Otherwise, it computes the value using the provided function and
+// returns the computed value. The loaded result is true if the value
+// was loaded, false if stored.
+func (m *Map) LoadOrCompute(key string, valueFn func() interface{}) (actual interface{}, loaded bool) {
+	return m.doStore(key, valueFn, true)
+}
+
+func (m *Map) doStore(key string, valueFn func() interface{}, loadIfExists bool) (interface{}, bool) {
 	// Read-only path.
 	if loadIfExists {
 		if v, ok := m.Load(key); ok {
@@ -241,12 +268,14 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (interfa
 					// interface{} on each call, thus the live value pointers are
 					// unique. Otherwise atomic snapshot won't be correct in case
 					// of multiple Store calls using the same value.
+					value := valueFn()
 					nvp := unsafe.Pointer(&value)
 					if assertionsEnabled && vp == nvp {
 						panic("non-unique value pointer")
 					}
 					atomic.StorePointer(&b.values[i], nvp)
 					unlockBucket(&rootb.topHashMutex)
+					// LoadAndStore expects the old value to be returned.
 					return derefValue(vp), true
 				}
 			}
@@ -255,6 +284,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (interfa
 					// Insertion case. First we update the value, then the key.
 					// This is important for atomic snapshot states.
 					atomic.StoreUint64(&b.topHashMutex, storeTopHash(hash, topHashes, emptyidx))
+					value := valueFn()
 					atomic.StorePointer(emptyvp, unsafe.Pointer(&value))
 					atomic.StorePointer(emptykp, unsafe.Pointer(&key))
 					unlockBucket(&rootb.topHashMutex)
@@ -271,6 +301,7 @@ func (m *Map) doStore(key string, value interface{}, loadIfExists bool) (interfa
 				// Create and append a new bucket.
 				newb := new(bucketPadded)
 				newb.keys[0] = unsafe.Pointer(&key)
+				value := valueFn()
 				newb.values[0] = unsafe.Pointer(&value)
 				newb.topHashMutex = storeTopHash(hash, topHashes, emptyidx)
 				atomic.StorePointer(&b.next, unsafe.Pointer(newb))

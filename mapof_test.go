@@ -130,6 +130,14 @@ func TestMapOfLoadOrStore_NonNilValue(t *testing.T) {
 	if v != newv {
 		t.Errorf("value does not match: %v", v)
 	}
+	newv2 := &foo{}
+	v, loaded = m.LoadOrStore("foo", newv2)
+	if !loaded {
+		t.Error("value was expected")
+	}
+	if v != newv {
+		t.Errorf("value does not match: %v", v)
+	}
 }
 
 func TestMapOfLoadAndStore_NilValue(t *testing.T) {
@@ -350,6 +358,33 @@ func TestMapOfSerialLoadOrStore(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		if _, loaded := m.LoadOrStore(strconv.Itoa(i), i); !loaded {
 			t.Errorf("value not found for %d", i)
+		}
+	}
+}
+
+func TestMapOfSerialLoadOrCompute(t *testing.T) {
+	const numEntries = 1000
+	m := NewMapOf[int]()
+	for i := 0; i < numEntries; i++ {
+		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() int {
+			return i
+		})
+		if loaded {
+			t.Errorf("value not computed for %d", i)
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+	for i := 0; i < numEntries; i++ {
+		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() int {
+			return i
+		})
+		if !loaded {
+			t.Errorf("value not loaded for %d", i)
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
 		}
 	}
 }
