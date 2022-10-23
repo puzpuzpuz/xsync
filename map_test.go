@@ -619,7 +619,7 @@ func TestMapTopHashMutex_Set_WhileLocked(t *testing.T) {
 }
 
 func testMapTopHashMutex_Set(t *testing.T, topHashes *uint64) {
-	hash := uint64(0xd4ab000000000000) // top hash is 1101010010101011
+	hash := uint64(0b1101_0100_1010_1011_1101 << 44)
 	for i := 0; i < EntriesPerMapBucket; i++ {
 		if TopHashMatch(hash, *topHashes, i) {
 			t.Errorf("top hash match for all zeros for index %d", i)
@@ -653,7 +653,7 @@ func TestMapTopHashMutex_Delete_WhileLocked(t *testing.T) {
 }
 
 func testMapTopHashMutex_Delete(t *testing.T, topHashes *uint64) {
-	hash := uint64(0xabababababababab) // top hash is 1010101110101011
+	hash := uint64(0xababaaaaaaaaaaaa) // top hash is 1010_1011_1010_1011_1010
 	for i := 0; i < EntriesPerMapBucket; i++ {
 		*topHashes = StoreTopHash(hash, *topHashes, i)
 		ones := bits.OnesCount64(*topHashes)
@@ -683,8 +683,8 @@ func TestMapTopHashMutex_SetAfterDelete_WhileLocked(t *testing.T) {
 }
 
 func testMapTopHashMutex_SetAfterDelete(t *testing.T, topHashes *uint64) {
-	hashOne := uint64(0xd4d4000000000000) // top hash is 1101010011010100
-	hashTwo := uint64(0xabab000000000000) // top hash is 1010101110101011
+	hashOne := uint64(0b1101_0100_1101_0100_1101 << 44)
+	hashTwo := uint64(0b1010_1011_1010_1011_1010 << 44)
 	idx := 2
 
 	*topHashes = StoreTopHash(hashOne, *topHashes, idx)
