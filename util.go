@@ -14,8 +14,12 @@ const (
 	// memory footprint and performance; 128B usage may give ~30%
 	// improvement on NUMA machines
 	cacheLineSize = 64
-	// the seed value is of an absolutely arbitrary choice
-	maphashSeed = 42
+)
+
+var (
+	s1          = uint64(fastrand())
+	s2          = uint64(fastrand())
+	maphashSeed = uintptr(s1<<32 + s2)
 )
 
 // murmurhash3 64-bit finalizer
@@ -37,10 +41,14 @@ func mixhash64(v uint64) uint64 {
 	return v
 }
 
-// exposes the built-in memhash function
-func maphash64(s string) uint64 {
+// StrHash64 is the built-in string hash function.
+// It might be handy when writing a hasher function for NewTypedMapOf.
+//
+// Returned hash codes are is local to a single process and cannot
+// be recreated in a different process.
+func StrHash64(s string) uint64 {
 	if s == "" {
-		return maphashSeed
+		return uint64(maphashSeed)
 	}
 	strh := (*reflect.StringHeader)(unsafe.Pointer(&s))
 	return uint64(memhash(unsafe.Pointer(strh.Data), maphashSeed, uintptr(strh.Len)))
@@ -49,3 +57,7 @@ func maphash64(s string) uint64 {
 //go:noescape
 //go:linkname memhash runtime.memhash
 func memhash(p unsafe.Pointer, h, s uintptr) uintptr
+
+//go:noescape
+//go:linkname fastrand runtime.fastrand
+func fastrand() uint32
