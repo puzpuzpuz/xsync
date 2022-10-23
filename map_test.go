@@ -42,12 +42,9 @@ func init() {
 }
 
 func TestMap_BucketStructSize(t *testing.T) {
-	if bits.UintSize != 64 {
-		return // skip for 32-bit builds
-	}
 	size := unsafe.Sizeof(BucketPadded{})
-	if size != 128 {
-		t.Errorf("size of 128B (2 cache lines) is expected, got: %d", size)
+	if size != 64 {
+		t.Errorf("size of 64B (one cache line) is expected, got: %d", size)
 	}
 }
 
@@ -622,7 +619,7 @@ func TestMapTopHashMutex_Set_WhileLocked(t *testing.T) {
 }
 
 func testMapTopHashMutex_Set(t *testing.T, topHashes *uint64) {
-	hash := uint64(0xd400000000000000) // top hash is 11010100
+	hash := uint64(0xd4ab000000000000) // top hash is 1101010010101011
 	for i := 0; i < EntriesPerMapBucket; i++ {
 		if TopHashMatch(hash, *topHashes, i) {
 			t.Errorf("top hash match for all zeros for index %d", i)
@@ -656,7 +653,7 @@ func TestMapTopHashMutex_Delete_WhileLocked(t *testing.T) {
 }
 
 func testMapTopHashMutex_Delete(t *testing.T, topHashes *uint64) {
-	hash := uint64(0xabababababababab) // top hash is 10101011
+	hash := uint64(0xabababababababab) // top hash is 1010101110101011
 	for i := 0; i < EntriesPerMapBucket; i++ {
 		*topHashes = StoreTopHash(hash, *topHashes, i)
 		ones := bits.OnesCount64(*topHashes)
@@ -686,9 +683,9 @@ func TestMapTopHashMutex_SetAfterDelete_WhileLocked(t *testing.T) {
 }
 
 func testMapTopHashMutex_SetAfterDelete(t *testing.T, topHashes *uint64) {
-	hashOne := uint64(0xd400000000000000) // top hash is 11010100
-	hashTwo := uint64(0xab00000000000000) // top hash is 10101011
-	idx := 3
+	hashOne := uint64(0xd4d4000000000000) // top hash is 1101010011010100
+	hashTwo := uint64(0xabab000000000000) // top hash is 1010101110101011
+	idx := 2
 
 	*topHashes = StoreTopHash(hashOne, *topHashes, idx)
 	if !TopHashMatch(hashOne, *topHashes, idx) {
