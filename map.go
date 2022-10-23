@@ -29,9 +29,18 @@ const (
 	mapLoadFactor = 0.75
 	// minimal table size, i.e. number of buckets; thus, minimal map
 	// capacity can be calculated as entriesPerMapBucket*minMapTableLen
-	minMapTableLen = 16
+	minMapTableLen = 32
 	// maximum counter stripes to use; stands for around 8KB of memory
 	maxMapCounterLen = 64
+)
+
+var (
+	topHashMask       = uint64((1 << 20) - 1)
+	topHashEntryMasks = [3]uint64{
+		^(topHashMask << 44),
+		^(topHashMask << 24),
+		^(topHashMask << 4),
+	}
 )
 
 // Map is like a Go map[string]interface{} but is safe for concurrent
@@ -88,13 +97,12 @@ type bucket struct {
 	values [entriesPerMapBucket]unsafe.Pointer
 	// topHashMutex is a 2-in-1 value.
 	//
-	// First, it contains packed top 2 bytes (16 MSBs) of hash codes for
-	// keys stored in the bucket:
-	// | key 0's top hash | key 1's top hash | key 2's top hash | unused | bitmap for keys |
-	// |      2 bytes     |      2 bytes     |      2 bytes     | 1 byte |     1 byte      |
+	// It contains packed top 20 bits (20 MSBs) of hash codes for keys
+	// stored in the bucket:
+	// | key 0's top hash | key 1's top hash | key 2's top hash | bitmap for keys | mutex |
+	// |      20 bits     |      20 bits     |      20 bits     |     3 bits      | 1 bit |
 	//
-	// Second, the least significant bit in the bitmap for keys byte
-	// is used for the mutex (TTAS spinlock).
+	// The least significant bit is used for the mutex (TTAS spinlock).
 	topHashMutex uint64
 }
 
@@ -610,19 +618,19 @@ func topHashMatch(hash, topHashes uint64, idx int) bool {
 		// Entry is not present.
 		return false
 	}
-	top := uint16(hash >> 48)
-	topHashes = topHashes >> (16 * (entriesPerMapBucket - idx))
-	return top == uint16(topHashes)
+	top := uint32(hash >> 44)
+	topHashes = topHashes >> (20*(2-idx) + 4)
+	return top == uint32(topHashes&topHashMask)
 }
 
 func storeTopHash(hash, topHashes uint64, idx int) uint64 {
 	// Zero out top hash at idx.
-	mask := uint64(65535) << (16 * (entriesPerMapBucket - idx))
-	topHashes = topHashes &^ mask
-	// Store top byte of the given hash.
-	top := (hash >> 48) << (16 * (entriesPerMapBucket - idx))
+	topHashes = topHashes & topHashEntryMasks[idx]
+	// Chop top 20 MSBs of the given hash and position them at idx.
+	top := (hash >> 44) << (20*(2-idx) + 4)
+	// Store the MSBs.
 	topHashes = topHashes | top
-	topHashes = topHashes | (1 << (idx + 1))
+	// Mark the entry as present.
 	return topHashes | (1 << (idx + 1))
 }
 
