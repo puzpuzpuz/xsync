@@ -43,7 +43,7 @@ type MapOf[K comparable, V any] struct {
 // NewMapOf creates a new MapOf instance with string keys
 func NewMapOf[V any]() *MapOf[string, V] {
 	return NewTypedMapOf[string, V](func(k string) uint64 {
-		return maphash64(k)
+		return StrHash64(k)
 	})
 }
 
@@ -62,7 +62,9 @@ func NewIntegerMapOf[K IntegerConstraint, V any]() *MapOf[K, V] {
 }
 
 // NewTypedMapOf creates a new MapOf instance with arbitrarily typed keys.
-// Keys are hashed to uint64 using the hasher fn.
+// Keys are hashed to uint64 using the hasher function. Note that StrHash64
+// function might be handy when writing the hasher function for structs with
+// string fields.
 func NewTypedMapOf[K comparable, V any](hasher func(K) uint64) *MapOf[K, V] {
 	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)

@@ -132,7 +132,7 @@ func newMapTable(size int) *mapTable {
 // value is present.
 // The ok result indicates whether value was found in the map.
 func (m *Map) Load(key string) (value interface{}, ok bool) {
-	hash := maphash64(key)
+	hash := StrHash64(key)
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	bidx := bucketIdx(table, hash)
 	b := &table.buckets[bidx]
@@ -220,7 +220,7 @@ func (m *Map) doStore(key string, valueFn func() interface{}, loadIfExists bool)
 		}
 	}
 	// Write path.
-	hash := maphash64(key)
+	hash := StrHash64(key)
 	for {
 	store_attempt:
 		var (
@@ -388,7 +388,7 @@ func copyBucket(b *bucketPadded, destTable *mapTable) (copied int) {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
 				k := derefKey(b.keys[i])
-				hash := maphash64(k)
+				hash := StrHash64(k)
 				bidx := bucketIdx(destTable, hash)
 				destb := &destTable.buckets[bidx]
 				appendToBucket(hash, b.keys[i], b.values[i], destb)
@@ -429,7 +429,7 @@ func appendToBucket(hash uint64, keyPtr, valPtr unsafe.Pointer, b *bucketPadded)
 // value if any. The loaded result reports whether the key was
 // present.
 func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
-	hash := maphash64(key)
+	hash := StrHash64(key)
 	for {
 		hintNonEmpty := 0
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
