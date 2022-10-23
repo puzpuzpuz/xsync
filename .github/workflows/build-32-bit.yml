@@ -9,9 +9,9 @@ jobs:
         go-version: [1.19.x]
     name: Build with Go ${{ matrix.go-version }} 32-bit
     steps:
-      - uses: actions/checkout@v2.3.4
+      - uses: actions/checkout@v3
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           stable: false
           go-version: ${{ matrix.go-version }}
