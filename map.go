@@ -17,16 +17,16 @@ const (
 )
 
 const (
-	// number of entries per bucket; 7 entries lead to size of 128B
-	// (2 cache lines) on 64-bit machines
-	entriesPerMapBucket = 7
+	// number of entries per bucket; 3 entries lead to size of 64B
+	// (one cache line) on 64-bit machines
+	entriesPerMapBucket = 3
 	// threshold fraction of table occupation to start a table shrinking
 	// when deleting the last entry in a bucket chain
 	mapShrinkFraction = 128
 	// map load factor to trigger a table resize during insertion;
 	// a map holds up to mapLoadFactor*entriesPerMapBucket*mapTableLen
-	// key-value pairs
-	mapLoadFactor = 1.0
+	// key-value pairs (this is a soft limit)
+	mapLoadFactor = 0.75
 	// minimal table size, i.e. number of buckets; thus, minimal map
 	// capacity can be calculated as entriesPerMapBucket*minMapTableLen
 	minMapTableLen = 16
@@ -78,7 +78,7 @@ type counterStripe struct {
 
 type bucketPadded struct {
 	//lint:ignore U1000 ensure each bucket takes two cache lines on both 32 and 64-bit archs
-	pad [2*cacheLineSize - unsafe.Sizeof(bucket{})]byte
+	pad [cacheLineSize - unsafe.Sizeof(bucket{})]byte
 	bucket
 }
 
@@ -88,10 +88,10 @@ type bucket struct {
 	values [entriesPerMapBucket]unsafe.Pointer
 	// topHashMutex is a 2-in-1 value.
 	//
-	// First, it contains packed top bytes (8 MSBs) of hash codes for
+	// First, it contains packed top 2 bytes (16 MSBs) of hash codes for
 	// keys stored in the bucket:
-	// | key 0's top hash | ... | key 7's top hash | bitmap for keys |
-	// |      1 byte      | ... |      1 byte      |     1 byte      |
+	// | key 0's top hash | key 1's top hash | key 2's top hash | unused | bitmap for keys |
+	// |      2 bytes     |      2 bytes     |      2 bytes     | 1 byte |     1 byte      |
 	//
 	// Second, the least significant bit in the bitmap for keys byte
 	// is used for the mutex (TTAS spinlock).
@@ -610,17 +610,17 @@ func topHashMatch(hash, topHashes uint64, idx int) bool {
 		// Entry is not present.
 		return false
 	}
-	top := uint8(hash >> 56)
-	topHashes = topHashes >> (8 * (entriesPerMapBucket - idx))
-	return top == uint8(topHashes)
+	top := uint16(hash >> 48)
+	topHashes = topHashes >> (16 * (entriesPerMapBucket - idx))
+	return top == uint16(topHashes)
 }
 
 func storeTopHash(hash, topHashes uint64, idx int) uint64 {
 	// Zero out top hash at idx.
-	mask := uint64(255) << (8 * (entriesPerMapBucket - idx))
+	mask := uint64(65535) << (16 * (entriesPerMapBucket - idx))
 	topHashes = topHashes &^ mask
 	// Store top byte of the given hash.
-	top := (hash >> 56) << (8 * (entriesPerMapBucket - idx))
+	top := (hash >> 48) << (16 * (entriesPerMapBucket - idx))
 	topHashes = topHashes | top
 	topHashes = topHashes | (1 << (idx + 1))
 	return topHashes | (1 << (idx + 1))
