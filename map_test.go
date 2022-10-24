@@ -606,19 +606,19 @@ func TestMapTopHashMutex(t *testing.T) {
 	}
 }
 
-func TestMapTopHashMutex_Set_NoLock(t *testing.T) {
+func TestMapTopHashMutex_Store_NoLock(t *testing.T) {
 	mu := uint64(0)
-	testMapTopHashMutex_Set(t, &mu)
+	testMapTopHashMutex_Store(t, &mu)
 }
 
-func TestMapTopHashMutex_Set_WhileLocked(t *testing.T) {
+func TestMapTopHashMutex_Store_WhileLocked(t *testing.T) {
 	mu := uint64(0)
 	LockBucket(&mu)
 	defer UnlockBucket(&mu)
-	testMapTopHashMutex_Set(t, &mu)
+	testMapTopHashMutex_Store(t, &mu)
 }
 
-func testMapTopHashMutex_Set(t *testing.T, topHashes *uint64) {
+func testMapTopHashMutex_Store(t *testing.T, topHashes *uint64) {
 	hash := uint64(0b1101_0100_1010_1011_1101 << 44)
 	for i := 0; i < EntriesPerMapBucket; i++ {
 		if TopHashMatch(hash, *topHashes, i) {
@@ -640,19 +640,19 @@ func testMapTopHashMutex_Set(t *testing.T, topHashes *uint64) {
 	}
 }
 
-func TestMapTopHashMutex_Delete_NoLock(t *testing.T) {
+func TestMapTopHashMutex_Erase_NoLock(t *testing.T) {
 	mu := uint64(0)
-	testMapTopHashMutex_Delete(t, &mu)
+	testMapTopHashMutex_Erase(t, &mu)
 }
 
-func TestMapTopHashMutex_Delete_WhileLocked(t *testing.T) {
+func TestMapTopHashMutex_Erase_WhileLocked(t *testing.T) {
 	mu := uint64(0)
 	LockBucket(&mu)
 	defer UnlockBucket(&mu)
-	testMapTopHashMutex_Delete(t, &mu)
+	testMapTopHashMutex_Erase(t, &mu)
 }
 
-func testMapTopHashMutex_Delete(t *testing.T, topHashes *uint64) {
+func testMapTopHashMutex_Erase(t *testing.T, topHashes *uint64) {
 	hash := uint64(0xababaaaaaaaaaaaa) // top hash is 1010_1011_1010_1011_1010
 	for i := 0; i < EntriesPerMapBucket; i++ {
 		*topHashes = StoreTopHash(hash, *topHashes, i)
@@ -670,21 +670,21 @@ func testMapTopHashMutex_Delete(t *testing.T, topHashes *uint64) {
 	}
 }
 
-func TestMapTopHashMutex_SetAfterDelete_NoLock(t *testing.T) {
+func TestMapTopHashMutex_StoreAfterErase_NoLock(t *testing.T) {
 	mu := uint64(0)
-	testMapTopHashMutex_SetAfterDelete(t, &mu)
+	testMapTopHashMutex_StoreAfterErase(t, &mu)
 }
 
-func TestMapTopHashMutex_SetAfterDelete_WhileLocked(t *testing.T) {
+func TestMapTopHashMutex_StoreAfterErase_WhileLocked(t *testing.T) {
 	mu := uint64(0)
 	LockBucket(&mu)
 	defer UnlockBucket(&mu)
-	testMapTopHashMutex_SetAfterDelete(t, &mu)
+	testMapTopHashMutex_StoreAfterErase(t, &mu)
 }
 
-func testMapTopHashMutex_SetAfterDelete(t *testing.T, topHashes *uint64) {
-	hashOne := uint64(0b1101_0100_1101_0100_1101 << 44)
-	hashTwo := uint64(0b1010_1011_1010_1011_1010 << 44)
+func testMapTopHashMutex_StoreAfterErase(t *testing.T, topHashes *uint64) {
+	hashOne := uint64(0b1101_0100_1101_0100_1101_1111 << 40) // top hash is 1101_0100_1101_0100_1101
+	hashTwo := uint64(0b1010_1011_1010_1011_1010_1111 << 40) // top hash is 1010_1011_1010_1011_1010
 	idx := 2
 
 	*topHashes = StoreTopHash(hashOne, *topHashes, idx)

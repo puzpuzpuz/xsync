@@ -35,11 +35,11 @@ const (
 )
 
 var (
-	topHashMask       = uint64((1 << 20) - 1)
+	topHashMask       = uint64((1<<20)-1) << 44
 	topHashEntryMasks = [3]uint64{
-		^(topHashMask << 44),
-		^(topHashMask << 24),
-		^(topHashMask << 4),
+		topHashMask,
+		topHashMask >> 20,
+		topHashMask >> 40,
 	}
 )
 
@@ -618,18 +618,18 @@ func topHashMatch(hash, topHashes uint64, idx int) bool {
 		// Entry is not present.
 		return false
 	}
-	top := uint32(hash >> 44)
-	topHashes = topHashes >> (20*(2-idx) + 4)
-	return top == uint32(topHashes&topHashMask)
+	hash = hash & topHashMask
+	topHashes = (topHashes & topHashEntryMasks[idx]) << (20 * idx)
+	return hash == topHashes
 }
 
 func storeTopHash(hash, topHashes uint64, idx int) uint64 {
 	// Zero out top hash at idx.
-	topHashes = topHashes & topHashEntryMasks[idx]
+	topHashes = topHashes &^ topHashEntryMasks[idx]
 	// Chop top 20 MSBs of the given hash and position them at idx.
-	top := (hash >> 44) << (20*(2-idx) + 4)
+	hash = (hash & topHashMask) >> (20 * idx)
 	// Store the MSBs.
-	topHashes = topHashes | top
+	topHashes = topHashes | hash
 	// Mark the entry as present.
 	return topHashes | (1 << (idx + 1))
 }
