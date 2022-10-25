@@ -55,15 +55,22 @@ v, ok := m.Load("foo")
 One important difference with `Map` is that `MapOf` supports arbitrary `comparable` key types:
 
 ```go
-type point struct {
-	x int
-	y int
+type Point struct {
+	x int32
+	y int32
 }
-// provide a hash function when creating the MapOf
-m := NewTypedMapOf[point, int](func(p point) uint64 {
-	return uint64(31*p.x + p.y)
+m := NewTypedMapOf[Point, int](func(seed maphash.Seed, p Point) uint64 {
+	// provide a hash function when creating the MapOf;
+	// we recommend using the hash/maphash package for the function
+	var h maphash.Hash
+	h.SetSeed(seed)
+	binary.Write(&h, binary.LittleEndian, p.x)
+	hash := h.Sum64()
+	h.Reset()
+	binary.Write(&h, binary.LittleEndian, p.y)
+	return 31*hash + h.Sum64()
 })
-m.Store(point{42, 42}, 42)
+m.Store(Point{42, 42}, 42)
 v, ok := m.Load(point{42, 42})
 ```
 
