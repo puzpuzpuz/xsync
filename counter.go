@@ -54,7 +54,7 @@ func (c *Counter) Add(delta int64) {
 	if !ok {
 		t = new(ptoken)
 		// Since cstripes is a power of two, we can use & instead of %.
-		t.idx = uint32(mixhash64ptr(uintptr(unsafe.Pointer(t))) & (cstripes - 1))
+		t.idx = uint32(mixhash64(uintptr(unsafe.Pointer(t))) & (cstripes - 1))
 	}
 	stripe := &c.stripes[t.idx]
 	atomic.AddInt64(&stripe.c, delta)

@@ -38,7 +38,6 @@ type MapOf[K comparable, V any] struct {
 	resizeMu     sync.Mutex     // only used along with resizeCond
 	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
 	table        unsafe.Pointer // *mapTable
-	seed         maphash.Seed
 	hasher       func(maphash.Seed, K) uint64
 }
 
@@ -66,7 +65,6 @@ func NewIntegerMapOf[K IntegerConstraint, V any]() *MapOf[K, V] {
 func NewTypedMapOf[K comparable, V any](hasher func(maphash.Seed, K) uint64) *MapOf[K, V] {
 	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
-	m.seed = maphash.MakeSeed()
 	m.hasher = hasher
 	table := newMapTable(minMapTableLen)
 	atomic.StorePointer(&m.table, unsafe.Pointer(table))
@@ -77,8 +75,8 @@ func NewTypedMapOf[K comparable, V any](hasher func(maphash.Seed, K) uint64) *Ma
 // value is present.
 // The ok result indicates whether value was found in the map.
 func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
-	hash := m.hasher(m.seed, key)
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
+	hash := m.hasher(table.seed, key)
 	bidx := bucketIdx(table, hash)
 	b := &table.buckets[bidx]
 	for {
@@ -165,7 +163,6 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 		}
 	}
 	// Write path.
-	hash := m.hasher(m.seed, key)
 	for {
 	store_attempt:
 		var (
@@ -174,6 +171,7 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 		)
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
+		hash := m.hasher(table.seed, key)
 		bidx := bucketIdx(table, hash)
 		rootb := &table.buckets[bidx]
 		b := rootb
@@ -318,7 +316,7 @@ func (m *MapOf[K, V]) resize(table *mapTable, hint mapResizeHint) {
 		panic(fmt.Sprintf("unexpected resize hint: %d", hint))
 	}
 	for i := 0; i < tableLen; i++ {
-		copied := copyBucketOf(&table.buckets[i], newTable, m.seed, m.hasher)
+		copied := copyBucketOf(&table.buckets[i], newTable, m.hasher)
 		newTable.addSizePlain(uint64(i), copied)
 	}
 	// Publish the new table and wake up all waiters.
@@ -329,13 +327,13 @@ func (m *MapOf[K, V]) resize(table *mapTable, hint mapResizeHint) {
 	m.resizeMu.Unlock()
 }
 
-func copyBucketOf[K comparable](b *bucketPadded, destTable *mapTable, seed maphash.Seed, hasher func(maphash.Seed, K) uint64) (copied int) {
+func copyBucketOf[K comparable](b *bucketPadded, destTable *mapTable, hasher func(maphash.Seed, K) uint64) (copied int) {
 	rootb := b
 	lockBucket(&rootb.topHashMutex)
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
-				hash := hasher(seed, derefTypedKey[K](b.keys[i]))
+				hash := hasher(destTable.seed, derefTypedKey[K](b.keys[i]))
 				bidx := bucketIdx(destTable, hash)
 				destb := &destTable.buckets[bidx]
 				appendToBucket(hash, b.keys[i], b.values[i], destb)
@@ -354,10 +352,10 @@ func copyBucketOf[K comparable](b *bucketPadded, destTable *mapTable, seed mapha
 // value if any. The loaded result reports whether the key was
 // present.
 func (m *MapOf[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
-	hash := m.hasher(m.seed, key)
 	for {
 		hintNonEmpty := 0
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
+		hash := m.hasher(table.seed, key)
 		bidx := bucketIdx(table, hash)
 		rootb := &table.buckets[bidx]
 		b := rootb
