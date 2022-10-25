@@ -4,6 +4,8 @@
 package xsync_test
 
 import (
+	"encoding/binary"
+	"hash/maphash"
 	"math"
 	"math/rand"
 	"strconv"
@@ -285,8 +287,11 @@ func TestTypedMapOfSerialStore_StructKeys_IntValues(t *testing.T) {
 		y int
 	}
 	const numEntries = 128
-	m := NewTypedMapOf[foo, int](func(f foo) uint64 {
-		return uint64(31*f.x + f.y)
+	m := NewTypedMapOf[foo, int](func(seed maphash.Seed, f foo) uint64 {
+		var h maphash.Hash
+		h.SetSeed(seed)
+		binary.Write(&h, binary.LittleEndian, f)
+		return h.Sum64()
 	})
 	for i := 0; i < numEntries; i++ {
 		m.Store(foo{i, -i}, i)
@@ -308,8 +313,11 @@ func TestTypedMapOfSerialStore_StructKeys_StructValues(t *testing.T) {
 		y int
 	}
 	const numEntries = 128
-	m := NewTypedMapOf[foo, foo](func(f foo) uint64 {
-		return uint64(31*f.x + f.y)
+	m := NewTypedMapOf[foo, foo](func(seed maphash.Seed, f foo) uint64 {
+		var h maphash.Hash
+		h.SetSeed(seed)
+		binary.Write(&h, binary.LittleEndian, f)
+		return h.Sum64()
 	})
 	for i := 0; i < numEntries; i++ {
 		m.Store(foo{i, -i}, foo{-i, i})
@@ -330,7 +338,7 @@ func TestTypedMapOfSerialStore_StructKeys_StructValues(t *testing.T) {
 
 func TestTypedMapOfSerialStore_HashCodeCollisions(t *testing.T) {
 	const numEntries = 1000
-	m := NewTypedMapOf[int, int](func(i int) uint64 {
+	m := NewTypedMapOf[int, int](func(_ maphash.Seed, i int) uint64 {
 		// We intentionally use an awful hash function here to make sure
 		// that the map copes with key collisions.
 		return 42
@@ -423,8 +431,11 @@ func TestTypedMapOfSerialStoreThenDelete(t *testing.T) {
 		y int
 	}
 	const numEntries = 1000
-	m := NewTypedMapOf[foo, string](func(f foo) uint64 {
-		return uint64(31*f.x + f.y)
+	m := NewTypedMapOf[foo, string](func(seed maphash.Seed, f foo) uint64 {
+		var h maphash.Hash
+		h.SetSeed(seed)
+		binary.Write(&h, binary.LittleEndian, f)
+		return h.Sum64()
 	})
 	for i := 0; i < numEntries; i++ {
 		m.Store(foo{i, 42}, strconv.Itoa(i))
@@ -475,8 +486,11 @@ func TestTypedMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
 		y int
 	}
 	const numEntries = 1000
-	m := NewTypedMapOf[foo, int](func(f foo) uint64 {
-		return uint64(31*f.x + f.y)
+	m := NewTypedMapOf[foo, int](func(seed maphash.Seed, f foo) uint64 {
+		var h maphash.Hash
+		h.SetSeed(seed)
+		binary.Write(&h, binary.LittleEndian, f)
+		return h.Sum64()
 	})
 	for i := 0; i < numEntries; i++ {
 		m.Store(foo{42, i}, i)
