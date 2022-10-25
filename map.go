@@ -2,6 +2,7 @@ package xsync
 
 import (
 	"fmt"
+	"hash/maphash"
 	"math"
 	"runtime"
 	"sync"
@@ -69,6 +70,7 @@ type Map struct {
 	resizeMu     sync.Mutex     // only used along with resizeCond
 	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
 	table        unsafe.Pointer // *mapTable
+	seed         maphash.Seed
 }
 
 type mapTable struct {
@@ -113,7 +115,9 @@ type rangeEntry struct {
 
 // NewMap creates a new Map instance.
 func NewMap() *Map {
-	m := &Map{}
+	m := &Map{
+		seed: maphash.MakeSeed(),
+	}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
 	table := newMapTable(minMapTableLen)
 	atomic.StorePointer(&m.table, unsafe.Pointer(table))
@@ -140,7 +144,7 @@ func newMapTable(size int) *mapTable {
 // value is present.
 // The ok result indicates whether value was found in the map.
 func (m *Map) Load(key string) (value interface{}, ok bool) {
-	hash := StrHash64(key)
+	hash := hashString(m.seed, key)
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	bidx := bucketIdx(table, hash)
 	b := &table.buckets[bidx]
@@ -228,7 +232,7 @@ func (m *Map) doStore(key string, valueFn func() interface{}, loadIfExists bool)
 		}
 	}
 	// Write path.
-	hash := StrHash64(key)
+	hash := hashString(m.seed, key)
 	for {
 	store_attempt:
 		var (
@@ -378,7 +382,7 @@ func (m *Map) resize(table *mapTable, hint mapResizeHint) {
 		panic(fmt.Sprintf("unexpected resize hint: %d", hint))
 	}
 	for i := 0; i < tableLen; i++ {
-		copied := copyBucket(&table.buckets[i], newTable)
+		copied := copyBucket(&table.buckets[i], m.seed, newTable)
 		newTable.addSizePlain(uint64(i), copied)
 	}
 	// Publish the new table and wake up all waiters.
@@ -389,14 +393,14 @@ func (m *Map) resize(table *mapTable, hint mapResizeHint) {
 	m.resizeMu.Unlock()
 }
 
-func copyBucket(b *bucketPadded, destTable *mapTable) (copied int) {
+func copyBucket(b *bucketPadded, seed maphash.Seed, destTable *mapTable) (copied int) {
 	rootb := b
 	lockBucket(&rootb.topHashMutex)
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
 				k := derefKey(b.keys[i])
-				hash := StrHash64(k)
+				hash := hashString(seed, k)
 				bidx := bucketIdx(destTable, hash)
 				destb := &destTable.buckets[bidx]
 				appendToBucket(hash, b.keys[i], b.values[i], destb)
@@ -437,7 +441,7 @@ func appendToBucket(hash uint64, keyPtr, valPtr unsafe.Pointer, b *bucketPadded)
 // value if any. The loaded result reports whether the key was
 // present.
 func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
-	hash := StrHash64(key)
+	hash := hashString(m.seed, key)
 	for {
 		hintNonEmpty := 0
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
