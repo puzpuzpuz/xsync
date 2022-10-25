@@ -4,9 +4,7 @@
 
 # xsync
 
-Concurrent data structures for Go. An extension for the standard `sync` package.
-
-This library should be considered experimental, so make sure to run tests and benchmarks for your use cases before adding it to your application.
+Concurrent data structures for Go. Aims to provide more scalable alternatives for some of the data structures from the standard `sync` package, but not only.
 
 ### Benchmarks
 
@@ -14,7 +12,7 @@ Benchmark results may be found [here](BENCHMARKS.md).
 
 ## Counter
 
-A `Counter` is a striped int64 counter inspired by the j.u.c.a.LongAdder class from Java standard library.
+A `Counter` is a striped `int64` counter inspired by the j.u.c.a.LongAdder class from Java standard library.
 
 ```go
 var c xsync.Counter
@@ -29,7 +27,7 @@ Works better in comparison with a single atomically updated int64 counter in hig
 
 ## Map
 
-A `Map` is like a concurrent hash table based map. It follows the interface of `sync.Map` with a few extensions, like the `Size` method.
+A `Map` is like a concurrent hash table based map. It follows the interface of `sync.Map` with a few extensions, like `LoadOrCompute` or `Size` methods.
 
 ```go
 m := xsync.NewMap()
