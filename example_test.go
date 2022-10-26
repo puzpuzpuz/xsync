@@ -8,7 +8,7 @@ import (
 	"hash/maphash"
 	"time"
 
-	"github.com/puzpuzpuz/xsync"
+	"github.com/puzpuzpuz/xsync/v2"
 )
 
 func ExampleNewTypedMapOf() {

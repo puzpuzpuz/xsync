@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/puzpuzpuz/xsync"
+	. "github.com/puzpuzpuz/xsync/v2"
 )
 
 func TestMapOf_UniqueValuePointers_Int(t *testing.T) {

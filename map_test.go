@@ -12,7 +12,7 @@ import (
 	"time"
 	"unsafe"
 
-	. "github.com/puzpuzpuz/xsync"
+	. "github.com/puzpuzpuz/xsync/v2"
 )
 
 const (
