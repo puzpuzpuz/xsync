@@ -457,6 +457,82 @@ func TestMapResize_CounterLenLimit(t *testing.T) {
 	}
 }
 
+func parallelSeqResizer(t *testing.T, m *Map, numEntries int, positive bool, cdone chan bool) {
+	for i := 0; i < numEntries; i++ {
+		if positive {
+			m.Store(strconv.Itoa(i), i)
+		} else {
+			m.Store(strconv.Itoa(-i), -i)
+		}
+	}
+	cdone <- true
+}
+
+func TestMapParallelResizeGrowOnly(t *testing.T) {
+	const numEntries = 100_000
+	m := NewMap()
+	cdone := make(chan bool)
+	go parallelSeqResizer(t, m, numEntries, true, cdone)
+	go parallelSeqResizer(t, m, numEntries, false, cdone)
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+	// Verify map contents.
+	for i := -numEntries + 1; i < numEntries; i++ {
+		v, ok := m.Load(strconv.Itoa(i))
+		if !ok {
+			t.Errorf("value not found for %d", i)
+		}
+		if vi, ok := v.(int); ok && vi != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+	if s := m.Size(); s != 2*numEntries-1 {
+		t.Errorf("unexpected size: %v", s)
+	}
+}
+
+func parallelRandResizer(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < numEntries; i++ {
+		coin := r.Int63n(2)
+		for j := 0; j < numEntries; j++ {
+			if coin == 1 {
+				m.Store(strconv.Itoa(i), i)
+			} else {
+				m.Delete(strconv.Itoa(i))
+			}
+		}
+	}
+	cdone <- true
+}
+
+func TestMapParallelResize(t *testing.T) {
+	const numIters = 100
+	const numEntries = 1_000
+	m := NewMap()
+	cdone := make(chan bool)
+	go parallelRandResizer(t, m, numIters, numEntries, cdone)
+	go parallelRandResizer(t, m, numIters, numEntries, cdone)
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+	// Verify map contents.
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(strconv.Itoa(i))
+		if !ok {
+			// The entry may be deleted and that's ok.
+			continue
+		}
+		if vi, ok := v.(int); ok && vi != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+	if s := m.Size(); s > numEntries {
+		t.Errorf("unexpected size: %v", s)
+	}
+}
+
 func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
