@@ -595,6 +595,82 @@ func TestMapOfResize_CounterLenLimit(t *testing.T) {
 	}
 }
 
+func parallelSeqTypedResizer(t *testing.T, m *MapOf[int, int], numEntries int, positive bool, cdone chan bool) {
+	for i := 0; i < numEntries; i++ {
+		if positive {
+			m.Store(i, i)
+		} else {
+			m.Store(-i, -i)
+		}
+	}
+	cdone <- true
+}
+
+func TestMapOfParallelResizeGrowOnly(t *testing.T) {
+	const numEntries = 100_000
+	m := NewIntegerMapOf[int, int]()
+	cdone := make(chan bool)
+	go parallelSeqTypedResizer(t, m, numEntries, true, cdone)
+	go parallelSeqTypedResizer(t, m, numEntries, false, cdone)
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+	// Verify map contents.
+	for i := -numEntries + 1; i < numEntries; i++ {
+		v, ok := m.Load(i)
+		if !ok {
+			t.Fatalf("value not found for %d", i)
+		}
+		if v != i {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+	if s := m.Size(); s != 2*numEntries-1 {
+		t.Errorf("unexpected size: %v", s)
+	}
+}
+
+func parallelRandTypedResizer(t *testing.T, m *MapOf[int, int], numIters, numEntries int, cdone chan bool) {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < numEntries; i++ {
+		coin := r.Int63n(2)
+		for j := 0; j < numEntries; j++ {
+			if coin == 1 {
+				m.Store(i, i)
+			} else {
+				m.Delete(i)
+			}
+		}
+	}
+	cdone <- true
+}
+
+func TestMapOfParallelResize(t *testing.T) {
+	const numIters = 100
+	const numEntries = 1_000
+	m := NewIntegerMapOf[int, int]()
+	cdone := make(chan bool)
+	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
+	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+	// Verify map contents.
+	for i := 0; i < numEntries; i++ {
+		v, ok := m.Load(i)
+		if !ok {
+			// The entry may be deleted and that's ok.
+			continue
+		}
+		if v != i {
+			t.Errorf("values do not match for %d: %v", i, v)
+		}
+	}
+	if s := m.Size(); s > numEntries {
+		t.Errorf("unexpected size: %v", s)
+	}
+}
+
 func parallelSeqTypedStorer(t *testing.T, m *MapOf[string, int], storeEach, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
