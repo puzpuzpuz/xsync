@@ -606,7 +606,7 @@ func parallelSeqTypedResizer(t *testing.T, m *MapOf[int, int], numEntries int, p
 	cdone <- true
 }
 
-func TestMapOfParallelResizeGrowOnly(t *testing.T) {
+func TestMapOfParallelResize_GrowOnly(t *testing.T) {
 	const numEntries = 100_000
 	m := NewIntegerMapOf[int, int]()
 	cdone := make(chan bool)
@@ -632,13 +632,13 @@ func TestMapOfParallelResizeGrowOnly(t *testing.T) {
 
 func parallelRandTypedResizer(t *testing.T, m *MapOf[int, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < numEntries; i++ {
+	for i := 0; i < numIters; i++ {
 		coin := r.Int63n(2)
 		for j := 0; j < numEntries; j++ {
 			if coin == 1 {
-				m.Store(i, i)
+				m.Store(j, j)
 			} else {
-				m.Delete(i)
+				m.Delete(j)
 			}
 		}
 	}
@@ -646,8 +646,8 @@ func parallelRandTypedResizer(t *testing.T, m *MapOf[int, int], numIters, numEnt
 }
 
 func TestMapOfParallelResize(t *testing.T) {
-	const numIters = 100
-	const numEntries = 1_000
+	const numIters = 1000
+	const numEntries = 2 * EntriesPerMapBucket * MinMapTableLen
 	m := NewIntegerMapOf[int, int]()
 	cdone := make(chan bool)
 	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
@@ -666,8 +666,17 @@ func TestMapOfParallelResize(t *testing.T) {
 			t.Errorf("values do not match for %d: %v", i, v)
 		}
 	}
-	if s := m.Size(); s > numEntries {
+	s := m.Size()
+	if s > numEntries {
 		t.Errorf("unexpected size: %v", s)
+	}
+	rs := 0
+	m.Range(func(key int, value int) bool {
+		rs++
+		return true
+	})
+	if s != rs {
+		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
 	}
 }
 
