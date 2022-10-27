@@ -166,8 +166,8 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 	for {
 	store_attempt:
 		var (
-			emptykp, emptyvp *unsafe.Pointer
-			emptyidx         int
+			emptyb   *bucketPadded
+			emptyidx int
 		)
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
@@ -191,9 +191,8 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 			topHashes := atomic.LoadUint64(&b.topHashMutex)
 			for i := 0; i < entriesPerMapBucket; i++ {
 				if b.keys[i] == nil {
-					if emptykp == nil {
-						emptykp = &b.keys[i]
-						emptyvp = &b.values[i]
+					if emptyb == nil {
+						emptyb = b
 						emptyidx = i
 					}
 					continue
@@ -224,14 +223,15 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 				}
 			}
 			if b.next == nil {
-				if emptykp != nil {
+				if emptyb != nil {
 					// Insertion case. First we update the value, then the key.
 					// This is important for atomic snapshot states.
-					atomic.StoreUint64(&b.topHashMutex, storeTopHash(hash, topHashes, emptyidx))
+					topHashes = atomic.LoadUint64(&emptyb.topHashMutex)
+					atomic.StoreUint64(&emptyb.topHashMutex, storeTopHash(hash, topHashes, emptyidx))
 					value := valueFn()
 					var wv interface{} = valueFn()
-					atomic.StorePointer(emptyvp, unsafe.Pointer(&wv))
-					atomic.StorePointer(emptykp, unsafe.Pointer(&key))
+					atomic.StorePointer(&emptyb.values[emptyidx], unsafe.Pointer(&wv))
+					atomic.StorePointer(&emptyb.keys[emptyidx], unsafe.Pointer(&key))
 					unlockBucket(&rootb.topHashMutex)
 					table.addSize(bidx, 1)
 					return value, false
@@ -249,7 +249,7 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 				value := valueFn()
 				var wv interface{} = value
 				newb.values[0] = unsafe.Pointer(&wv)
-				newb.topHashMutex = storeTopHash(hash, topHashes, emptyidx)
+				newb.topHashMutex = storeTopHash(hash, newb.topHashMutex, 0)
 				atomic.StorePointer(&b.next, unsafe.Pointer(newb))
 				unlockBucket(&rootb.topHashMutex)
 				table.addSize(bidx, 1)
