@@ -15,6 +15,7 @@ type mapResizeHint int
 const (
 	mapGrowHint   mapResizeHint = 0
 	mapShrinkHint mapResizeHint = 1
+	mapClearHint  mapResizeHint = 2
 )
 
 const (
@@ -379,12 +380,17 @@ func (m *Map) resize(table *mapTable, hint mapResizeHint) {
 			m.resizeMu.Unlock()
 			return
 		}
+	case mapClearHint:
+		newTable = newMapTable(minMapTableLen)
 	default:
 		panic(fmt.Sprintf("unexpected resize hint: %d", hint))
 	}
-	for i := 0; i < tableLen; i++ {
-		copied := copyBucket(&table.buckets[i], newTable)
-		newTable.addSizePlain(uint64(i), copied)
+	// Copy the data only if we're not clearing the map.
+	if hint != mapClearHint {
+		for i := 0; i < tableLen; i++ {
+			copied := copyBucket(&table.buckets[i], newTable)
+			newTable.addSizePlain(uint64(i), copied)
+		}
 	}
 	// Publish the new table and wake up all waiters.
 	atomic.StorePointer(&m.table, unsafe.Pointer(newTable))
@@ -576,6 +582,12 @@ func copyRangeEntries(b *bucketPadded, destEntries *[entriesPerMapBucket]rangeEn
 		}
 	}
 	return n
+}
+
+// Clear deletes all keys and values currently stored in the map.
+func (m *Map) Clear() {
+	table := (*mapTable)(atomic.LoadPointer(&m.table))
+	m.resize(table, mapClearHint)
 }
 
 // Size returns current size of the map.
