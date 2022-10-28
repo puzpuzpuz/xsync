@@ -210,8 +210,7 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 					// interface{} on each call, thus the live value pointers are
 					// unique. Otherwise atomic snapshot won't be correct in case
 					// of multiple Store calls using the same value.
-					value := valueFn()
-					var wv interface{} = value
+					var wv interface{} = valueFn()
 					nvp := unsafe.Pointer(&wv)
 					if assertionsEnabled && vp == nvp {
 						panic("non-unique value pointer")
@@ -258,6 +257,18 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 			b = (*bucketPadded)(b.next)
 		}
 	}
+}
+
+// Compute either sets the computed new value for the key or deletes
+// the value for the key. When the delete result of the valueFn function
+// is set to true, the value will be deleted, if it exists. When delete
+// is set to false, the value is updated to the newValue.
+// The ok result indicates whether value was computed and, thus, is
+// present in the map. The actual result contains the new value in case
+// if the value was computed. See the example for a few use cases.
+func (m *MapOf[K, V]) Compute(key K, valueFn func(oldValue V, loaded bool) (newValue V, delete bool)) (actual V, ok bool) {
+	// TODO implement me
+	return
 }
 
 func (m *MapOf[K, V]) newerTableExists(table *mapTable) bool {

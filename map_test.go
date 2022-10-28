@@ -337,6 +337,23 @@ func TestMapSerialLoadOrCompute(t *testing.T) {
 	}
 }
 
+func TestMapSerialLoadOrCompute_FunctionCalledOnce(t *testing.T) {
+	m := NewMap()
+	for i := 0; i < 100; {
+		m.LoadOrCompute(strconv.Itoa(i), func() (v interface{}) {
+			v, i = i, i+1
+			return v
+		})
+	}
+
+	m.Range(func(k string, v interface{}) bool {
+		if vi, ok := v.(int); !ok || strconv.Itoa(vi) != k {
+			t.Errorf("%sth key is not equal to value %d", k, v)
+		}
+		return true
+	})
+}
+
 func TestMapSerialStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
