@@ -505,6 +505,15 @@ func TestTypedMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
 	}
 }
 
+func sizeBasedOnTypedRange(m *MapOf[string, int]) int {
+	size := 0
+	m.Range(func(key string, value int) bool {
+		size++
+		return true
+	})
+	return size
+}
+
 func TestMapOfSize(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
@@ -520,6 +529,10 @@ func TestMapOfSize(t *testing.T) {
 		if size != expectedSize {
 			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
 		}
+		rsize := sizeBasedOnTypedRange(m)
+		if size != rsize {
+			t.Errorf("size does not match number of entries in Range: %v, %v", size, rsize)
+		}
 	}
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
@@ -528,6 +541,31 @@ func TestMapOfSize(t *testing.T) {
 		if size != expectedSize {
 			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
 		}
+		rsize := sizeBasedOnTypedRange(m)
+		if size != rsize {
+			t.Errorf("size does not match number of entries in Range: %v, %v", size, rsize)
+		}
+	}
+}
+
+func TestMapOfClear(t *testing.T) {
+	const numEntries = 1000
+	m := NewMapOf[int]()
+	for i := 0; i < numEntries; i++ {
+		m.Store(strconv.Itoa(i), i)
+	}
+	size := m.Size()
+	if size != numEntries {
+		t.Errorf("size of %d was expected, got: %d", numEntries, size)
+	}
+	m.Clear()
+	size = m.Size()
+	if size != 0 {
+		t.Errorf("zero size was expected, got: %d", size)
+	}
+	rsize := sizeBasedOnTypedRange(m)
+	if rsize != 0 {
+		t.Errorf("zero number of entries in Range was expected, got: %d", rsize)
 	}
 }
 
@@ -630,15 +668,15 @@ func TestMapOfParallelResize_GrowOnly(t *testing.T) {
 	}
 }
 
-func parallelRandTypedResizer(t *testing.T, m *MapOf[int, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedResizer(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		coin := r.Int63n(2)
 		for j := 0; j < numEntries; j++ {
 			if coin == 1 {
-				m.Store(j, j)
+				m.Store(strconv.Itoa(j), j)
 			} else {
-				m.Delete(j)
+				m.Delete(strconv.Itoa(j))
 			}
 		}
 	}
@@ -646,9 +684,9 @@ func parallelRandTypedResizer(t *testing.T, m *MapOf[int, int], numIters, numEnt
 }
 
 func TestMapOfParallelResize(t *testing.T) {
-	const numIters = 1000
+	const numIters = 1_000
 	const numEntries = 2 * EntriesPerMapBucket * MinMapTableLen
-	m := NewIntegerMapOf[int, int]()
+	m := NewMapOf[int]()
 	cdone := make(chan bool)
 	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
 	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
@@ -657,7 +695,7 @@ func TestMapOfParallelResize(t *testing.T) {
 	<-cdone
 	// Verify map contents.
 	for i := 0; i < numEntries; i++ {
-		v, ok := m.Load(i)
+		v, ok := m.Load(strconv.Itoa(i))
 		if !ok {
 			// The entry may be deleted and that's ok.
 			continue
@@ -670,11 +708,43 @@ func TestMapOfParallelResize(t *testing.T) {
 	if s > numEntries {
 		t.Errorf("unexpected size: %v", s)
 	}
-	rs := 0
-	m.Range(func(key int, value int) bool {
-		rs++
-		return true
-	})
+	rs := sizeBasedOnTypedRange(m)
+	if s != rs {
+		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
+	}
+}
+
+func parallelRandTypedClearer(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < numIters; i++ {
+		coin := r.Int63n(2)
+		for j := 0; j < numEntries; j++ {
+			if coin == 1 {
+				m.Store(strconv.Itoa(j), j)
+			} else {
+				m.Clear()
+			}
+		}
+	}
+	cdone <- true
+}
+
+func TestMapOfParallelClear(t *testing.T) {
+	const numIters = 100
+	const numEntries = 1_000
+	m := NewMapOf[int]()
+	cdone := make(chan bool)
+	go parallelRandTypedClearer(t, m, numIters, numEntries, cdone)
+	go parallelRandTypedClearer(t, m, numIters, numEntries, cdone)
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+	// Verify map size.
+	s := m.Size()
+	if s > numEntries {
+		t.Errorf("unexpected size: %v", s)
+	}
+	rs := sizeBasedOnTypedRange(m)
 	if s != rs {
 		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
 	}

@@ -367,6 +367,15 @@ func TestMapSerialStoreThenLoadAndDelete(t *testing.T) {
 	}
 }
 
+func sizeBasedOnRange(m *Map) int {
+	size := 0
+	m.Range(func(key string, value interface{}) bool {
+		size++
+		return true
+	})
+	return size
+}
+
 func TestMapSize(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
@@ -382,6 +391,10 @@ func TestMapSize(t *testing.T) {
 		if size != expectedSize {
 			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
 		}
+		rsize := sizeBasedOnRange(m)
+		if size != rsize {
+			t.Errorf("size does not match number of entries in Range: %v, %v", size, rsize)
+		}
 	}
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
@@ -390,6 +403,31 @@ func TestMapSize(t *testing.T) {
 		if size != expectedSize {
 			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
 		}
+		rsize := sizeBasedOnRange(m)
+		if size != rsize {
+			t.Errorf("size does not match number of entries in Range: %v, %v", size, rsize)
+		}
+	}
+}
+
+func TestMapClear(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap()
+	for i := 0; i < numEntries; i++ {
+		m.Store(strconv.Itoa(i), i)
+	}
+	size := m.Size()
+	if size != numEntries {
+		t.Errorf("size of %d was expected, got: %d", numEntries, size)
+	}
+	m.Clear()
+	size = m.Size()
+	if size != 0 {
+		t.Errorf("zero size was expected, got: %d", size)
+	}
+	rsize := sizeBasedOnRange(m)
+	if rsize != 0 {
+		t.Errorf("zero number of entries in Range was expected, got: %d", rsize)
 	}
 }
 
@@ -508,7 +546,7 @@ func parallelRandResizer(t *testing.T, m *Map, numIters, numEntries int, cdone c
 }
 
 func TestMapParallelResize(t *testing.T) {
-	const numIters = 1000
+	const numIters = 1_000
 	const numEntries = 2 * EntriesPerMapBucket * MinMapTableLen
 	m := NewMap()
 	cdone := make(chan bool)
@@ -532,11 +570,43 @@ func TestMapParallelResize(t *testing.T) {
 	if s > numEntries {
 		t.Errorf("unexpected size: %v", s)
 	}
-	rs := 0
-	m.Range(func(key string, value interface{}) bool {
-		rs++
-		return true
-	})
+	rs := sizeBasedOnRange(m)
+	if s != rs {
+		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
+	}
+}
+
+func parallelRandClearer(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < numIters; i++ {
+		coin := r.Int63n(2)
+		for j := 0; j < numEntries; j++ {
+			if coin == 1 {
+				m.Store(strconv.Itoa(j), j)
+			} else {
+				m.Clear()
+			}
+		}
+	}
+	cdone <- true
+}
+
+func TestMapParallelClear(t *testing.T) {
+	const numIters = 100
+	const numEntries = 1_000
+	m := NewMap()
+	cdone := make(chan bool)
+	go parallelRandClearer(t, m, numIters, numEntries, cdone)
+	go parallelRandClearer(t, m, numIters, numEntries, cdone)
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+	// Verify map size.
+	s := m.Size()
+	if s > numEntries {
+		t.Errorf("unexpected size: %v", s)
+	}
+	rs := sizeBasedOnRange(m)
 	if s != rs {
 		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
 	}
