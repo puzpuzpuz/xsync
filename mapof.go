@@ -229,7 +229,7 @@ func (m *MapOf[K, V]) doStore(key K, valueFn func() V, loadIfExists bool) (V, bo
 					topHashes = atomic.LoadUint64(&emptyb.topHashMutex)
 					atomic.StoreUint64(&emptyb.topHashMutex, storeTopHash(hash, topHashes, emptyidx))
 					value := valueFn()
-					var wv interface{} = valueFn()
+					var wv interface{} = value
 					atomic.StorePointer(&emptyb.values[emptyidx], unsafe.Pointer(&wv))
 					atomic.StorePointer(&emptyb.keys[emptyidx], unsafe.Pointer(&key))
 					unlockBucket(&rootb.topHashMutex)
