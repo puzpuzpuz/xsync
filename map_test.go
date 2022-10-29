@@ -44,7 +44,7 @@ func init() {
 func TestMap_BucketStructSize(t *testing.T) {
 	size := unsafe.Sizeof(BucketPadded{})
 	if size != 64 {
-		t.Errorf("size of 64B (one cache line) is expected, got: %d", size)
+		t.Fatalf("size of 64B (one cache line) is expected, got: %d", size)
 	}
 }
 
@@ -107,13 +107,13 @@ func TestMap_MissingEntry(t *testing.T) {
 	m := NewMap()
 	v, ok := m.Load("foo")
 	if ok {
-		t.Errorf("value was not expected: %v", v)
+		t.Fatalf("value was not expected: %v", v)
 	}
 	if deleted, loaded := m.LoadAndDelete("foo"); loaded {
-		t.Errorf("value was not expected %v", deleted)
+		t.Fatalf("value was not expected %v", deleted)
 	}
 	if actual, loaded := m.LoadOrStore("foo", "bar"); loaded {
-		t.Errorf("value was not expected %v", actual)
+		t.Fatalf("value was not expected %v", actual)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestMap_EmptyStringKey(t *testing.T) {
 		t.Error("value was expected")
 	}
 	if vs, ok := v.(string); ok && vs != "foobar" {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestMapStore_NilValue(t *testing.T) {
 		t.Error("nil value was expected")
 	}
 	if v != nil {
-		t.Errorf("value was not nil: %v", v)
+		t.Fatalf("value was not nil: %v", v)
 	}
 }
 
@@ -149,7 +149,7 @@ func TestMapLoadOrStore_NilValue(t *testing.T) {
 		t.Error("nil value was expected")
 	}
 	if v != nil {
-		t.Errorf("value was not nil: %v", v)
+		t.Fatalf("value was not nil: %v", v)
 	}
 }
 
@@ -162,7 +162,7 @@ func TestMapLoadOrStore_NonNilValue(t *testing.T) {
 		t.Error("no value was expected")
 	}
 	if v != newv {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 	newv2 := &foo{}
 	v, loaded = m.LoadOrStore("foo", newv2)
@@ -170,7 +170,7 @@ func TestMapLoadOrStore_NonNilValue(t *testing.T) {
 		t.Error("value was expected")
 	}
 	if v != newv {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 }
 
@@ -182,14 +182,14 @@ func TestMapLoadAndStore_NilValue(t *testing.T) {
 		t.Error("nil value was expected")
 	}
 	if v != nil {
-		t.Errorf("value was not nil: %v", v)
+		t.Fatalf("value was not nil: %v", v)
 	}
 	v, loaded = m.Load("foo")
 	if !loaded {
 		t.Error("nil value was expected")
 	}
 	if v != nil {
-		t.Errorf("value was not nil: %v", v)
+		t.Fatalf("value was not nil: %v", v)
 	}
 }
 
@@ -202,7 +202,7 @@ func TestMapLoadAndStore_NonNilValue(t *testing.T) {
 		t.Error("no value was expected")
 	}
 	if v != v1 {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 	v2 := 2
 	v, loaded = m.LoadAndStore("foo", v2)
@@ -210,14 +210,14 @@ func TestMapLoadAndStore_NonNilValue(t *testing.T) {
 		t.Error("value was expected")
 	}
 	if v != v1 {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 	v, loaded = m.Load("foo")
 	if !loaded {
 		t.Error("value was expected")
 	}
 	if v != v2 {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 }
 
@@ -231,7 +231,7 @@ func TestMapRange(t *testing.T) {
 	met := make(map[string]int)
 	m.Range(func(key string, value interface{}) bool {
 		if key != strconv.Itoa(value.(int)) {
-			t.Errorf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
+			t.Fatalf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
 			return false
 		}
 		met[key] += 1
@@ -239,11 +239,11 @@ func TestMapRange(t *testing.T) {
 		return true
 	})
 	if iters != numEntries {
-		t.Errorf("got unexpected number of iterations: %d", iters)
+		t.Fatalf("got unexpected number of iterations: %d", iters)
 	}
 	for i := 0; i < numEntries; i++ {
 		if c := met[strconv.Itoa(i)]; c != 1 {
-			t.Errorf("range did not iterate correctly over %d: %d", i, c)
+			t.Fatalf("range did not iterate correctly over %d: %d", i, c)
 		}
 	}
 }
@@ -259,7 +259,7 @@ func TestMapRange_FalseReturned(t *testing.T) {
 		return iters != 13
 	})
 	if iters != 13 {
-		t.Errorf("got unexpected number of iterations: %d", iters)
+		t.Fatalf("got unexpected number of iterations: %d", iters)
 	}
 }
 
@@ -275,12 +275,12 @@ func TestMapRange_NestedDelete(t *testing.T) {
 	})
 	for i := 0; i < numEntries; i++ {
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
-			t.Errorf("value found for %d", i)
+			t.Fatalf("value found for %d", i)
 		}
 	}
 }
 
-func TestMapSerialStore(t *testing.T) {
+func TestMapStore(t *testing.T) {
 	const numEntries = 128
 	m := NewMap()
 	for i := 0; i < numEntries; i++ {
@@ -289,15 +289,15 @@ func TestMapSerialStore(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		v, ok := m.Load(strconv.Itoa(i))
 		if !ok {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 		if vi, ok := v.(int); ok && vi != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func TestMapSerialLoadOrStore(t *testing.T) {
+func TestMapLoadOrStore(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
 	for i := 0; i < numEntries; i++ {
@@ -305,12 +305,12 @@ func TestMapSerialLoadOrStore(t *testing.T) {
 	}
 	for i := 0; i < numEntries; i++ {
 		if _, loaded := m.LoadOrStore(strconv.Itoa(i), i); !loaded {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 	}
 }
 
-func TestMapSerialLoadOrCompute(t *testing.T) {
+func TestMapLoadOrCompute(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
 	for i := 0; i < numEntries; i++ {
@@ -318,10 +318,10 @@ func TestMapSerialLoadOrCompute(t *testing.T) {
 			return i
 		})
 		if loaded {
-			t.Errorf("value not computed for %d", i)
+			t.Fatalf("value not computed for %d", i)
 		}
 		if vi, ok := v.(int); ok && vi != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 	for i := 0; i < numEntries; i++ {
@@ -329,15 +329,15 @@ func TestMapSerialLoadOrCompute(t *testing.T) {
 			return i
 		})
 		if !loaded {
-			t.Errorf("value not loaded for %d", i)
+			t.Fatalf("value not loaded for %d", i)
 		}
 		if vi, ok := v.(int); ok && vi != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func TestMapSerialLoadOrCompute_FunctionCalledOnce(t *testing.T) {
+func TestMapLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 	m := NewMap()
 	for i := 0; i < 100; {
 		m.LoadOrCompute(strconv.Itoa(i), func() (v interface{}) {
@@ -348,13 +348,91 @@ func TestMapSerialLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 
 	m.Range(func(k string, v interface{}) bool {
 		if vi, ok := v.(int); !ok || strconv.Itoa(vi) != k {
-			t.Errorf("%sth key is not equal to value %d", k, v)
+			t.Fatalf("%sth key is not equal to value %d", k, v)
 		}
 		return true
 	})
 }
 
-func TestMapSerialStoreThenDelete(t *testing.T) {
+func TestMapCompute(t *testing.T) {
+	var zeroedV interface{}
+	m := NewMap()
+	// Store a new value.
+	v, ok := m.Compute("foobar", func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
+		if oldValue != zeroedV {
+			t.Fatalf("oldValue should be empty interface{} when computing a new value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when computing a new value")
+		}
+		newValue = 42
+		delete = false
+		return
+	})
+	if v.(int) != 42 {
+		t.Fatalf("v should be 42 when computing a new value: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when computing a new value")
+	}
+	// Update an existing value.
+	v, ok = m.Compute("foobar", func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
+		if oldValue.(int) != 42 {
+			t.Fatalf("oldValue should be 42 when updating the value: %d", oldValue)
+		}
+		if !loaded {
+			t.Fatal("loaded should be true when updating the value")
+		}
+		newValue = oldValue.(int) + 42
+		delete = false
+		return
+	})
+	if v.(int) != 84 {
+		t.Fatalf("v should be 84 when updating the value: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when updating the value")
+	}
+	// Delete an existing value.
+	v, ok = m.Compute("foobar", func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
+		if oldValue != 84 {
+			t.Fatalf("oldValue should be 84 when deleting the value: %d", oldValue)
+		}
+		if !loaded {
+			t.Fatal("loaded should be true when deleting the value")
+		}
+		delete = true
+		return
+	})
+	if v.(int) != 84 {
+		t.Fatalf("v should be 84 when deleting the value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when deleting the value")
+	}
+	// Try to delete a non-existing value. Notice different key.
+	v, ok = m.Compute("barbaz", func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
+		var zeroedV interface{}
+		if oldValue != zeroedV {
+			t.Fatalf("oldValue should be empty interface{} when trying to delete a non-existing value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when trying to delete a non-existing value")
+		}
+		// We're returning a non-zero value, but the map should ignore it.
+		newValue = 42
+		delete = true
+		return
+	})
+	if v != zeroedV {
+		t.Fatalf("v should be empty interface{} when trying to delete a non-existing value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when trying to delete a non-existing value")
+	}
+}
+
+func TestMapStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
 	for i := 0; i < numEntries; i++ {
@@ -363,23 +441,23 @@ func TestMapSerialStoreThenDelete(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
-			t.Errorf("value was not expected for %d", i)
+			t.Fatalf("value was not expected for %d", i)
 		}
 	}
 }
 
-func TestMapSerialStoreThenLoadAndDelete(t *testing.T) {
+func TestMapStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
 	for i := 0; i < numEntries; i++ {
-		if _, loaded := m.LoadAndDelete(strconv.Itoa(i)); !loaded {
-			t.Errorf("value was not found for %d", i)
+		if v, loaded := m.LoadAndDelete(strconv.Itoa(i)); !loaded || v.(int) != i {
+			t.Fatalf("value was not found or different for %d: %v", i, v)
 		}
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
-			t.Errorf("value was not expected for %d", i)
+			t.Fatalf("value was not expected for %d", i)
 		}
 	}
 }
@@ -398,7 +476,7 @@ func TestMapSize(t *testing.T) {
 	m := NewMap()
 	size := m.Size()
 	if size != 0 {
-		t.Errorf("zero size expected: %d", size)
+		t.Fatalf("zero size expected: %d", size)
 	}
 	expectedSize := 0
 	for i := 0; i < numEntries; i++ {
@@ -406,11 +484,11 @@ func TestMapSize(t *testing.T) {
 		expectedSize++
 		size := m.Size()
 		if size != expectedSize {
-			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
+			t.Fatalf("size of %d was expected, got: %d", expectedSize, size)
 		}
 		rsize := sizeBasedOnRange(m)
 		if size != rsize {
-			t.Errorf("size does not match number of entries in Range: %v, %v", size, rsize)
+			t.Fatalf("size does not match number of entries in Range: %v, %v", size, rsize)
 		}
 	}
 	for i := 0; i < numEntries; i++ {
@@ -418,11 +496,11 @@ func TestMapSize(t *testing.T) {
 		expectedSize--
 		size := m.Size()
 		if size != expectedSize {
-			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
+			t.Fatalf("size of %d was expected, got: %d", expectedSize, size)
 		}
 		rsize := sizeBasedOnRange(m)
 		if size != rsize {
-			t.Errorf("size does not match number of entries in Range: %v, %v", size, rsize)
+			t.Fatalf("size does not match number of entries in Range: %v, %v", size, rsize)
 		}
 	}
 }
@@ -435,16 +513,16 @@ func TestMapClear(t *testing.T) {
 	}
 	size := m.Size()
 	if size != numEntries {
-		t.Errorf("size of %d was expected, got: %d", numEntries, size)
+		t.Fatalf("size of %d was expected, got: %d", numEntries, size)
 	}
 	m.Clear()
 	size = m.Size()
 	if size != 0 {
-		t.Errorf("zero size was expected, got: %d", size)
+		t.Fatalf("zero size was expected, got: %d", size)
 	}
 	rsize := sizeBasedOnRange(m)
 	if rsize != 0 {
-		t.Errorf("zero number of entries in Range was expected, got: %d", rsize)
+		t.Fatalf("zero number of entries in Range was expected, got: %d", rsize)
 	}
 }
 
@@ -457,20 +535,20 @@ func TestMapResize(t *testing.T) {
 	}
 	stats := CollectMapStats(m)
 	if stats.Size != numEntries {
-		t.Errorf("size was too small: %d", stats.Size)
+		t.Fatalf("size was too small: %d", stats.Size)
 	}
 	expectedCapacity := int(math.RoundToEven(MapLoadFactor+1)) * stats.TableLen * EntriesPerMapBucket
 	if stats.Capacity > expectedCapacity {
-		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
+		t.Fatalf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
 	if stats.TableLen <= MinMapTableLen {
-		t.Errorf("table was too small: %d", stats.TableLen)
+		t.Fatalf("table was too small: %d", stats.TableLen)
 	}
 	if stats.TotalGrowths == 0 {
-		t.Errorf("non-zero total growths expected: %d", stats.TotalGrowths)
+		t.Fatalf("non-zero total growths expected: %d", stats.TotalGrowths)
 	}
 	if stats.TotalShrinks > 0 {
-		t.Errorf("zero total shrinks expected: %d", stats.TotalShrinks)
+		t.Fatalf("zero total shrinks expected: %d", stats.TotalShrinks)
 	}
 	// This is useful when debugging table resize and occupancy.
 	stats.Print()
@@ -480,17 +558,17 @@ func TestMapResize(t *testing.T) {
 	}
 	stats = CollectMapStats(m)
 	if stats.Size > 0 {
-		t.Errorf("zero size was expected: %d", stats.Size)
+		t.Fatalf("zero size was expected: %d", stats.Size)
 	}
 	expectedCapacity = stats.TableLen * EntriesPerMapBucket
 	if stats.Capacity != expectedCapacity {
-		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
+		t.Fatalf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
 	if stats.TableLen != MinMapTableLen {
-		t.Errorf("table was too large: %d", stats.TableLen)
+		t.Fatalf("table was too large: %d", stats.TableLen)
 	}
 	if stats.TotalShrinks == 0 {
-		t.Errorf("non-zero total shrinks expected: %d", stats.TotalShrinks)
+		t.Fatalf("non-zero total shrinks expected: %d", stats.TotalShrinks)
 	}
 	stats.Print()
 }
@@ -504,10 +582,10 @@ func TestMapResize_CounterLenLimit(t *testing.T) {
 	}
 	stats := CollectMapStats(m)
 	if stats.Size != numEntries {
-		t.Errorf("size was too small: %d", stats.Size)
+		t.Fatalf("size was too small: %d", stats.Size)
 	}
 	if stats.CounterLen != MaxMapCounterLen {
-		t.Errorf("number of counter stripes was too large: %d, expected: %d",
+		t.Fatalf("number of counter stripes was too large: %d, expected: %d",
 			stats.CounterLen, MaxMapCounterLen)
 	}
 }
@@ -536,14 +614,14 @@ func TestMapParallelResize_GrowOnly(t *testing.T) {
 	for i := -numEntries + 1; i < numEntries; i++ {
 		v, ok := m.Load(strconv.Itoa(i))
 		if !ok {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 		if vi, ok := v.(int); ok && vi != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 	if s := m.Size(); s != 2*numEntries-1 {
-		t.Errorf("unexpected size: %v", s)
+		t.Fatalf("unexpected size: %v", s)
 	}
 }
 
@@ -580,16 +658,16 @@ func TestMapParallelResize(t *testing.T) {
 			continue
 		}
 		if vi, ok := v.(int); ok && vi != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 	s := m.Size()
 	if s > numEntries {
-		t.Errorf("unexpected size: %v", s)
+		t.Fatalf("unexpected size: %v", s)
 	}
 	rs := sizeBasedOnRange(m)
 	if s != rs {
-		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
+		t.Fatalf("size does not match number of entries in Range: %v, %v", s, rs)
 	}
 }
 
@@ -621,11 +699,11 @@ func TestMapParallelClear(t *testing.T) {
 	// Verify map size.
 	s := m.Size()
 	if s > numEntries {
-		t.Errorf("unexpected size: %v", s)
+		t.Fatalf("unexpected size: %v", s)
 	}
 	rs := sizeBasedOnRange(m)
 	if s != rs {
-		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
+		t.Fatalf("size does not match number of entries in Range: %v, %v", s, rs)
 	}
 }
 
@@ -747,6 +825,44 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 	}
 }
 
+func parallelComputer(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
+	for i := 0; i < numIters; i++ {
+		for j := 0; j < numEntries; j++ {
+			m.Compute(strconv.Itoa(j), func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
+				if !loaded {
+					return uint64(1), false
+				}
+				return uint64(oldValue.(uint64) + 1), false
+			})
+		}
+	}
+	cdone <- true
+}
+
+func TestMapParallelComputes(t *testing.T) {
+	const numWorkers = 4 // Also stands for numEntries.
+	const numIters = 10_000
+	m := NewMap()
+	cdone := make(chan bool)
+	for i := 0; i < numWorkers; i++ {
+		go parallelComputer(t, m, numIters, numWorkers, cdone)
+	}
+	// Wait for the goroutines to finish.
+	for i := 0; i < numWorkers; i++ {
+		<-cdone
+	}
+	// Verify map contents.
+	for i := 0; i < numWorkers; i++ {
+		v, ok := m.Load(strconv.Itoa(i))
+		if !ok {
+			t.Fatalf("value not found for %d", i)
+		}
+		if v.(uint64) != numWorkers*numIters {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
 func TestMapTopHashMutex(t *testing.T) {
 	const (
 		numLockers    = 4
@@ -794,7 +910,7 @@ func testMapTopHashMutex_Store(t *testing.T, topHashes *uint64) {
 	hash := uint64(0b1101_0100_1010_1011_1101 << 44)
 	for i := 0; i < EntriesPerMapBucket; i++ {
 		if TopHashMatch(hash, *topHashes, i) {
-			t.Errorf("top hash match for all zeros for index %d", i)
+			t.Fatalf("top hash match for all zeros for index %d", i)
 		}
 
 		prevOnes := bits.OnesCount64(*topHashes)
@@ -802,12 +918,12 @@ func testMapTopHashMutex_Store(t *testing.T, topHashes *uint64) {
 		newOnes := bits.OnesCount64(*topHashes)
 		expectedInc := bits.OnesCount64(hash) + 1
 		if newOnes != prevOnes+expectedInc {
-			t.Errorf("unexpected bits change after store for index %d: %d, %d, %#b",
+			t.Fatalf("unexpected bits change after store for index %d: %d, %d, %#b",
 				i, newOnes, prevOnes+expectedInc, *topHashes)
 		}
 
 		if !TopHashMatch(hash, *topHashes, i) {
-			t.Errorf("top hash mismatch after store for index %d: %#b", i, *topHashes)
+			t.Fatalf("top hash mismatch after store for index %d: %#b", i, *topHashes)
 		}
 	}
 }
@@ -832,12 +948,12 @@ func testMapTopHashMutex_Erase(t *testing.T, topHashes *uint64) {
 
 		*topHashes = EraseTopHash(*topHashes, i)
 		if TopHashMatch(hash, *topHashes, i) {
-			t.Errorf("top hash match after erase for index %d: %#b", i, *topHashes)
+			t.Fatalf("top hash match after erase for index %d: %#b", i, *topHashes)
 		}
 
 		erasedBits := ones - bits.OnesCount64(*topHashes)
 		if erasedBits != 1 {
-			t.Errorf("more than one bit changed after erase: %d, %d", i, erasedBits)
+			t.Fatalf("more than one bit changed after erase: %d, %d", i, erasedBits)
 		}
 	}
 }
@@ -861,19 +977,19 @@ func testMapTopHashMutex_StoreAfterErase(t *testing.T, topHashes *uint64) {
 
 	*topHashes = StoreTopHash(hashOne, *topHashes, idx)
 	if !TopHashMatch(hashOne, *topHashes, idx) {
-		t.Errorf("top hash mismatch for hash one: %#b, %#b", hashOne, *topHashes)
+		t.Fatalf("top hash mismatch for hash one: %#b, %#b", hashOne, *topHashes)
 	}
 	if TopHashMatch(hashTwo, *topHashes, idx) {
-		t.Errorf("top hash match for hash two: %#b, %#b", hashTwo, *topHashes)
+		t.Fatalf("top hash match for hash two: %#b, %#b", hashTwo, *topHashes)
 	}
 
 	*topHashes = EraseTopHash(*topHashes, idx)
 	*topHashes = StoreTopHash(hashTwo, *topHashes, idx)
 	if TopHashMatch(hashOne, *topHashes, idx) {
-		t.Errorf("top hash match for hash one: %#b, %#b", hashOne, *topHashes)
+		t.Fatalf("top hash match for hash one: %#b, %#b", hashOne, *topHashes)
 	}
 	if !TopHashMatch(hashTwo, *topHashes, idx) {
-		t.Errorf("top hash mismatch for hash two: %#b, %#b", hashTwo, *topHashes)
+		t.Fatalf("top hash mismatch for hash two: %#b, %#b", hashTwo, *topHashes)
 	}
 }
 

@@ -27,7 +27,7 @@ func TestQueueEnqueueDequeue(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		if got := q.Dequeue(); got != i {
-			t.Errorf("got %v, want %d", got, i)
+			t.Fatalf("got %v, want %d", got, i)
 		}
 	}
 }
@@ -47,7 +47,7 @@ func TestQueueEnqueueBlocksOnFull(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	atomic.StoreInt32(&flag, 1)
 	if got := q.Dequeue(); got != "foo" {
-		t.Errorf("got %v, want foo", got)
+		t.Fatalf("got %v, want foo", got)
 	}
 	<-cdone
 }
@@ -73,12 +73,12 @@ func TestQueueTryEnqueueDequeue(t *testing.T) {
 	q := NewMPMCQueue(10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(i) {
-			t.Errorf("failed to enqueue for %d", i)
+			t.Fatalf("failed to enqueue for %d", i)
 		}
 	}
 	for i := 0; i < 10; i++ {
 		if got, ok := q.TryDequeue(); !ok || got != i {
-			t.Errorf("got %v, want %d, for status %v", got, i, ok)
+			t.Fatalf("got %v, want %d, for status %v", got, i, ok)
 		}
 	}
 }
@@ -137,7 +137,7 @@ func hammerQueueBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) 
 	// Assert the total sum.
 	expectedSum := numOps * (numOps - 1) / 2
 	if sum != expectedSum {
-		t.Errorf("sums don't match for %d num ops, %d num threads: got %d, want %d",
+		t.Fatalf("sums don't match for %d num ops, %d num threads: got %d, want %d",
 			numOps, numThreads, sum, expectedSum)
 	}
 }
@@ -204,7 +204,7 @@ func hammerQueueNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads in
 	// Assert the total sum.
 	expectedSum := numOps * (numOps - 1) / 2
 	if sum != expectedSum {
-		t.Errorf("sums don't match for %d num ops, %d num threads: got %d, want %d",
+		t.Fatalf("sums don't match for %d num ops, %d num threads: got %d, want %d",
 			numOps, numThreads, sum, expectedSum)
 	}
 }

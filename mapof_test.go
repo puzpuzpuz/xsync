@@ -75,13 +75,13 @@ func TestMapOf_MissingEntry(t *testing.T) {
 	m := NewMapOf[string]()
 	v, ok := m.Load("foo")
 	if ok {
-		t.Errorf("value was not expected: %v", v)
+		t.Fatalf("value was not expected: %v", v)
 	}
 	if deleted, loaded := m.LoadAndDelete("foo"); loaded {
-		t.Errorf("value was not expected %v", deleted)
+		t.Fatalf("value was not expected %v", deleted)
 	}
 	if actual, loaded := m.LoadOrStore("foo", "bar"); loaded {
-		t.Errorf("value was not expected %v", actual)
+		t.Fatalf("value was not expected %v", actual)
 	}
 }
 
@@ -93,7 +93,7 @@ func TestMapOf_EmptyStringKey(t *testing.T) {
 		t.Error("value was expected")
 	}
 	if v != "foobar" {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 }
 
@@ -105,7 +105,7 @@ func TestMapOfStore_NilValue(t *testing.T) {
 		t.Error("nil value was expected")
 	}
 	if v != nil {
-		t.Errorf("value was not nil: %v", v)
+		t.Fatalf("value was not nil: %v", v)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestMapOfLoadOrStore_NilValue(t *testing.T) {
 		t.Error("nil value was expected")
 	}
 	if v != nil {
-		t.Errorf("value was not nil: %v", v)
+		t.Fatalf("value was not nil: %v", v)
 	}
 }
 
@@ -130,7 +130,7 @@ func TestMapOfLoadOrStore_NonNilValue(t *testing.T) {
 		t.Error("no value was expected")
 	}
 	if v != newv {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 	newv2 := &foo{}
 	v, loaded = m.LoadOrStore("foo", newv2)
@@ -138,7 +138,7 @@ func TestMapOfLoadOrStore_NonNilValue(t *testing.T) {
 		t.Error("value was expected")
 	}
 	if v != newv {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 }
 
@@ -150,14 +150,14 @@ func TestMapOfLoadAndStore_NilValue(t *testing.T) {
 		t.Error("nil value was expected")
 	}
 	if v != nil {
-		t.Errorf("value was not nil: %v", v)
+		t.Fatalf("value was not nil: %v", v)
 	}
 	v, loaded = m.Load("foo")
 	if !loaded {
 		t.Error("nil value was expected")
 	}
 	if v != nil {
-		t.Errorf("value was not nil: %v", v)
+		t.Fatalf("value was not nil: %v", v)
 	}
 }
 
@@ -169,7 +169,7 @@ func TestMapOfLoadAndStore_NonNilValue(t *testing.T) {
 		t.Error("no value was expected")
 	}
 	if v != v1 {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 	v2 := 2
 	v, loaded = m.LoadAndStore("foo", v2)
@@ -177,14 +177,14 @@ func TestMapOfLoadAndStore_NonNilValue(t *testing.T) {
 		t.Error("value was expected")
 	}
 	if v != v1 {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 	v, loaded = m.Load("foo")
 	if !loaded {
 		t.Error("value was expected")
 	}
 	if v != v2 {
-		t.Errorf("value does not match: %v", v)
+		t.Fatalf("value does not match: %v", v)
 	}
 }
 
@@ -198,7 +198,7 @@ func TestMapOfRange(t *testing.T) {
 	met := make(map[string]int)
 	m.Range(func(key string, value int) bool {
 		if key != strconv.Itoa(value) {
-			t.Errorf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
+			t.Fatalf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
 			return false
 		}
 		met[key] += 1
@@ -206,11 +206,11 @@ func TestMapOfRange(t *testing.T) {
 		return true
 	})
 	if iters != numEntries {
-		t.Errorf("got unexpected number of iterations: %d", iters)
+		t.Fatalf("got unexpected number of iterations: %d", iters)
 	}
 	for i := 0; i < numEntries; i++ {
 		if c := met[strconv.Itoa(i)]; c != 1 {
-			t.Errorf("range did not iterate correctly over %d: %d", i, c)
+			t.Fatalf("range did not iterate correctly over %d: %d", i, c)
 		}
 	}
 }
@@ -226,7 +226,7 @@ func TestMapOfRange_FalseReturned(t *testing.T) {
 		return iters != 13
 	})
 	if iters != 13 {
-		t.Errorf("got unexpected number of iterations: %d", iters)
+		t.Fatalf("got unexpected number of iterations: %d", iters)
 	}
 }
 
@@ -242,12 +242,12 @@ func TestMapOfRange_NestedDelete(t *testing.T) {
 	})
 	for i := 0; i < numEntries; i++ {
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
-			t.Errorf("value found for %d", i)
+			t.Fatalf("value found for %d", i)
 		}
 	}
 }
 
-func TestMapOfSerialStore(t *testing.T) {
+func TestMapOfStore(t *testing.T) {
 	const numEntries = 128
 	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
@@ -256,15 +256,15 @@ func TestMapOfSerialStore(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		v, ok := m.Load(strconv.Itoa(i))
 		if !ok {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 		if v != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func TestIntegerMapOfSerialStore(t *testing.T) {
+func TestIntegerMapOfStore(t *testing.T) {
 	const numEntries = 128
 	m := NewIntegerMapOf[int, int]()
 	for i := 0; i < numEntries; i++ {
@@ -273,70 +273,76 @@ func TestIntegerMapOfSerialStore(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		v, ok := m.Load(i)
 		if !ok {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 		if v != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func TestTypedMapOfSerialStore_StructKeys_IntValues(t *testing.T) {
+func TestTypedMapOfStore_StructKeys_IntValues(t *testing.T) {
 	type foo struct {
-		x int
-		y int
+		x int32
+		y int32
 	}
 	const numEntries = 128
 	m := NewTypedMapOf[foo, int](func(seed maphash.Seed, f foo) uint64 {
 		var h maphash.Hash
 		h.SetSeed(seed)
-		binary.Write(&h, binary.LittleEndian, f)
-		return h.Sum64()
+		binary.Write(&h, binary.LittleEndian, f.x)
+		hash := h.Sum64()
+		h.Reset()
+		binary.Write(&h, binary.LittleEndian, f.y)
+		return 31*hash + h.Sum64()
 	})
 	for i := 0; i < numEntries; i++ {
-		m.Store(foo{i, -i}, i)
+		m.Store(foo{int32(i), -int32(i)}, i)
 	}
 	for i := 0; i < numEntries; i++ {
-		v, ok := m.Load(foo{i, -i})
+		v, ok := m.Load(foo{int32(i), -int32(i)})
 		if !ok {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 		if v != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func TestTypedMapOfSerialStore_StructKeys_StructValues(t *testing.T) {
+func TestTypedMapOfStore_StructKeys_StructValues(t *testing.T) {
 	type foo struct {
-		x int
-		y int
+		x int32
+		y int32
 	}
 	const numEntries = 128
 	m := NewTypedMapOf[foo, foo](func(seed maphash.Seed, f foo) uint64 {
 		var h maphash.Hash
 		h.SetSeed(seed)
-		binary.Write(&h, binary.LittleEndian, f)
-		return h.Sum64()
+		binary.Write(&h, binary.LittleEndian, f.x)
+		hash := h.Sum64()
+		h.Reset()
+		binary.Write(&h, binary.LittleEndian, f.y)
+		return 31*hash + h.Sum64()
 	})
 	for i := 0; i < numEntries; i++ {
-		m.Store(foo{i, -i}, foo{-i, i})
+		m.Store(foo{int32(i), -int32(i)}, foo{-int32(i), int32(i)})
 	}
 	for i := 0; i < numEntries; i++ {
-		v, ok := m.Load(foo{i, -i})
+		v, ok := m.Load(foo{int32(i), -int32(i)})
 		if !ok {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
-		if v.x != -i {
-			t.Errorf("x value does not match for %d: %v", i, v)
+		if v.x != -int32(i) {
+			t.Fatalf("x value does not match for %d: %v", i, v)
 		}
-		if v.y != i {
-			t.Errorf("y value does not match for %d: %v", i, v)
+		if v.y != int32(i) {
+			t.Fatalf("y value does not match for %d: %v", i, v)
 		}
 	}
 }
 
-func TestTypedMapOfSerialStore_HashCodeCollisions(t *testing.T) {
+func TestTypedMapOfStore_HashCodeCollisions(t *testing.T) {
 	const numEntries = 1000
 	m := NewTypedMapOf[int, int](func(_ maphash.Seed, i int) uint64 {
 		// We intentionally use an awful hash function here to make sure
@@ -349,15 +355,15 @@ func TestTypedMapOfSerialStore_HashCodeCollisions(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		v, ok := m.Load(i)
 		if !ok {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 		if v != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func TestMapOfSerialLoadOrStore(t *testing.T) {
+func TestMapOfLoadOrStore(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
@@ -365,12 +371,12 @@ func TestMapOfSerialLoadOrStore(t *testing.T) {
 	}
 	for i := 0; i < numEntries; i++ {
 		if _, loaded := m.LoadOrStore(strconv.Itoa(i), i); !loaded {
-			t.Errorf("value not found for %d", i)
+			t.Fatalf("value not found for %d", i)
 		}
 	}
 }
 
-func TestMapOfSerialLoadOrCompute(t *testing.T) {
+func TestMapOfLoadOrCompute(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
@@ -378,10 +384,10 @@ func TestMapOfSerialLoadOrCompute(t *testing.T) {
 			return i
 		})
 		if loaded {
-			t.Errorf("value not computed for %d", i)
+			t.Fatalf("value not computed for %d", i)
 		}
 		if v != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 	for i := 0; i < numEntries; i++ {
@@ -389,15 +395,15 @@ func TestMapOfSerialLoadOrCompute(t *testing.T) {
 			return i
 		})
 		if !loaded {
-			t.Errorf("value not loaded for %d", i)
+			t.Fatalf("value not loaded for %d", i)
 		}
 		if v != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
 
-func TestMapOfSerialLoadOrCompute_FunctionCalledOnce(t *testing.T) {
+func TestMapOfLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 	m := NewIntegerMapOf[int, int]()
 	for i := 0; i < 100; {
 		m.LoadOrCompute(i, func() (v int) {
@@ -408,13 +414,89 @@ func TestMapOfSerialLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 
 	m.Range(func(k, v int) bool {
 		if k != v {
-			t.Errorf("%dth key is not equal to value %d", k, v)
+			t.Fatalf("%dth key is not equal to value %d", k, v)
 		}
 		return true
 	})
 }
 
-func TestMapOfSerialStoreThenDelete(t *testing.T) {
+func TestMapOfCompute(t *testing.T) {
+	m := NewMapOf[int]()
+	// Store a new value.
+	v, ok := m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, delete bool) {
+		if oldValue != 0 {
+			t.Fatalf("oldValue should be 0 when computing a new value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when computing a new value")
+		}
+		newValue = 42
+		delete = false
+		return
+	})
+	if v != 42 {
+		t.Fatalf("v should be 42 when computing a new value: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when computing a new value")
+	}
+	// Update an existing value.
+	v, ok = m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, delete bool) {
+		if oldValue != 42 {
+			t.Fatalf("oldValue should be 42 when updating the value: %d", oldValue)
+		}
+		if !loaded {
+			t.Fatal("loaded should be true when updating the value")
+		}
+		newValue = oldValue + 42
+		delete = false
+		return
+	})
+	if v != 84 {
+		t.Fatalf("v should be 84 when updating the value: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when updating the value")
+	}
+	// Delete an existing value.
+	v, ok = m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, delete bool) {
+		if oldValue != 84 {
+			t.Fatalf("oldValue should be 84 when deleting the value: %d", oldValue)
+		}
+		if !loaded {
+			t.Fatal("loaded should be true when deleting the value")
+		}
+		delete = true
+		return
+	})
+	if v != 84 {
+		t.Fatalf("v should be 84 when deleting the value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when deleting the value")
+	}
+	// Try to delete a non-existing value. Notice different key.
+	v, ok = m.Compute("barbaz", func(oldValue int, loaded bool) (newValue int, delete bool) {
+		if oldValue != 0 {
+			t.Fatalf("oldValue should be 0 when trying to delete a non-existing value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when trying to delete a non-existing value")
+		}
+		// We're returning a non-zero value, but the map should ignore it.
+		newValue = 42
+		delete = true
+		return
+	})
+	if v != 0 {
+		t.Fatalf("v should be 0 when trying to delete a non-existing value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when trying to delete a non-existing value")
+	}
+}
+
+func TestMapOfStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
@@ -423,12 +505,12 @@ func TestMapOfSerialStoreThenDelete(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
-			t.Errorf("value was not expected for %d", i)
+			t.Fatalf("value was not expected for %d", i)
 		}
 	}
 }
 
-func TestIntegerMapOfSerialStoreThenDelete(t *testing.T) {
+func TestIntegerMapOfStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewIntegerMapOf[int32, int32]()
 	for i := 0; i < numEntries; i++ {
@@ -437,51 +519,54 @@ func TestIntegerMapOfSerialStoreThenDelete(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Delete(int32(i))
 		if _, ok := m.Load(int32(i)); ok {
-			t.Errorf("value was not expected for %d", i)
+			t.Fatalf("value was not expected for %d", i)
 		}
 	}
 }
 
-func TestTypedMapOfSerialStoreThenDelete(t *testing.T) {
+func TestTypedMapOfStoreThenDelete(t *testing.T) {
 	type foo struct {
-		x int
-		y int
+		x int32
+		y int32
 	}
 	const numEntries = 1000
 	m := NewTypedMapOf[foo, string](func(seed maphash.Seed, f foo) uint64 {
 		var h maphash.Hash
 		h.SetSeed(seed)
-		binary.Write(&h, binary.LittleEndian, f)
-		return h.Sum64()
+		binary.Write(&h, binary.LittleEndian, f.x)
+		hash := h.Sum64()
+		h.Reset()
+		binary.Write(&h, binary.LittleEndian, f.y)
+		return 31*hash + h.Sum64()
 	})
 	for i := 0; i < numEntries; i++ {
-		m.Store(foo{i, 42}, strconv.Itoa(i))
+		m.Store(foo{int32(i), 42}, strconv.Itoa(i))
 	}
 	for i := 0; i < numEntries; i++ {
-		m.Delete(foo{i, 42})
-		if _, ok := m.Load(foo{i, 42}); ok {
-			t.Errorf("value was not expected for %d", i)
+		m.Delete(foo{int32(i), 42})
+		if _, ok := m.Load(foo{int32(i), 42}); ok {
+			t.Fatalf("value was not expected for %d", i)
 		}
 	}
 }
 
-func TestMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
+func TestMapOfStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
 	for i := 0; i < numEntries; i++ {
-		if _, loaded := m.LoadAndDelete(strconv.Itoa(i)); !loaded {
-			t.Errorf("value was not found for %d", i)
+		if v, loaded := m.LoadAndDelete(strconv.Itoa(i)); !loaded || v != i {
+			t.Fatalf("value was not found or different for %d: %v", i, v)
 		}
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
-			t.Errorf("value was not expected for %d", i)
+			t.Fatalf("value was not expected for %d", i)
 		}
 	}
 }
 
-func TestIntegerMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
+func TestIntegerMapOfStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewIntegerMapOf[int, int]()
 	for i := 0; i < numEntries; i++ {
@@ -489,35 +574,38 @@ func TestIntegerMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
 	}
 	for i := 0; i < numEntries; i++ {
 		if _, loaded := m.LoadAndDelete(i); !loaded {
-			t.Errorf("value was not found for %d", i)
+			t.Fatalf("value was not found for %d", i)
 		}
 		if _, ok := m.Load(i); ok {
-			t.Errorf("value was not expected for %d", i)
+			t.Fatalf("value was not expected for %d", i)
 		}
 	}
 }
 
-func TestTypedMapOfSerialStoreThenLoadAndDelete(t *testing.T) {
+func TestTypedMapOfStoreThenLoadAndDelete(t *testing.T) {
 	type foo struct {
-		x int
-		y int
+		x int32
+		y int32
 	}
 	const numEntries = 1000
 	m := NewTypedMapOf[foo, int](func(seed maphash.Seed, f foo) uint64 {
 		var h maphash.Hash
 		h.SetSeed(seed)
-		binary.Write(&h, binary.LittleEndian, f)
-		return h.Sum64()
+		binary.Write(&h, binary.LittleEndian, f.x)
+		hash := h.Sum64()
+		h.Reset()
+		binary.Write(&h, binary.LittleEndian, f.y)
+		return 31*hash + h.Sum64()
 	})
 	for i := 0; i < numEntries; i++ {
-		m.Store(foo{42, i}, i)
+		m.Store(foo{42, int32(i)}, i)
 	}
 	for i := 0; i < numEntries; i++ {
-		if _, loaded := m.LoadAndDelete(foo{42, i}); !loaded {
-			t.Errorf("value was not found for %d", i)
+		if _, loaded := m.LoadAndDelete(foo{42, int32(i)}); !loaded {
+			t.Fatalf("value was not found for %d", i)
 		}
-		if _, ok := m.Load(foo{42, i}); ok {
-			t.Errorf("value was not expected for %d", i)
+		if _, ok := m.Load(foo{42, int32(i)}); ok {
+			t.Fatalf("value was not expected for %d", i)
 		}
 	}
 }
@@ -536,7 +624,7 @@ func TestMapOfSize(t *testing.T) {
 	m := NewMapOf[int]()
 	size := m.Size()
 	if size != 0 {
-		t.Errorf("zero size expected: %d", size)
+		t.Fatalf("zero size expected: %d", size)
 	}
 	expectedSize := 0
 	for i := 0; i < numEntries; i++ {
@@ -544,11 +632,11 @@ func TestMapOfSize(t *testing.T) {
 		expectedSize++
 		size := m.Size()
 		if size != expectedSize {
-			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
+			t.Fatalf("size of %d was expected, got: %d", expectedSize, size)
 		}
 		rsize := sizeBasedOnTypedRange(m)
 		if size != rsize {
-			t.Errorf("size does not match number of entries in Range: %v, %v", size, rsize)
+			t.Fatalf("size does not match number of entries in Range: %v, %v", size, rsize)
 		}
 	}
 	for i := 0; i < numEntries; i++ {
@@ -556,11 +644,11 @@ func TestMapOfSize(t *testing.T) {
 		expectedSize--
 		size := m.Size()
 		if size != expectedSize {
-			t.Errorf("size of %d was expected, got: %d", expectedSize, size)
+			t.Fatalf("size of %d was expected, got: %d", expectedSize, size)
 		}
 		rsize := sizeBasedOnTypedRange(m)
 		if size != rsize {
-			t.Errorf("size does not match number of entries in Range: %v, %v", size, rsize)
+			t.Fatalf("size does not match number of entries in Range: %v, %v", size, rsize)
 		}
 	}
 }
@@ -573,16 +661,16 @@ func TestMapOfClear(t *testing.T) {
 	}
 	size := m.Size()
 	if size != numEntries {
-		t.Errorf("size of %d was expected, got: %d", numEntries, size)
+		t.Fatalf("size of %d was expected, got: %d", numEntries, size)
 	}
 	m.Clear()
 	size = m.Size()
 	if size != 0 {
-		t.Errorf("zero size was expected, got: %d", size)
+		t.Fatalf("zero size was expected, got: %d", size)
 	}
 	rsize := sizeBasedOnTypedRange(m)
 	if rsize != 0 {
-		t.Errorf("zero number of entries in Range was expected, got: %d", rsize)
+		t.Fatalf("zero number of entries in Range was expected, got: %d", rsize)
 	}
 }
 
@@ -595,20 +683,20 @@ func TestMapOfResize(t *testing.T) {
 	}
 	stats := CollectMapOfStats(m)
 	if stats.Size != numEntries {
-		t.Errorf("size was too small: %d", stats.Size)
+		t.Fatalf("size was too small: %d", stats.Size)
 	}
 	expectedCapacity := int(math.RoundToEven(MapLoadFactor+1)) * stats.TableLen * EntriesPerMapBucket
 	if stats.Capacity > expectedCapacity {
-		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
+		t.Fatalf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
 	if stats.TableLen <= MinMapTableLen {
-		t.Errorf("table was too small: %d", stats.TableLen)
+		t.Fatalf("table was too small: %d", stats.TableLen)
 	}
 	if stats.TotalGrowths == 0 {
-		t.Errorf("non-zero total growths expected: %d", stats.TotalGrowths)
+		t.Fatalf("non-zero total growths expected: %d", stats.TotalGrowths)
 	}
 	if stats.TotalShrinks > 0 {
-		t.Errorf("zero total shrinks expected: %d", stats.TotalShrinks)
+		t.Fatalf("zero total shrinks expected: %d", stats.TotalShrinks)
 	}
 	// This is useful when debugging table resize and occupancy.
 	stats.Print()
@@ -618,17 +706,17 @@ func TestMapOfResize(t *testing.T) {
 	}
 	stats = CollectMapOfStats(m)
 	if stats.Size > 0 {
-		t.Errorf("zero size was expected: %d", stats.Size)
+		t.Fatalf("zero size was expected: %d", stats.Size)
 	}
 	expectedCapacity = stats.TableLen * EntriesPerMapBucket
 	if stats.Capacity != expectedCapacity {
-		t.Errorf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
+		t.Fatalf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
 	if stats.TableLen != MinMapTableLen {
-		t.Errorf("table was too large: %d", stats.TableLen)
+		t.Fatalf("table was too large: %d", stats.TableLen)
 	}
 	if stats.TotalShrinks == 0 {
-		t.Errorf("non-zero total shrinks expected: %d", stats.TotalShrinks)
+		t.Fatalf("non-zero total shrinks expected: %d", stats.TotalShrinks)
 	}
 	stats.Print()
 }
@@ -642,10 +730,10 @@ func TestMapOfResize_CounterLenLimit(t *testing.T) {
 	}
 	stats := CollectMapOfStats(m)
 	if stats.Size != numEntries {
-		t.Errorf("size was too small: %d", stats.Size)
+		t.Fatalf("size was too small: %d", stats.Size)
 	}
 	if stats.CounterLen != MaxMapCounterLen {
-		t.Errorf("number of counter stripes was too large: %d, expected: %d",
+		t.Fatalf("number of counter stripes was too large: %d, expected: %d",
 			stats.CounterLen, MaxMapCounterLen)
 	}
 }
@@ -681,7 +769,7 @@ func TestMapOfParallelResize_GrowOnly(t *testing.T) {
 		}
 	}
 	if s := m.Size(); s != 2*numEntries-1 {
-		t.Errorf("unexpected size: %v", s)
+		t.Fatalf("unexpected size: %v", s)
 	}
 }
 
@@ -718,16 +806,16 @@ func TestMapOfParallelResize(t *testing.T) {
 			continue
 		}
 		if v != i {
-			t.Errorf("values do not match for %d: %v", i, v)
+			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 	s := m.Size()
 	if s > numEntries {
-		t.Errorf("unexpected size: %v", s)
+		t.Fatalf("unexpected size: %v", s)
 	}
 	rs := sizeBasedOnTypedRange(m)
 	if s != rs {
-		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
+		t.Fatalf("size does not match number of entries in Range: %v, %v", s, rs)
 	}
 }
 
@@ -759,11 +847,11 @@ func TestMapOfParallelClear(t *testing.T) {
 	// Verify map size.
 	s := m.Size()
 	if s > numEntries {
-		t.Errorf("unexpected size: %v", s)
+		t.Fatalf("unexpected size: %v", s)
 	}
 	rs := sizeBasedOnTypedRange(m)
 	if s != rs {
-		t.Errorf("size does not match number of entries in Range: %v, %v", s, rs)
+		t.Fatalf("size does not match number of entries in Range: %v, %v", s, rs)
 	}
 }
 
@@ -882,6 +970,41 @@ func TestMapOfParallelStoresAndDeletes(t *testing.T) {
 	// Wait for the goroutines to finish.
 	for i := 0; i < 2*numWorkers; i++ {
 		<-cdone
+	}
+}
+
+func parallelTypedComputer(t *testing.T, m *MapOf[uint64, uint64], numIters, numEntries int, cdone chan bool) {
+	for i := 0; i < numIters; i++ {
+		for j := 0; j < numEntries; j++ {
+			m.Compute(uint64(j), func(oldValue uint64, loaded bool) (newValue uint64, delete bool) {
+				return oldValue + 1, false
+			})
+		}
+	}
+	cdone <- true
+}
+
+func TestMapOfParallelComputes(t *testing.T) {
+	const numWorkers = 4 // Also stands for numEntries.
+	const numIters = 10_000
+	m := NewIntegerMapOf[uint64, uint64]()
+	cdone := make(chan bool)
+	for i := 0; i < numWorkers; i++ {
+		go parallelTypedComputer(t, m, numIters, numWorkers, cdone)
+	}
+	// Wait for the goroutines to finish.
+	for i := 0; i < numWorkers; i++ {
+		<-cdone
+	}
+	// Verify map contents.
+	for i := 0; i < numWorkers; i++ {
+		v, ok := m.Load(uint64(i))
+		if !ok {
+			t.Fatalf("value not found for %d", i)
+		}
+		if v != numWorkers*numIters {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
 	}
 }
 
