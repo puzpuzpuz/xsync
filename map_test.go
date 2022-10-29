@@ -978,6 +978,9 @@ func BenchmarkMapRange(b *testing.B) {
 		foo := 0
 		for pb.Next() {
 			m.Range(func(key string, value interface{}) bool {
+				// Dereference the value to have an apple-to-apple
+				// comparison with MapOf.Range.
+				_ = value.(int)
 				foo++
 				return true
 			})
@@ -996,6 +999,9 @@ func BenchmarkMapRangeStandard(b *testing.B) {
 		foo := 0
 		for pb.Next() {
 			m.Range(func(key interface{}, value interface{}) bool {
+				// Dereference the key and the value to have an apple-to-apple
+				// comparison with MapOf.Range.
+				_, _ = key.(string), value.(int)
 				foo++
 				return true
 			})
