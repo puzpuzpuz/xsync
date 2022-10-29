@@ -3,11 +3,7 @@ package xsync
 import (
 	"sync"
 	"sync/atomic"
-	"unsafe"
 )
-
-// number of counter stripes; must be a power of two
-const cstripes = 64
 
 // pool for P tokens
 var ptokenPool sync.Pool
@@ -29,13 +25,23 @@ type ptoken struct {
 //
 // A Counter must not be copied after first use.
 type Counter struct {
-	stripes [cstripes]cstripe
+	stripes []cstripe
+	mask    uint32
 }
 
 type cstripe struct {
 	c int64
 	//lint:ignore U1000 prevents false sharing
 	pad [cacheLineSize - 8]byte
+}
+
+func NewCounter() *Counter {
+	nstripes := nextPowOf2(parallelism())
+	c := Counter{
+		stripes: make([]cstripe, nstripes),
+		mask:    nstripes - 1,
+	}
+	return &c
 }
 
 // Inc increments the counter by 1.
@@ -53,11 +59,17 @@ func (c *Counter) Add(delta int64) {
 	t, ok := ptokenPool.Get().(*ptoken)
 	if !ok {
 		t = new(ptoken)
-		// Since cstripes is a power of two, we can use & instead of %.
-		t.idx = uint32(mixhash64(uintptr(unsafe.Pointer(t))) & (cstripes - 1))
+		t.idx = fastrand() & c.mask
 	}
-	stripe := &c.stripes[t.idx]
-	atomic.AddInt64(&stripe.c, delta)
+	for {
+		stripe := &c.stripes[t.idx]
+		cnt := atomic.LoadInt64(&stripe.c)
+		if atomic.CompareAndSwapInt64(&stripe.c, cnt, cnt+delta) {
+			break
+		}
+		// Give a try with another randomly selected stripe.
+		t.idx = fastrand() & c.mask
+	}
 	ptokenPool.Put(t)
 }
 
@@ -66,7 +78,7 @@ func (c *Counter) Add(delta int64) {
 // presence of concurrent modifications of the counter.
 func (c *Counter) Value() int64 {
 	v := int64(0)
-	for i := 0; i < cstripes; i++ {
+	for i := 0; i < len(c.stripes); i++ {
 		stripe := &c.stripes[i]
 		v += atomic.LoadInt64(&stripe.c)
 	}
@@ -77,7 +89,7 @@ func (c *Counter) Value() int64 {
 // This method should only be used when it is known that there are
 // no concurrent modifications of the counter.
 func (c *Counter) Reset() {
-	for i := 0; i < cstripes; i++ {
+	for i := 0; i < len(c.stripes); i++ {
 		stripe := &c.stripes[i]
 		atomic.StoreInt64(&stripe.c, 0)
 	}

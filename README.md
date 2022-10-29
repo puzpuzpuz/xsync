@@ -12,10 +12,10 @@ Benchmark results may be found [here](BENCHMARKS.md).
 
 ## Counter
 
-A `Counter` is a striped `int64` counter inspired by the j.u.c.a.LongAdder class from Java standard library.
+A `Counter` is a striped `int64` counter inspired by the `j.u.c.a.LongAdder` class from Java standard library.
 
 ```go
-var c xsync.Counter
+c := xsync.NewCounter()
 // increment and decrement the counter
 c.Inc()
 c.Dec()
@@ -23,7 +23,7 @@ c.Dec()
 v := c.Value()
 ```
 
-Works better in comparison with a single atomically updated int64 counter in high contention scenarios.
+Works better in comparison with a single atomically updated `int64` counter in high contention scenarios.
 
 ## Map
 

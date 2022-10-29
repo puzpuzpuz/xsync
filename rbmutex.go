@@ -5,7 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 )
 
 const (
@@ -59,7 +58,7 @@ func (m *RBMutex) RLock() *RToken {
 		if !ok {
 			t = new(RToken)
 			// Since rslots is a power of two, we can use & instead of %.
-			t.slot = uint32(mixhash64(uintptr(unsafe.Pointer(t))) & (rslots - 1))
+			t.slot = uint32(fastrand() & (rslots - 1))
 		}
 		if atomic.CompareAndSwapInt32(&m.readers[t.slot], 0, 1) {
 			if atomic.LoadInt32(&m.rbias) == 1 {
