@@ -49,7 +49,8 @@ var (
 
 // Map is like a Go map[string]interface{} but is safe for concurrent
 // use by multiple goroutines without additional locking or
-// coordination. It follows the interface of sync.Map.
+// coordination. It follows the interface of sync.Map with
+// a number of valuable extensions like Compute or Size.
 //
 // A Map must not be copied after first use.
 //

@@ -27,7 +27,7 @@ Works better in comparison with a single atomically updated `int64` counter in h
 
 ## Map
 
-A `Map` is like a concurrent hash table based map. It follows the interface of `sync.Map` with a few extensions, like `LoadOrCompute` or `Size` methods.
+A `Map` is like a concurrent hash table based map. It follows the interface of `sync.Map` with a number of valuable extensions like `Compute` or `Size`.
 
 ```go
 m := xsync.NewMap()
