@@ -14,7 +14,8 @@ import (
 
 // MapOf is like a Go map[string]V but is safe for concurrent
 // use by multiple goroutines without additional locking or
-// coordination. It follows the interface of sync.Map.
+// coordination. It follows the interface of sync.Map with
+// a number of valuable extensions like Compute or Size.
 //
 // A MapOf must not be copied after first use.
 //
@@ -27,10 +28,6 @@ import (
 // Also, Get operations involve no write to memory, as well as no
 // mutexes or any other sort of locks. Due to this design, in all
 // considered scenarios MapOf outperforms sync.Map.
-//
-// One important difference with sync.Map is that only string keys
-// are supported. That's because Golang standard library does not
-// expose the built-in hash functions for interface{} values.
 type MapOf[K comparable, V any] struct {
 	totalGrowths int64
 	totalShrinks int64
