@@ -9,7 +9,7 @@ import (
 )
 
 func TestCounterInc(t *testing.T) {
-	var c Counter
+	c := NewCounter()
 	for i := 0; i < 100; i++ {
 		if v := c.Value(); v != int64(i) {
 			t.Fatalf("got %v, want %d", v, i)
@@ -19,7 +19,7 @@ func TestCounterInc(t *testing.T) {
 }
 
 func TestCounterDec(t *testing.T) {
-	var c Counter
+	c := NewCounter()
 	for i := 0; i < 100; i++ {
 		if v := c.Value(); v != int64(-i) {
 			t.Fatalf("got %v, want %d", v, -i)
@@ -29,7 +29,7 @@ func TestCounterDec(t *testing.T) {
 }
 
 func TestCounterAdd(t *testing.T) {
-	var c Counter
+	c := NewCounter()
 	for i := 0; i < 100; i++ {
 		if v := c.Value(); v != int64(i*42) {
 			t.Fatalf("got %v, want %d", v, i*42)
@@ -39,7 +39,7 @@ func TestCounterAdd(t *testing.T) {
 }
 
 func TestCounterReset(t *testing.T) {
-	var c Counter
+	c := NewCounter()
 	c.Add(42)
 	if v := c.Value(); v != 42 {
 		t.Fatalf("got %v, want %d", v, 42)
@@ -59,11 +59,11 @@ func parallelIncrementor(c *Counter, numIncs int, cdone chan bool) {
 
 func doTestParallelIncrementors(t *testing.T, numModifiers, gomaxprocs int) {
 	runtime.GOMAXPROCS(gomaxprocs)
-	var c Counter
+	c := NewCounter()
 	cdone := make(chan bool)
 	numIncs := 10000
 	for i := 0; i < numModifiers; i++ {
-		go parallelIncrementor(&c, numIncs, cdone)
+		go parallelIncrementor(c, numIncs, cdone)
 	}
 	// Wait for the goroutines to finish.
 	for i := 0; i < numModifiers; i++ {
@@ -83,7 +83,7 @@ func TestCounterParallelIncrementors(t *testing.T) {
 }
 
 func benchmarkCounter(b *testing.B, writeRatio int) {
-	var c Counter
+	c := NewCounter()
 	b.RunParallel(func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
