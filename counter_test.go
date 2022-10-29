@@ -12,7 +12,7 @@ func TestCounterInc(t *testing.T) {
 	var c Counter
 	for i := 0; i < 100; i++ {
 		if v := c.Value(); v != int64(i) {
-			t.Errorf("got %v, want %d", v, i)
+			t.Fatalf("got %v, want %d", v, i)
 		}
 		c.Inc()
 	}
@@ -22,7 +22,7 @@ func TestCounterDec(t *testing.T) {
 	var c Counter
 	for i := 0; i < 100; i++ {
 		if v := c.Value(); v != int64(-i) {
-			t.Errorf("got %v, want %d", v, -i)
+			t.Fatalf("got %v, want %d", v, -i)
 		}
 		c.Dec()
 	}
@@ -32,7 +32,7 @@ func TestCounterAdd(t *testing.T) {
 	var c Counter
 	for i := 0; i < 100; i++ {
 		if v := c.Value(); v != int64(i*42) {
-			t.Errorf("got %v, want %d", v, i*42)
+			t.Fatalf("got %v, want %d", v, i*42)
 		}
 		c.Add(42)
 	}
@@ -42,11 +42,11 @@ func TestCounterReset(t *testing.T) {
 	var c Counter
 	c.Add(42)
 	if v := c.Value(); v != 42 {
-		t.Errorf("got %v, want %d", v, 42)
+		t.Fatalf("got %v, want %d", v, 42)
 	}
 	c.Reset()
 	if v := c.Value(); v != 0 {
-		t.Errorf("got %v, want %d", v, 0)
+		t.Fatalf("got %v, want %d", v, 0)
 	}
 }
 
@@ -71,7 +71,7 @@ func doTestParallelIncrementors(t *testing.T, numModifiers, gomaxprocs int) {
 	}
 	expected := int64(numModifiers * numIncs)
 	if v := c.Value(); v != expected {
-		t.Errorf("got %d, want %d", v, expected)
+		t.Fatalf("got %d, want %d", v, expected)
 	}
 }
 

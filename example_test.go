@@ -58,7 +58,7 @@ func ExampleMapOf_Compute() {
 	// v: 84, ok: true
 	fmt.Printf("v: %v, ok: %v\n", v, ok)
 
-	// Compare existing value, and set new value or keep old value, and store the oldVal
+	// Set a new value or keep the old value conditionally.
 	var oldVal int
 	minVal := 63
 	v, ok = counts.Compute(42, func(oldValue int, loaded bool) (newValue int, delete bool) {
