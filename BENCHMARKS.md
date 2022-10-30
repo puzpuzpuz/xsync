@@ -7,7 +7,7 @@ $ go test -bench .
 
 To limit the number of used CPU cores append `-cpu=<number>` argument to the above command.
 
-This document contains some benchmark results obtained on a cloud VM.
+This document contains some benchmark results obtained for xsync v1.0.0 on a cloud VM.
 
 ### Counter vs. atomic int64
 

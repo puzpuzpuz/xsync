@@ -101,17 +101,17 @@ To get the optimal performance, you may want to set the queue size to be large e
 A `RBMutex` is a reader biased reader/writer mutual exclusion lock. The lock can be held by an many readers or a single writer.
 
 ```go
-var m xsync.RBMutex
+mu := xsync.NewRBMutex()
 // reader lock calls return a token
-t := m.RLock()
+t := mu.RLock()
 // the token must be later used to unlock the mutex
-m.RUnlock(t)
+mu.RUnlock(t)
 // writer locks are the same as in sync.RWMutex
-m.Lock()
-m.Unlock()
+mu.Lock()
+mu.Unlock()
 ```
 
-`RBMutex` is based on the BRAVO (Biased Locking for Reader-Writer Locks) algorithm: https://arxiv.org/pdf/1810.01553.pdf
+`RBMutex` is based on a modified version of BRAVO (Biased Locking for Reader-Writer Locks) algorithm: https://arxiv.org/pdf/1810.01553.pdf
 
 The idea of the algorithm is to build on top of an existing reader-writer mutex and introduce a fast path for readers. On the fast path, reader lock attempts are sharded over an internal array based on the reader identity (a token in case of Golang). This means that readers do not contend over a single atomic counter like it's done in, say, `sync.RWMutex` allowing for better scalability in terms of cores.
 
