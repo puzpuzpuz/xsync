@@ -51,7 +51,7 @@ func TestCounterReset(t *testing.T) {
 }
 
 func parallelIncrementor(c *Counter, numIncs int, cdone chan bool) {
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < numIncs; i++ {
 		c.Inc()
 	}
 	cdone <- true
@@ -61,7 +61,7 @@ func doTestParallelIncrementors(t *testing.T, numModifiers, gomaxprocs int) {
 	runtime.GOMAXPROCS(gomaxprocs)
 	c := NewCounter()
 	cdone := make(chan bool)
-	numIncs := 10000
+	numIncs := 10_000
 	for i := 0; i < numModifiers; i++ {
 		go parallelIncrementor(c, numIncs, cdone)
 	}
