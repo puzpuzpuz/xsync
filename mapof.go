@@ -52,7 +52,9 @@ type IntegerConstraint interface {
 
 // NewIntegerMapOf creates a new MapOf instance with integer typed keys.
 func NewIntegerMapOf[K IntegerConstraint, V any]() *MapOf[K, V] {
-	return NewTypedMapOf[K, V](hash64[K])
+	return NewTypedMapOf[K, V](func(s maphash.Seed, k K) uint64 {
+		return hashUint64(s, uint64(k))
+	})
 }
 
 // NewTypedMapOf creates a new MapOf instance with arbitrarily typed keys.
@@ -97,11 +99,11 @@ func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 				}
 			}
 		}
-		bucketPtr := atomic.LoadPointer(&b.next)
-		if bucketPtr == nil {
+		bptr := atomic.LoadPointer(&b.next)
+		if bptr == nil {
 			return
 		}
-		b = (*bucketPadded)(bucketPtr)
+		b = (*bucketPadded)(bptr)
 	}
 }
 
@@ -470,11 +472,11 @@ func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 					return
 				}
 			}
-			bucketPtr := atomic.LoadPointer(&b.next)
-			if bucketPtr == nil {
+			bptr := atomic.LoadPointer(&b.next)
+			if bptr == nil {
 				break
 			}
-			b = (*bucketPadded)(bucketPtr)
+			b = (*bucketPadded)(bptr)
 		}
 	}
 }
@@ -507,41 +509,38 @@ func (m *MapOf[K, V]) stats() mapStats {
 		MinEntries:   math.MaxInt32,
 	}
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
-	stats.TableLen = len(table.buckets)
+	stats.RootBuckets = len(table.buckets)
 	stats.Counter = int(table.sumSize())
 	stats.CounterLen = len(table.size)
 	for i := range table.buckets {
-		numEntries := 0
+		nentries := 0
 		b := &table.buckets[i]
+		stats.TotalBuckets++
 		for {
+			nentriesLocal := 0
 			stats.Capacity += entriesPerMapBucket
 			for i := 0; i < entriesPerMapBucket; i++ {
 				if atomic.LoadPointer(&b.keys[i]) != nil {
 					stats.Size++
-					numEntries++
+					nentriesLocal++
 				}
+			}
+			nentries += nentriesLocal
+			if nentriesLocal == 0 {
+				stats.EmptyBuckets++
 			}
 			if b.next == nil {
 				break
 			}
 			b = (*bucketPadded)(b.next)
+			stats.TotalBuckets++
 		}
-		if numEntries < stats.MinEntries {
-			stats.MinEntries = numEntries
+		if nentries < stats.MinEntries {
+			stats.MinEntries = nentries
 		}
-		if numEntries > stats.MaxEntries {
-			stats.MaxEntries = numEntries
+		if nentries > stats.MaxEntries {
+			stats.MaxEntries = nentries
 		}
 	}
 	return stats
-}
-
-// hash64 calculates a hash of v with the given seed.
-func hash64[T IntegerConstraint](seed maphash.Seed, v T) uint64 {
-	n := uint64(v)
-	p := (*[8]byte)(unsafe.Pointer(&n))
-	var h maphash.Hash
-	h.SetSeed(seed)
-	h.Write((*p)[:])
-	return h.Sum64()
 }

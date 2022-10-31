@@ -172,11 +172,11 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 				}
 			}
 		}
-		bucketPtr := atomic.LoadPointer(&b.next)
-		if bucketPtr == nil {
+		bptr := atomic.LoadPointer(&b.next)
+		if bptr == nil {
 			return
 		}
-		b = (*bucketPadded)(bucketPtr)
+		b = (*bucketPadded)(bptr)
 	}
 }
 
@@ -580,11 +580,11 @@ func (m *Map) Range(f func(key string, value interface{}) bool) {
 					return
 				}
 			}
-			bucketPtr := atomic.LoadPointer(&b.next)
-			if bucketPtr == nil {
+			bptr := atomic.LoadPointer(&b.next)
+			if bptr == nil {
 				break
 			}
-			b = (*bucketPadded)(bucketPtr)
+			b = (*bucketPadded)(bptr)
 		}
 	}
 }
@@ -703,7 +703,9 @@ func (table *mapTable) sumSize() int64 {
 }
 
 type mapStats struct {
-	TableLen     int
+	RootBuckets  int
+	TotalBuckets int
+	EmptyBuckets int
 	Capacity     int
 	Size         int // calculated number of entries
 	Counter      int // number of entries according to table counter
@@ -716,7 +718,9 @@ type mapStats struct {
 
 func (s *mapStats) Print() {
 	fmt.Println("---")
-	fmt.Printf("TableLen:     %d\n", s.TableLen)
+	fmt.Printf("RootBuckets:  %d\n", s.RootBuckets)
+	fmt.Printf("TotalBuckets: %d\n", s.TotalBuckets)
+	fmt.Printf("EmptyBuckets: %d\n", s.EmptyBuckets)
 	fmt.Printf("Capacity:     %d\n", s.Capacity)
 	fmt.Printf("Size:         %d\n", s.Size)
 	fmt.Printf("Counter:      %d\n", s.Counter)
@@ -736,30 +740,37 @@ func (m *Map) stats() mapStats {
 		MinEntries:   math.MaxInt32,
 	}
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
-	stats.TableLen = len(table.buckets)
+	stats.RootBuckets = len(table.buckets)
 	stats.Counter = int(table.sumSize())
 	stats.CounterLen = len(table.size)
 	for i := range table.buckets {
-		numEntries := 0
+		nentries := 0
 		b := &table.buckets[i]
+		stats.TotalBuckets++
 		for {
+			nentriesLocal := 0
 			stats.Capacity += entriesPerMapBucket
 			for i := 0; i < entriesPerMapBucket; i++ {
 				if atomic.LoadPointer(&b.keys[i]) != nil {
 					stats.Size++
-					numEntries++
+					nentriesLocal++
 				}
+			}
+			nentries += nentriesLocal
+			if nentriesLocal == 0 {
+				stats.EmptyBuckets++
 			}
 			if b.next == nil {
 				break
 			}
 			b = (*bucketPadded)(b.next)
+			stats.TotalBuckets++
 		}
-		if numEntries < stats.MinEntries {
-			stats.MinEntries = numEntries
+		if nentries < stats.MinEntries {
+			stats.MinEntries = nentries
 		}
-		if numEntries > stats.MaxEntries {
-			stats.MaxEntries = numEntries
+		if nentries > stats.MaxEntries {
+			stats.MaxEntries = nentries
 		}
 	}
 	return stats

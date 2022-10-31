@@ -3,6 +3,7 @@ package xsync
 import (
 	"hash/maphash"
 	"runtime"
+	"unsafe"
 	_ "unsafe"
 )
 
@@ -47,6 +48,18 @@ func parallelism() uint32 {
 	return numCores
 }
 
+// inthash64 is a hash function based on murmurhash3 64-bit finalizer.
+//
+//lint:ignore U1000 used in MapOf
+func hashUint64(seed maphash.Seed, v uint64) uint64 {
+	nseed := *(*uint64)(unsafe.Pointer(&seed))
+	return uint64(memhash64(unsafe.Pointer(&v), uintptr(nseed)))
+}
+
 //go:noescape
 //go:linkname fastrand runtime.fastrand
 func fastrand() uint32
+
+//go:noescape
+//go:linkname memhash64 runtime.memhash64
+func memhash64(p unsafe.Pointer, h uintptr) uintptr
