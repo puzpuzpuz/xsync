@@ -16,6 +16,8 @@ var ptokenPool sync.Pool
 // the counter
 type ptoken struct {
 	idx uint32
+	//lint:ignore U1000 prevents false sharing
+	pad [cacheLineSize - 4]byte
 }
 
 // A Counter is a striped int64 counter.
@@ -35,6 +37,7 @@ type cstripe struct {
 	pad [cacheLineSize - 8]byte
 }
 
+// NewCounter creates a new Counter instance.
 func NewCounter() *Counter {
 	nstripes := nextPowOf2(parallelism())
 	c := Counter{

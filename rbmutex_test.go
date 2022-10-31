@@ -15,29 +15,34 @@ import (
 )
 
 func TestRBMutexSerialReader(t *testing.T) {
-	var m RBMutex
-	for i := 0; i < 10; i++ {
-		tk := m.RLock()
-		m.RUnlock(tk)
+	const numIters = 10
+	mu := NewRBMutex()
+	var rtokens [numIters]*RToken
+	for i := 0; i < numIters; i++ {
+		rtokens[i] = mu.RLock()
+
+	}
+	for i := 0; i < numIters; i++ {
+		mu.RUnlock(rtokens[i])
 	}
 }
 
-func parallelReader(m *RBMutex, clocked, cunlock, cdone chan bool) {
-	tk := m.RLock()
+func parallelReader(mu *RBMutex, clocked, cunlock, cdone chan bool) {
+	tk := mu.RLock()
 	clocked <- true
 	<-cunlock
-	m.RUnlock(tk)
+	mu.RUnlock(tk)
 	cdone <- true
 }
 
 func doTestParallelReaders(numReaders, gomaxprocs int) {
 	runtime.GOMAXPROCS(gomaxprocs)
-	var m RBMutex
+	mu := NewRBMutex()
 	clocked := make(chan bool)
 	cunlock := make(chan bool)
 	cdone := make(chan bool)
 	for i := 0; i < numReaders; i++ {
-		go parallelReader(&m, clocked, cunlock, cdone)
+		go parallelReader(mu, clocked, cunlock, cdone)
 	}
 	// Wait for all parallel RLock()s to succeed.
 	for i := 0; i < numReaders; i++ {
@@ -53,60 +58,58 @@ func doTestParallelReaders(numReaders, gomaxprocs int) {
 }
 
 func TestRBMutexParallelReaders(t *testing.T) {
-	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
 	doTestParallelReaders(1, 4)
 	doTestParallelReaders(3, 4)
 	doTestParallelReaders(4, 2)
 }
 
-func reader(m *RBMutex, numIterations int, activity *int32, cdone chan bool) {
+func reader(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
 	for i := 0; i < numIterations; i++ {
-		tk := m.RLock()
+		tk := mu.RLock()
 		n := atomic.AddInt32(activity, 1)
 		if n < 1 || n >= 10000 {
-			m.RUnlock(tk)
+			mu.RUnlock(tk)
 			panic(fmt.Sprintf("rlock(%d)\n", n))
 		}
 		for i := 0; i < 100; i++ {
 		}
 		atomic.AddInt32(activity, -1)
-		m.RUnlock(tk)
+		mu.RUnlock(tk)
 	}
 	cdone <- true
 }
 
-func writer(m *RBMutex, numIterations int, activity *int32, cdone chan bool) {
+func writer(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
 	for i := 0; i < numIterations; i++ {
-		m.Lock()
+		mu.Lock()
 		n := atomic.AddInt32(activity, 10000)
 		if n != 10000 {
-			m.Unlock()
+			mu.Unlock()
 			panic(fmt.Sprintf("wlock(%d)\n", n))
 		}
 		for i := 0; i < 100; i++ {
 		}
 		atomic.AddInt32(activity, -10000)
-		m.Unlock()
+		mu.Unlock()
 	}
 	cdone <- true
 }
 
 func hammerRBMutex(gomaxprocs, numReaders, numIterations int) {
 	runtime.GOMAXPROCS(gomaxprocs)
-	var (
-		// Number of active readers + 10000 * number of active writers.
-		activity int32
-		m        RBMutex
-	)
+	// Number of active readers + 10000 * number of active writers.
+	var activity int32
+	mu := NewRBMutex()
 	cdone := make(chan bool)
-	go writer(&m, numIterations, &activity, cdone)
+	go writer(mu, numIterations, &activity, cdone)
 	var i int
 	for i = 0; i < numReaders/2; i++ {
-		go reader(&m, numIterations, &activity, cdone)
+		go reader(mu, numIterations, &activity, cdone)
 	}
-	go writer(&m, numIterations, &activity, cdone)
+	go writer(mu, numIterations, &activity, cdone)
 	for ; i < numReaders; i++ {
-		go reader(&m, numIterations, &activity, cdone)
+		go reader(mu, numIterations, &activity, cdone)
 	}
 	// Wait for the 2 writers and all readers to finish.
 	for i := 0; i < 2+numReaders; i++ {
@@ -115,11 +118,8 @@ func hammerRBMutex(gomaxprocs, numReaders, numIterations int) {
 }
 
 func TestRBMutex(t *testing.T) {
-	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
-	n := 1000
-	if testing.Short() {
-		n = 5
-	}
+	const n = 1000
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
 	hammerRBMutex(1, 1, n)
 	hammerRBMutex(1, 3, n)
 	hammerRBMutex(1, 10, n)
@@ -132,112 +132,128 @@ func TestRBMutex(t *testing.T) {
 	hammerRBMutex(10, 5, n)
 }
 
-func benchmarkRBMutex(b *testing.B, localWork, writeRatio int) {
-	var m RBMutex
+func benchmarkRBMutex(b *testing.B, parallelism, localWork, writeRatio int) {
+	mu := NewRBMutex()
+	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			foo++
 			if writeRatio > 0 && foo%writeRatio == 0 {
-				m.Lock()
-				//lint:ignore SA2001 critical section is empty in this benchmark
-				m.Unlock()
-			} else {
-				tk := m.RLock()
+				mu.Lock()
 				for i := 0; i != localWork; i += 1 {
 					foo *= 2
 					foo /= 2
 				}
-				m.RUnlock(tk)
+				mu.Unlock()
+			} else {
+				tk := mu.RLock()
+				for i := 0; i != localWork; i += 1 {
+					foo *= 2
+					foo /= 2
+				}
+				mu.RUnlock(tk)
 			}
 		}
 		_ = foo
 	})
+}
+
+func BenchmarkRBMutexReadOnly_HighParallelism(b *testing.B) {
+	benchmarkRBMutex(b, 1024, 0, -1)
 }
 
 func BenchmarkRBMutexReadOnly(b *testing.B) {
-	benchmarkRBMutex(b, 0, -1)
+	benchmarkRBMutex(b, -1, 0, -1)
+}
+
+func BenchmarkRBMutexWrite100000(b *testing.B) {
+	benchmarkRBMutex(b, -1, 0, 100000)
 }
 
 func BenchmarkRBMutexWrite10000(b *testing.B) {
-	benchmarkRBMutex(b, 0, 10000)
+	benchmarkRBMutex(b, -1, 0, 10000)
 }
 
 func BenchmarkRBMutexWrite1000(b *testing.B) {
-	benchmarkRBMutex(b, 0, 1000)
-}
-
-func BenchmarkRBMutexWrite100(b *testing.B) {
-	benchmarkRBMutex(b, 0, 100)
+	benchmarkRBMutex(b, -1, 0, 1000)
 }
 
 func BenchmarkRBMutexWorkReadOnly(b *testing.B) {
-	benchmarkRBMutex(b, 100, -1)
+	benchmarkRBMutex(b, -1, 100, -1)
+}
+
+func BenchmarkRBMutexWorkWrite100000(b *testing.B) {
+	benchmarkRBMutex(b, -1, 100, 100000)
 }
 
 func BenchmarkRBMutexWorkWrite10000(b *testing.B) {
-	benchmarkRBMutex(b, 100, 10000)
+	benchmarkRBMutex(b, -1, 100, 10000)
 }
 
 func BenchmarkRBMutexWorkWrite1000(b *testing.B) {
-	benchmarkRBMutex(b, 100, 1000)
+	benchmarkRBMutex(b, -1, 100, 1000)
 }
 
-func BenchmarkRBMutexWorkWrite100(b *testing.B) {
-	benchmarkRBMutex(b, 100, 100)
-}
-
-func benchmarkRWMutex(b *testing.B, localWork, writeRatio int) {
-	var m sync.RWMutex
+func benchmarkRWMutex(b *testing.B, parallelism, localWork, writeRatio int) {
+	var mu sync.RWMutex
+	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			foo++
 			if writeRatio > 0 && foo%writeRatio == 0 {
-				m.Lock()
-				//lint:ignore SA2001 critical section is empty in this benchmark
-				m.Unlock()
-			} else {
-				m.RLock()
+				mu.Lock()
 				for i := 0; i != localWork; i += 1 {
 					foo *= 2
 					foo /= 2
 				}
-				m.RUnlock()
+				mu.Unlock()
+			} else {
+				mu.RLock()
+				for i := 0; i != localWork; i += 1 {
+					foo *= 2
+					foo /= 2
+				}
+				mu.RUnlock()
 			}
 		}
 		_ = foo
 	})
 }
 
+func BenchmarkRWMutexReadOnly_HighParallelism(b *testing.B) {
+	benchmarkRWMutex(b, 1024, 0, -1)
+}
+
 func BenchmarkRWMutexReadOnly(b *testing.B) {
-	benchmarkRWMutex(b, 0, -1)
+	benchmarkRWMutex(b, -1, 0, -1)
+}
+
+func BenchmarkRWMutexWrite100000(b *testing.B) {
+	benchmarkRWMutex(b, -1, 0, 100000)
 }
 
 func BenchmarkRWMutexWrite10000(b *testing.B) {
-	benchmarkRWMutex(b, 0, 10000)
+	benchmarkRWMutex(b, -1, 0, 10000)
 }
 
 func BenchmarkRWMutexWrite1000(b *testing.B) {
-	benchmarkRWMutex(b, 0, 1000)
-}
-
-func BenchmarkRWMutexWrite100(b *testing.B) {
-	benchmarkRWMutex(b, 0, 100)
+	benchmarkRWMutex(b, -1, 0, 1000)
 }
 
 func BenchmarkRWMutexWorkReadOnly(b *testing.B) {
-	benchmarkRWMutex(b, 100, -1)
+	benchmarkRWMutex(b, -1, 100, -1)
+}
+
+func BenchmarkRWMutexWorkWrite100000(b *testing.B) {
+	benchmarkRWMutex(b, -1, 100, 100000)
 }
 
 func BenchmarkRWMutexWorkWrite10000(b *testing.B) {
-	benchmarkRWMutex(b, 100, 10000)
+	benchmarkRWMutex(b, -1, 100, 10000)
 }
 
 func BenchmarkRWMutexWorkWrite1000(b *testing.B) {
-	benchmarkRWMutex(b, 100, 1000)
-}
-
-func BenchmarkRWMutexWorkWrite100(b *testing.B) {
-	benchmarkRWMutex(b, 100, 100)
+	benchmarkRWMutex(b, -1, 100, 1000)
 }
