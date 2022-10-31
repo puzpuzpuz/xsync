@@ -48,7 +48,7 @@ func parallelism() uint32 {
 	return numCores
 }
 
-// inthash64 is a hash function based on murmurhash3 64-bit finalizer.
+// hashUint64 calculates a hash of v with the given seed.
 //
 //lint:ignore U1000 used in MapOf
 func hashUint64(seed maphash.Seed, v uint64) uint64 {
