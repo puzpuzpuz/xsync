@@ -685,12 +685,12 @@ func TestMapOfResize(t *testing.T) {
 	if stats.Size != numEntries {
 		t.Fatalf("size was too small: %d", stats.Size)
 	}
-	expectedCapacity := int(math.RoundToEven(MapLoadFactor+1)) * stats.TableLen * EntriesPerMapBucket
+	expectedCapacity := int(math.RoundToEven(MapLoadFactor+1)) * stats.RootBuckets * EntriesPerMapBucket
 	if stats.Capacity > expectedCapacity {
 		t.Fatalf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
-	if stats.TableLen <= MinMapTableLen {
-		t.Fatalf("table was too small: %d", stats.TableLen)
+	if stats.RootBuckets <= MinMapTableLen {
+		t.Fatalf("table was too small: %d", stats.RootBuckets)
 	}
 	if stats.TotalGrowths == 0 {
 		t.Fatalf("non-zero total growths expected: %d", stats.TotalGrowths)
@@ -708,12 +708,12 @@ func TestMapOfResize(t *testing.T) {
 	if stats.Size > 0 {
 		t.Fatalf("zero size was expected: %d", stats.Size)
 	}
-	expectedCapacity = stats.TableLen * EntriesPerMapBucket
+	expectedCapacity = stats.RootBuckets * EntriesPerMapBucket
 	if stats.Capacity != expectedCapacity {
 		t.Fatalf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
-	if stats.TableLen != MinMapTableLen {
-		t.Fatalf("table was too large: %d", stats.TableLen)
+	if stats.RootBuckets != MinMapTableLen {
+		t.Fatalf("table was too large: %d", stats.RootBuckets)
 	}
 	if stats.TotalShrinks == 0 {
 		t.Fatalf("non-zero total shrinks expected: %d", stats.TotalShrinks)
