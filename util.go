@@ -3,7 +3,6 @@ package xsync
 import (
 	"hash/maphash"
 	"runtime"
-	"unsafe"
 	_ "unsafe"
 )
 
@@ -17,14 +16,6 @@ const (
 	// improvement on NUMA machines.
 	cacheLineSize = 64
 )
-
-// hashString calculates a hash of s with the given seed.
-func hashString(seed maphash.Seed, s string) uint64 {
-	var h maphash.Hash
-	h.SetSeed(seed)
-	h.WriteString(s)
-	return h.Sum64()
-}
 
 // nextPowOf2 computes the next highest power of 2 of 32-bit v.
 // Source: https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
@@ -48,18 +39,14 @@ func parallelism() uint32 {
 	return numCores
 }
 
-// hashUint64 calculates a hash of v with the given seed.
-//
-//lint:ignore U1000 used in MapOf
-func hashUint64(seed maphash.Seed, v uint64) uint64 {
-	nseed := *(*uint64)(unsafe.Pointer(&seed))
-	return uint64(memhash64(unsafe.Pointer(&v), uintptr(nseed)))
+// hashString calculates a hash of s with the given seed.
+func hashString(seed maphash.Seed, s string) uint64 {
+	var h maphash.Hash
+	h.SetSeed(seed)
+	h.WriteString(s)
+	return h.Sum64()
 }
 
 //go:noescape
 //go:linkname fastrand runtime.fastrand
 func fastrand() uint32
-
-//go:noescape
-//go:linkname memhash64 runtime.memhash64
-func memhash64(p unsafe.Pointer, h uintptr) uintptr

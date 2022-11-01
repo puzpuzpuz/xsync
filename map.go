@@ -149,7 +149,7 @@ func newMapTable(size int) *mapTable {
 func (m *Map) Load(key string) (value interface{}, ok bool) {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	hash := hashString(table.seed, key)
-	bidx := bucketIdx(table, hash)
+	bidx := uint64(len(table.buckets)-1) & hash
 	b := &table.buckets[bidx]
 	for {
 		topHashes := atomic.LoadUint64(&b.topHashMutex)
@@ -299,7 +299,7 @@ func (m *Map) doCompute(
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
 		hash := hashString(table.seed, key)
-		bidx := bucketIdx(table, hash)
+		bidx := uint64(len(table.buckets)-1) & hash
 		rootb := &table.buckets[bidx]
 		b := rootb
 		lockBucket(&rootb.topHashMutex)
@@ -325,6 +325,7 @@ func (m *Map) doCompute(
 					continue
 				}
 				if !topHashMatch(hash, topHashes, i) {
+					hintNonEmpty++
 					continue
 				}
 				if key == derefKey(b.keys[i]) {
@@ -349,7 +350,7 @@ func (m *Map) doCompute(
 						atomic.StorePointer(&b.keys[i], nil)
 						leftEmpty := false
 						if hintNonEmpty == 0 {
-							leftEmpty = isEmpty(b)
+							leftEmpty = isEmptyBucket(b)
 						}
 						unlockBucket(&rootb.topHashMutex)
 						table.addSize(bidx, -1)
@@ -502,7 +503,7 @@ func copyBucket(b *bucketPadded, destTable *mapTable) (copied int) {
 			if b.keys[i] != nil {
 				k := derefKey(b.keys[i])
 				hash := hashString(destTable.seed, k)
-				bidx := bucketIdx(destTable, hash)
+				bidx := uint64(len(destTable.buckets)-1) & hash
 				destb := &destTable.buckets[bidx]
 				appendToBucket(hash, b.keys[i], b.values[i], destb)
 				copied++
@@ -538,7 +539,7 @@ func appendToBucket(hash uint64, keyPtr, valPtr unsafe.Pointer, b *bucketPadded)
 	}
 }
 
-func isEmpty(rootb *bucketPadded) bool {
+func isEmptyBucket(rootb *bucketPadded) bool {
 	b := rootb
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
@@ -631,10 +632,6 @@ func derefKey(keyPtr unsafe.Pointer) string {
 
 func derefValue(valuePtr unsafe.Pointer) interface{} {
 	return *(*interface{})(valuePtr)
-}
-
-func bucketIdx(table *mapTable, hash uint64) uint64 {
-	return uint64(len(table.buckets)-1) & hash
 }
 
 func lockBucket(mu *uint64) {

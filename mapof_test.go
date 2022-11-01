@@ -12,63 +12,16 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	. "github.com/puzpuzpuz/xsync/v2"
 )
 
-func TestMapOf_UniqueValuePointers_Int(t *testing.T) {
-	EnableAssertions()
-	m := NewMapOf[int]()
-	v := 42
-	m.Store("foo", v)
-	m.Store("foo", v)
-	DisableAssertions()
-}
-
-func TestMapOf_UniqueValuePointers_Struct(t *testing.T) {
-	type foo struct{}
-	EnableAssertions()
-	m := NewMapOf[foo]()
-	v := foo{}
-	m.Store("foo", v)
-	m.Store("foo", v)
-	DisableAssertions()
-}
-
-func TestMapOf_UniqueValuePointers_Pointer(t *testing.T) {
-	type foo struct{}
-	EnableAssertions()
-	m := NewMapOf[*foo]()
-	v := &foo{}
-	m.Store("foo", v)
-	m.Store("foo", v)
-	DisableAssertions()
-}
-
-func TestMapOf_UniqueValuePointers_Slice(t *testing.T) {
-	EnableAssertions()
-	m := NewMapOf[[]int]()
-	v := make([]int, 13)
-	m.Store("foo", v)
-	m.Store("foo", v)
-	DisableAssertions()
-}
-
-func TestMapOf_UniqueValuePointers_String(t *testing.T) {
-	EnableAssertions()
-	m := NewMapOf[string]()
-	v := "bar"
-	m.Store("foo", v)
-	m.Store("foo", v)
-	DisableAssertions()
-}
-
-func TestMapOf_UniqueValuePointers_Nil(t *testing.T) {
-	EnableAssertions()
-	m := NewMapOf[*struct{}]()
-	m.Store("foo", nil)
-	m.Store("foo", nil)
-	DisableAssertions()
+func TestMap_BucketOfStructSize(t *testing.T) {
+	size := unsafe.Sizeof(BucketOfPadded{})
+	if size != 64 {
+		t.Fatalf("size of 64B (one cache line) is expected, got: %d", size)
+	}
 }
 
 func TestMapOf_MissingEntry(t *testing.T) {
@@ -90,7 +43,7 @@ func TestMapOf_EmptyStringKey(t *testing.T) {
 	m.Store("", "foobar")
 	v, ok := m.Load("")
 	if !ok {
-		t.Error("value was expected")
+		t.Fatal("value was expected")
 	}
 	if v != "foobar" {
 		t.Fatalf("value does not match: %v", v)
@@ -102,7 +55,7 @@ func TestMapOfStore_NilValue(t *testing.T) {
 	m.Store("foo", nil)
 	v, ok := m.Load("foo")
 	if !ok {
-		t.Error("nil value was expected")
+		t.Fatal("nil value was expected")
 	}
 	if v != nil {
 		t.Fatalf("value was not nil: %v", v)
@@ -114,7 +67,7 @@ func TestMapOfLoadOrStore_NilValue(t *testing.T) {
 	m.LoadOrStore("foo", nil)
 	v, loaded := m.LoadOrStore("foo", nil)
 	if !loaded {
-		t.Error("nil value was expected")
+		t.Fatal("nil value was expected")
 	}
 	if v != nil {
 		t.Fatalf("value was not nil: %v", v)
@@ -127,7 +80,7 @@ func TestMapOfLoadOrStore_NonNilValue(t *testing.T) {
 	newv := &foo{}
 	v, loaded := m.LoadOrStore("foo", newv)
 	if loaded {
-		t.Error("no value was expected")
+		t.Fatal("no value was expected")
 	}
 	if v != newv {
 		t.Fatalf("value does not match: %v", v)
@@ -135,7 +88,7 @@ func TestMapOfLoadOrStore_NonNilValue(t *testing.T) {
 	newv2 := &foo{}
 	v, loaded = m.LoadOrStore("foo", newv2)
 	if !loaded {
-		t.Error("value was expected")
+		t.Fatal("value was expected")
 	}
 	if v != newv {
 		t.Fatalf("value does not match: %v", v)
@@ -147,14 +100,14 @@ func TestMapOfLoadAndStore_NilValue(t *testing.T) {
 	m.LoadAndStore("foo", nil)
 	v, loaded := m.LoadAndStore("foo", nil)
 	if !loaded {
-		t.Error("nil value was expected")
+		t.Fatal("nil value was expected")
 	}
 	if v != nil {
 		t.Fatalf("value was not nil: %v", v)
 	}
 	v, loaded = m.Load("foo")
 	if !loaded {
-		t.Error("nil value was expected")
+		t.Fatal("nil value was expected")
 	}
 	if v != nil {
 		t.Fatalf("value was not nil: %v", v)
@@ -166,7 +119,7 @@ func TestMapOfLoadAndStore_NonNilValue(t *testing.T) {
 	v1 := 1
 	v, loaded := m.LoadAndStore("foo", v1)
 	if loaded {
-		t.Error("no value was expected")
+		t.Fatal("no value was expected")
 	}
 	if v != v1 {
 		t.Fatalf("value does not match: %v", v)
@@ -174,14 +127,14 @@ func TestMapOfLoadAndStore_NonNilValue(t *testing.T) {
 	v2 := 2
 	v, loaded = m.LoadAndStore("foo", v2)
 	if !loaded {
-		t.Error("value was expected")
+		t.Fatal("value was expected")
 	}
 	if v != v1 {
 		t.Fatalf("value does not match: %v", v)
 	}
 	v, loaded = m.Load("foo")
 	if !loaded {
-		t.Error("value was expected")
+		t.Fatal("value was expected")
 	}
 	if v != v2 {
 		t.Fatalf("value does not match: %v", v)
@@ -411,7 +364,6 @@ func TestMapOfLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 			return v
 		})
 	}
-
 	m.Range(func(k, v int) bool {
 		if k != v {
 			t.Fatalf("%dth key is not equal to value %d", k, v)
@@ -1054,13 +1006,12 @@ func benchmarkMapOfStringKeys(
 ) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		// convert percent to permille to support 99% case
 		storeThreshold := 10 * readPercentage
 		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
 		for pb.Next() {
-			op := r.Intn(1000)
-			i := r.Intn(benchmarkNumEntries)
+			op := int(Fastrand() % 1000)
+			i := int(Fastrand() % benchmarkNumEntries)
 			if op >= deleteThreshold {
 				deleteFn(benchmarkKeys[i])
 			} else if op >= storeThreshold {
@@ -1167,13 +1118,12 @@ func benchmarkMapOfIntegerKeys(
 ) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		// convert percent to permille to support 99% case
 		storeThreshold := 10 * readPercentage
 		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
 		for pb.Next() {
-			op := r.Intn(1000)
-			i := r.Intn(benchmarkNumEntries)
+			op := int(Fastrand() % 1000)
+			i := int(Fastrand() % benchmarkNumEntries)
 			if op >= deleteThreshold {
 				deleteFn(i)
 			} else if op >= storeThreshold {

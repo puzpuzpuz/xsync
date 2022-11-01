@@ -17,7 +17,7 @@ import (
 
 const (
 	// number of entries to use in benchmarks
-	benchmarkNumEntries = 1_000_000
+	benchmarkNumEntries = 1_000
 	// key prefix used in benchmarks
 	benchmarkKeyPrefix = "what_a_looooooooooooooooooooooong_key_prefix_"
 )
@@ -122,7 +122,7 @@ func TestMap_EmptyStringKey(t *testing.T) {
 	m.Store("", "foobar")
 	v, ok := m.Load("")
 	if !ok {
-		t.Error("value was expected")
+		t.Fatal("value was expected")
 	}
 	if vs, ok := v.(string); ok && vs != "foobar" {
 		t.Fatalf("value does not match: %v", v)
@@ -134,7 +134,7 @@ func TestMapStore_NilValue(t *testing.T) {
 	m.Store("foo", nil)
 	v, ok := m.Load("foo")
 	if !ok {
-		t.Error("nil value was expected")
+		t.Fatal("nil value was expected")
 	}
 	if v != nil {
 		t.Fatalf("value was not nil: %v", v)
@@ -146,7 +146,7 @@ func TestMapLoadOrStore_NilValue(t *testing.T) {
 	m.LoadOrStore("foo", nil)
 	v, loaded := m.LoadOrStore("foo", nil)
 	if !loaded {
-		t.Error("nil value was expected")
+		t.Fatal("nil value was expected")
 	}
 	if v != nil {
 		t.Fatalf("value was not nil: %v", v)
@@ -159,7 +159,7 @@ func TestMapLoadOrStore_NonNilValue(t *testing.T) {
 	newv := &foo{}
 	v, loaded := m.LoadOrStore("foo", newv)
 	if loaded {
-		t.Error("no value was expected")
+		t.Fatal("no value was expected")
 	}
 	if v != newv {
 		t.Fatalf("value does not match: %v", v)
@@ -167,7 +167,7 @@ func TestMapLoadOrStore_NonNilValue(t *testing.T) {
 	newv2 := &foo{}
 	v, loaded = m.LoadOrStore("foo", newv2)
 	if !loaded {
-		t.Error("value was expected")
+		t.Fatal("value was expected")
 	}
 	if v != newv {
 		t.Fatalf("value does not match: %v", v)
@@ -179,14 +179,14 @@ func TestMapLoadAndStore_NilValue(t *testing.T) {
 	m.LoadAndStore("foo", nil)
 	v, loaded := m.LoadAndStore("foo", nil)
 	if !loaded {
-		t.Error("nil value was expected")
+		t.Fatal("nil value was expected")
 	}
 	if v != nil {
 		t.Fatalf("value was not nil: %v", v)
 	}
 	v, loaded = m.Load("foo")
 	if !loaded {
-		t.Error("nil value was expected")
+		t.Fatal("nil value was expected")
 	}
 	if v != nil {
 		t.Fatalf("value was not nil: %v", v)
@@ -199,7 +199,7 @@ func TestMapLoadAndStore_NonNilValue(t *testing.T) {
 	v1 := &foo{}
 	v, loaded := m.LoadAndStore("foo", v1)
 	if loaded {
-		t.Error("no value was expected")
+		t.Fatal("no value was expected")
 	}
 	if v != v1 {
 		t.Fatalf("value does not match: %v", v)
@@ -207,14 +207,14 @@ func TestMapLoadAndStore_NonNilValue(t *testing.T) {
 	v2 := 2
 	v, loaded = m.LoadAndStore("foo", v2)
 	if !loaded {
-		t.Error("value was expected")
+		t.Fatal("value was expected")
 	}
 	if v != v1 {
 		t.Fatalf("value does not match: %v", v)
 	}
 	v, loaded = m.Load("foo")
 	if !loaded {
-		t.Error("value was expected")
+		t.Fatal("value was expected")
 	}
 	if v != v2 {
 		t.Fatalf("value does not match: %v", v)
@@ -1083,13 +1083,12 @@ func benchmarkMap(
 ) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		// convert percent to permille to support 99% case
 		storeThreshold := 10 * readPercentage
 		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
 		for pb.Next() {
-			op := r.Intn(1000)
-			i := r.Intn(benchmarkNumEntries)
+			op := int(Fastrand() % 1000)
+			i := int(Fastrand() % benchmarkNumEntries)
 			if op >= deleteThreshold {
 				deleteFn(benchmarkKeys[i])
 			} else if op >= storeThreshold {
