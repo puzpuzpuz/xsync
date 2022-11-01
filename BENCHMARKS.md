@@ -1,5 +1,7 @@
 # xsync benchmarks
 
+*Note*: the below benchmark results were obtained for xsync v1.0.0. Please run the benchmarks on your HW to see the improvements of the latest version. Here are a couple of comparisons with some of the popular concurrent hash maps written in Go: [this](https://github.com/cornelk/hashmap/pull/70) and [that](https://github.com/alphadose/haxmap/pull/22).
+
 Use the following command to run the benchmarks:
 ```bash
 $ go test -bench .
@@ -7,7 +9,7 @@ $ go test -bench .
 
 To limit the number of used CPU cores append `-cpu=<number>` argument to the above command.
 
-This document contains some benchmark results obtained for xsync v1.0.0 on a cloud VM.
+This document contains some benchmark results obtained on a cloud VM.
 
 ### Counter vs. atomic int64
 

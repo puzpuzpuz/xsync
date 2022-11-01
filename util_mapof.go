@@ -16,7 +16,7 @@ func hashUint64[K IntegerConstraint](seed maphash.Seed, k K) uint64 {
 	// Java's Long standard hash function.
 	n = n ^ (n >> 32)
 	nseed := *(*uint64)(unsafe.Pointer(&seed))
-	// Modified boost's hash_combine.
+	// 64-bit variation of boost's hash_combine.
 	nseed ^= n + 0x9e3779b97f4a7c15 + (nseed << 12) + (nseed >> 4)
 	return nseed
 }
