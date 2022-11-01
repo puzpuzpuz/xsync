@@ -46,3 +46,7 @@ func EnableAssertions() {
 func DisableAssertions() {
 	assertionsEnabled = false
 }
+
+func Fastrand() uint32 {
+	return fastrand()
+}
