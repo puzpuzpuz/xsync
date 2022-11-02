@@ -84,7 +84,7 @@ func TestCounterParallelIncrementors(t *testing.T) {
 
 func benchmarkCounter(b *testing.B, writeRatio int) {
 	c := NewCounter()
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			foo++
@@ -104,7 +104,7 @@ func BenchmarkCounter(b *testing.B) {
 
 func benchmarkAtomicInt64(b *testing.B, writeRatio int) {
 	var c int64
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			foo++
