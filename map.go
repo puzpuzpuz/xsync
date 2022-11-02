@@ -5,6 +5,7 @@ import (
 	"hash/maphash"
 	"math"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -713,20 +714,22 @@ type mapStats struct {
 	TotalShrinks int64
 }
 
-func (s *mapStats) Print() {
-	fmt.Println("---")
-	fmt.Printf("RootBuckets:  %d\n", s.RootBuckets)
-	fmt.Printf("TotalBuckets: %d\n", s.TotalBuckets)
-	fmt.Printf("EmptyBuckets: %d\n", s.EmptyBuckets)
-	fmt.Printf("Capacity:     %d\n", s.Capacity)
-	fmt.Printf("Size:         %d\n", s.Size)
-	fmt.Printf("Counter:      %d\n", s.Counter)
-	fmt.Printf("CounterLen:   %d\n", s.CounterLen)
-	fmt.Printf("MinEntries:   %d\n", s.MinEntries)
-	fmt.Printf("MaxEntries:   %d\n", s.MaxEntries)
-	fmt.Printf("TotalGrowths: %d\n", s.TotalGrowths)
-	fmt.Printf("TotalShrinks: %d\n", s.TotalShrinks)
-	fmt.Println("---")
+func (s *mapStats) ToString() string {
+	var sb strings.Builder
+	sb.WriteString("\n---\n")
+	sb.WriteString(fmt.Sprintf("RootBuckets:  %d\n", s.RootBuckets))
+	sb.WriteString(fmt.Sprintf("TotalBuckets: %d\n", s.TotalBuckets))
+	sb.WriteString(fmt.Sprintf("EmptyBuckets: %d\n", s.EmptyBuckets))
+	sb.WriteString(fmt.Sprintf("Capacity:     %d\n", s.Capacity))
+	sb.WriteString(fmt.Sprintf("Size:         %d\n", s.Size))
+	sb.WriteString(fmt.Sprintf("Counter:      %d\n", s.Counter))
+	sb.WriteString(fmt.Sprintf("CounterLen:   %d\n", s.CounterLen))
+	sb.WriteString(fmt.Sprintf("MinEntries:   %d\n", s.MinEntries))
+	sb.WriteString(fmt.Sprintf("MaxEntries:   %d\n", s.MaxEntries))
+	sb.WriteString(fmt.Sprintf("TotalGrowths: %d\n", s.TotalGrowths))
+	sb.WriteString(fmt.Sprintf("TotalShrinks: %d\n", s.TotalShrinks))
+	sb.WriteString("---\n")
+	return sb.String()
 }
 
 // O(N) operation; use for debug purposes only

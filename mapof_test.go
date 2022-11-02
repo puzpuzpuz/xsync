@@ -651,7 +651,8 @@ func TestMapOfResize(t *testing.T) {
 		t.Fatalf("zero total shrinks expected: %d", stats.TotalShrinks)
 	}
 	// This is useful when debugging table resize and occupancy.
-	stats.Print()
+	// Use -v flag to see the output.
+	t.Log(stats.ToString())
 
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
@@ -670,7 +671,7 @@ func TestMapOfResize(t *testing.T) {
 	if stats.TotalShrinks == 0 {
 		t.Fatalf("non-zero total shrinks expected: %d", stats.TotalShrinks)
 	}
-	stats.Print()
+	t.Log(stats.ToString())
 }
 
 func TestMapOfResize_CounterLenLimit(t *testing.T) {
@@ -1004,8 +1005,7 @@ func benchmarkMapOfStringKeys(
 	deleteFn func(k string),
 	readPercentage int,
 ) {
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		// convert percent to permille to support 99% case
 		storeThreshold := 10 * readPercentage
 		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
@@ -1116,8 +1116,7 @@ func benchmarkMapOfIntegerKeys(
 	deleteFn func(k int),
 	readPercentage int,
 ) {
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		// convert percent to permille to support 99% case
 		storeThreshold := 10 * readPercentage
 		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
@@ -1140,8 +1139,7 @@ func BenchmarkMapOfRange(b *testing.B) {
 	for i := 0; i < benchmarkNumEntries; i++ {
 		m.Store(benchmarkKeys[i], i)
 	}
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			m.Range(func(key string, value int) bool {

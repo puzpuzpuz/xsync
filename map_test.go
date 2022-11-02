@@ -41,6 +41,14 @@ func init() {
 	}
 }
 
+func runParallel(b *testing.B, benchFn func(pb *testing.PB)) {
+	b.ResetTimer()
+	start := time.Now()
+	b.RunParallel(benchFn)
+	opsPerSec := float64(b.N) * float64(time.Second) / float64(time.Since(start).Nanoseconds())
+	b.ReportMetric(opsPerSec, "ops/s")
+}
+
 func TestMap_BucketStructSize(t *testing.T) {
 	size := unsafe.Sizeof(BucketPadded{})
 	if size != 64 {
@@ -551,7 +559,8 @@ func TestMapResize(t *testing.T) {
 		t.Fatalf("zero total shrinks expected: %d", stats.TotalShrinks)
 	}
 	// This is useful when debugging table resize and occupancy.
-	stats.Print()
+	// Use -v flag to see the output.
+	t.Log(stats.ToString())
 
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
@@ -570,7 +579,7 @@ func TestMapResize(t *testing.T) {
 	if stats.TotalShrinks == 0 {
 		t.Fatalf("non-zero total shrinks expected: %d", stats.TotalShrinks)
 	}
-	stats.Print()
+	t.Log(stats.ToString())
 }
 
 func TestMapResize_CounterLenLimit(t *testing.T) {
@@ -1081,8 +1090,7 @@ func benchmarkMap(
 	deleteFn func(k string),
 	readPercentage int,
 ) {
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		// convert percent to permille to support 99% case
 		storeThreshold := 10 * readPercentage
 		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
@@ -1105,8 +1113,7 @@ func BenchmarkMapRange(b *testing.B) {
 	for i := 0; i < benchmarkNumEntries; i++ {
 		m.Store(benchmarkKeys[i], i)
 	}
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			m.Range(func(key string, value interface{}) bool {
@@ -1126,8 +1133,7 @@ func BenchmarkMapRangeStandard(b *testing.B) {
 	for i := 0; i < benchmarkNumEntries; i++ {
 		m.Store(benchmarkKeys[i], i)
 	}
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			m.Range(func(key interface{}, value interface{}) bool {

@@ -135,7 +135,7 @@ func TestRBMutex(t *testing.T) {
 func benchmarkRBMutex(b *testing.B, parallelism, localWork, writeRatio int) {
 	mu := NewRBMutex()
 	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			foo++
@@ -198,7 +198,7 @@ func BenchmarkRBMutexWorkWrite1000(b *testing.B) {
 func benchmarkRWMutex(b *testing.B, parallelism, localWork, writeRatio int) {
 	var mu sync.RWMutex
 	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
+	runParallel(b, func(pb *testing.PB) {
 		foo := 0
 		for pb.Next() {
 			foo++
