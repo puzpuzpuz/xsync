@@ -159,24 +159,8 @@ func benchmarkRBMutex(b *testing.B, parallelism, localWork, writeRatio int) {
 	})
 }
 
-func BenchmarkRBMutexReadOnly_HighParallelism(b *testing.B) {
-	benchmarkRBMutex(b, 1024, 0, -1)
-}
-
-func BenchmarkRBMutexReadOnly(b *testing.B) {
-	benchmarkRBMutex(b, -1, 0, -1)
-}
-
-func BenchmarkRBMutexWrite100000(b *testing.B) {
-	benchmarkRBMutex(b, -1, 0, 100000)
-}
-
-func BenchmarkRBMutexWrite10000(b *testing.B) {
-	benchmarkRBMutex(b, -1, 0, 10000)
-}
-
-func BenchmarkRBMutexWrite1000(b *testing.B) {
-	benchmarkRBMutex(b, -1, 0, 1000)
+func BenchmarkRBMutexWorkReadOnly_HighParallelism(b *testing.B) {
+	benchmarkRBMutex(b, 1024, 100, -1)
 }
 
 func BenchmarkRBMutexWorkReadOnly(b *testing.B) {
@@ -185,10 +169,6 @@ func BenchmarkRBMutexWorkReadOnly(b *testing.B) {
 
 func BenchmarkRBMutexWorkWrite100000(b *testing.B) {
 	benchmarkRBMutex(b, -1, 100, 100000)
-}
-
-func BenchmarkRBMutexWorkWrite10000(b *testing.B) {
-	benchmarkRBMutex(b, -1, 100, 10000)
 }
 
 func BenchmarkRBMutexWorkWrite1000(b *testing.B) {
@@ -222,24 +202,8 @@ func benchmarkRWMutex(b *testing.B, parallelism, localWork, writeRatio int) {
 	})
 }
 
-func BenchmarkRWMutexReadOnly_HighParallelism(b *testing.B) {
-	benchmarkRWMutex(b, 1024, 0, -1)
-}
-
-func BenchmarkRWMutexReadOnly(b *testing.B) {
-	benchmarkRWMutex(b, -1, 0, -1)
-}
-
-func BenchmarkRWMutexWrite100000(b *testing.B) {
-	benchmarkRWMutex(b, -1, 0, 100000)
-}
-
-func BenchmarkRWMutexWrite10000(b *testing.B) {
-	benchmarkRWMutex(b, -1, 0, 10000)
-}
-
-func BenchmarkRWMutexWrite1000(b *testing.B) {
-	benchmarkRWMutex(b, -1, 0, 1000)
+func BenchmarkRWMutexWorkReadOnly_HighParallelism(b *testing.B) {
+	benchmarkRWMutex(b, 1024, 100, -1)
 }
 
 func BenchmarkRWMutexWorkReadOnly(b *testing.B) {
@@ -248,10 +212,6 @@ func BenchmarkRWMutexWorkReadOnly(b *testing.B) {
 
 func BenchmarkRWMutexWorkWrite100000(b *testing.B) {
 	benchmarkRWMutex(b, -1, 100, 100000)
-}
-
-func BenchmarkRWMutexWorkWrite10000(b *testing.B) {
-	benchmarkRWMutex(b, -1, 100, 10000)
 }
 
 func BenchmarkRWMutexWorkWrite1000(b *testing.B) {
