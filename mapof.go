@@ -501,17 +501,18 @@ func copyBucketOf[K comparable, V any](
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
 func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
-	var bentries [entriesPerMapBucket]*entryOf[K, V]
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*mapOfTable[K, V])(tablep)
 	for i := range table.buckets {
 		b := &table.buckets[i]
 		for {
-			n := copyRangeEntriesOf(b, &bentries)
-			for j := 0; j < n; j++ {
-				e := bentries[j]
-				if !f(e.key, e.value) {
-					return
+			for i := 0; i < entriesPerMapBucket; i++ {
+				eptr := atomic.LoadPointer(&b.entries[i])
+				if eptr != nil {
+					e := (*entryOf[K, V])(eptr)
+					if !f(e.key, e.value) {
+						return
+					}
 				}
 			}
 			bptr := atomic.LoadPointer(&b.next)
@@ -521,18 +522,6 @@ func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 			b = (*bucketOfPadded)(bptr)
 		}
 	}
-}
-
-func copyRangeEntriesOf[K comparable, V any](b *bucketOfPadded, destEntries *[entriesPerMapBucket]*entryOf[K, V]) int {
-	n := 0
-	for i := 0; i < entriesPerMapBucket; i++ {
-		eptr := atomic.LoadPointer(&b.entries[i])
-		if eptr != nil {
-			destEntries[n] = (*entryOf[K, V])(eptr)
-			n++
-		}
-	}
-	return n
 }
 
 // Clear deletes all keys and values currently stored in the map.
