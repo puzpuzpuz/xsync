@@ -715,11 +715,11 @@ func parallelSeqStorer(t *testing.T, m *Map, storeEach, numIters, numEntries int
 				// Due to atomic snapshots we must see a "<j>"/j pair.
 				v, ok := m.Load(strconv.Itoa(j))
 				if !ok {
-					t.Errorf("value was not found for %d", j)
+					t.Fatalf("value was not found for %d", j)
 					break
 				}
 				if vi, ok := v.(int); !ok || vi != j {
-					t.Errorf("value was not expected for %d: %d", j, vi)
+					t.Fatalf("value was not expected for %d: %d", j, vi)
 					break
 				}
 			}
@@ -759,7 +759,7 @@ func parallelRandStorer(t *testing.T, m *Map, numIters, numEntries int, cdone ch
 		j := r.Intn(numEntries)
 		if v, loaded := m.LoadOrStore(strconv.Itoa(j), j); loaded {
 			if vi, ok := v.(int); !ok || vi != j {
-				t.Errorf("value was not expected for %d: %d", j, vi)
+				t.Fatalf("value was not expected for %d: %d", j, vi)
 			}
 		}
 	}
@@ -772,7 +772,7 @@ func parallelRandDeleter(t *testing.T, m *Map, numIters, numEntries int, cdone c
 		j := r.Intn(numEntries)
 		if v, loaded := m.LoadAndDelete(strconv.Itoa(j)); loaded {
 			if vi, ok := v.(int); !ok || vi != j {
-				t.Errorf("value was not expected for %d: %d", j, vi)
+				t.Fatalf("value was not expected for %d: %d", j, vi)
 			}
 		}
 	}
@@ -785,7 +785,7 @@ func parallelLoader(t *testing.T, m *Map, numIters, numEntries int, cdone chan b
 			// Due to atomic snapshots we must either see no entry, or a "<j>"/j pair.
 			if v, ok := m.Load(strconv.Itoa(j)); ok {
 				if vi, ok := v.(int); !ok || vi != j {
-					t.Errorf("value was not expected for %d: %d", j, vi)
+					t.Fatalf("value was not expected for %d: %d", j, vi)
 				}
 			}
 		}

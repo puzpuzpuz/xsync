@@ -40,7 +40,7 @@ func TestQueueEnqueueBlocksOnFull(t *testing.T) {
 	go func() {
 		q.Enqueue("bar")
 		if atomic.LoadInt32(&flag) == 0 {
-			t.Error("enqueue on full queue didn't wait for dequeue")
+			t.Fatal("enqueue on full queue didn't wait for dequeue")
 		}
 		cdone <- true
 	}()
@@ -59,7 +59,7 @@ func TestQueueDequeueBlocksOnEmpty(t *testing.T) {
 	go func() {
 		q.Dequeue()
 		if atomic.LoadInt32(&flag) == 0 {
-			t.Error("dequeue on empty queue didn't wait for enqueue")
+			t.Fatal("dequeue on empty queue didn't wait for enqueue")
 		}
 		cdone <- true
 	}()
@@ -86,17 +86,17 @@ func TestQueueTryEnqueueDequeue(t *testing.T) {
 func TestQueueTryEnqueueOnFull(t *testing.T) {
 	q := NewMPMCQueue(1)
 	if !q.TryEnqueue("foo") {
-		t.Error("failed to enqueue initial item")
+		t.Fatal("failed to enqueue initial item")
 	}
 	if q.TryEnqueue("bar") {
-		t.Error("got success for enqueue on full queue")
+		t.Fatal("got success for enqueue on full queue")
 	}
 }
 
 func TestQueueTryDequeueBlocksOnEmpty(t *testing.T) {
 	q := NewMPMCQueue(2)
 	if _, ok := q.TryDequeue(); ok {
-		t.Error("got success for enqueue on empty queue")
+		t.Fatal("got success for enqueue on empty queue")
 	}
 }
 
