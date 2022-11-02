@@ -45,7 +45,7 @@ func runParallel(b *testing.B, benchFn func(pb *testing.PB)) {
 	b.ResetTimer()
 	start := time.Now()
 	b.RunParallel(benchFn)
-	opsPerSec := float64(b.N) * float64(time.Second) / float64(time.Since(start).Nanoseconds())
+	opsPerSec := float64(b.N) / float64(time.Since(start).Seconds())
 	b.ReportMetric(opsPerSec, "ops/s")
 }
 
