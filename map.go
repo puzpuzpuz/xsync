@@ -33,6 +33,8 @@ const (
 	// minimal table size, i.e. number of buckets; thus, minimal map
 	// capacity can be calculated as entriesPerMapBucket*minMapTableLen
 	minMapTableLen = 32
+	// minimal table capacity
+	minMapTableCap = minMapTableLen * entriesPerMapBucket
 	// minimum counter stripes to use
 	minMapCounterLen = 8
 	// maximum counter stripes to use; stands for around 4KB of memory
@@ -120,16 +122,28 @@ type rangeEntry struct {
 
 // NewMap creates a new Map instance.
 func NewMap() *Map {
+	return NewMapPresized(minMapTableCap)
+}
+
+// NewMapPresized creates a new Map instance with capacity enough to hold
+// sizeHint entries. If sizeHint is zero or negative, the value is ignored.
+func NewMapPresized(sizeHint int) *Map {
 	m := &Map{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
-	table := newMapTable(minMapTableLen)
+	var table *mapTable
+	if sizeHint <= minMapTableCap {
+		table = newMapTable(minMapTableLen)
+	} else {
+		tableLen := nextPowOf2(uint32(sizeHint / entriesPerMapBucket))
+		table = newMapTable(int(tableLen))
+	}
 	atomic.StorePointer(&m.table, unsafe.Pointer(table))
 	return m
 }
 
-func newMapTable(size int) *mapTable {
-	buckets := make([]bucketPadded, size)
-	counterLen := size >> 10
+func newMapTable(tableLen int) *mapTable {
+	buckets := make([]bucketPadded, tableLen)
+	counterLen := tableLen >> 10
 	if counterLen < minMapCounterLen {
 		counterLen = minMapCounterLen
 	} else if counterLen > maxMapCounterLen {
