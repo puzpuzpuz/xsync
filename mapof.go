@@ -12,6 +12,15 @@ import (
 	"unsafe"
 )
 
+// rangeEntriesOfPool is a pool used to reduce the number of allocations
+// caused by subsequent Range calls.
+var rangeEntriesOfPool = sync.Pool{
+	New: func() any {
+		entries := make([]unsafe.Pointer, 0, 3*entriesPerMapBucket)
+		return &entries
+	},
+}
+
 // MapOf is like a Go map[string]V but is safe for concurrent
 // use by multiple goroutines without additional locking or
 // coordination. It follows the interface of sync.Map with
@@ -533,26 +542,41 @@ func copyBucketOf[K comparable, V any](
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
 func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
+	bentries := rangeEntriesOfPool.Get().(*[]unsafe.Pointer)
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*mapOfTable[K, V])(tablep)
 	for i := range table.buckets {
-		b := &table.buckets[i]
-		for {
-			for i := 0; i < entriesPerMapBucket; i++ {
-				eptr := atomic.LoadPointer(&b.entries[i])
-				if eptr != nil {
-					e := (*entryOf[K, V])(eptr)
-					if !f(e.key, e.value) {
-						return
-					}
-				}
+		copyRangeEntriesOf(&table.buckets[i], bentries)
+		for j := range *bentries {
+			entry := (*entryOf[K, V])((*bentries)[j])
+			if !f(entry.key, entry.value) {
+				return
 			}
-			bptr := atomic.LoadPointer(&b.next)
-			if bptr == nil {
-				break
-			}
-			b = (*bucketOfPadded)(bptr)
 		}
+		// Clean up the slice.
+		var zeroPtr unsafe.Pointer
+		for i := range *bentries {
+			(*bentries)[i] = zeroPtr
+		}
+		*bentries = (*bentries)[:0]
+	}
+	rangeEntriesOfPool.Put(bentries)
+}
+
+func copyRangeEntriesOf(b *bucketOfPadded, destEntries *[]unsafe.Pointer) {
+	rootb := b
+	rootb.mu.Lock()
+	for {
+		for i := 0; i < entriesPerMapBucket; i++ {
+			if b.entries[i] != nil {
+				*destEntries = append(*destEntries, b.entries[i])
+			}
+		}
+		if b.next == nil {
+			rootb.mu.Unlock()
+			return
+		}
+		b = (*bucketOfPadded)(b.next)
 	}
 }
 

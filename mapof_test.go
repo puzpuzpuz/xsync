@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
@@ -950,6 +951,65 @@ func TestMapOfParallelComputes(t *testing.T) {
 			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
+}
+
+func parallelTypedRangeStorer(t *testing.T, m *MapOf[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
+	for {
+		for i := 0; i < numEntries; i++ {
+			m.Store(i, i)
+		}
+		if atomic.LoadInt64(stopFlag) != 0 {
+			break
+		}
+	}
+	cdone <- true
+}
+
+func parallelTypedRangeDeleter(t *testing.T, m *MapOf[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
+	for {
+		for i := 0; i < numEntries; i++ {
+			m.Delete(i)
+		}
+		if atomic.LoadInt64(stopFlag) != 0 {
+			break
+		}
+	}
+	cdone <- true
+}
+
+func TestMapOfParallelRange(t *testing.T) {
+	const numEntries = 10_000
+	m := NewIntegerMapOfPresized[int, int](numEntries)
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+	// Start goroutines that would be storing and deleting items in parallel.
+	cdone := make(chan bool)
+	stopFlag := int64(0)
+	go parallelTypedRangeStorer(t, m, numEntries, &stopFlag, cdone)
+	go parallelTypedRangeDeleter(t, m, numEntries, &stopFlag, cdone)
+	// Iterate the map and verify that no duplicate keys were met.
+	met := make(map[int]int)
+	m.Range(func(key int, value int) bool {
+		if key != value {
+			t.Fatalf("got unexpected value for key %d: %d", key, value)
+			return false
+		}
+		met[key] += 1
+		return true
+	})
+	if len(met) == 0 {
+		t.Fatal("no entries were met when iterating")
+	}
+	for k, c := range met {
+		if c != 1 {
+			t.Fatalf("met key %d multiple times: %d", k, c)
+		}
+	}
+	// Make sure that both goroutines finish.
+	atomic.StoreInt64(&stopFlag, 1)
+	<-cdone
+	<-cdone
 }
 
 func BenchmarkMapOf_NoWarmUp(b *testing.B) {

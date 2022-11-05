@@ -251,7 +251,7 @@ func TestMapRange(t *testing.T) {
 	}
 	for i := 0; i < numEntries; i++ {
 		if c := met[strconv.Itoa(i)]; c != 1 {
-			t.Fatalf("range did not iterate correctly over %d: %d", i, c)
+			t.Fatalf("met key %d multiple times: %d", i, c)
 		}
 	}
 }
@@ -884,6 +884,65 @@ func TestMapParallelComputes(t *testing.T) {
 			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
+}
+
+func parallelRangeStorer(t *testing.T, m *Map, numEntries int, stopFlag *int64, cdone chan bool) {
+	for {
+		for i := 0; i < numEntries; i++ {
+			m.Store(strconv.Itoa(i), i)
+		}
+		if atomic.LoadInt64(stopFlag) != 0 {
+			break
+		}
+	}
+	cdone <- true
+}
+
+func parallelRangeDeleter(t *testing.T, m *Map, numEntries int, stopFlag *int64, cdone chan bool) {
+	for {
+		for i := 0; i < numEntries; i++ {
+			m.Delete(strconv.Itoa(i))
+		}
+		if atomic.LoadInt64(stopFlag) != 0 {
+			break
+		}
+	}
+	cdone <- true
+}
+
+func TestMapParallelRange(t *testing.T) {
+	const numEntries = 10_000
+	m := NewMap()
+	for i := 0; i < numEntries; i++ {
+		m.Store(strconv.Itoa(i), i)
+	}
+	// Start goroutines that would be storing and deleting items in parallel.
+	cdone := make(chan bool)
+	stopFlag := int64(0)
+	go parallelRangeStorer(t, m, numEntries, &stopFlag, cdone)
+	go parallelRangeDeleter(t, m, numEntries, &stopFlag, cdone)
+	// Iterate the map and verify that no duplicate keys were met.
+	met := make(map[string]int)
+	m.Range(func(key string, value interface{}) bool {
+		if key != strconv.Itoa(value.(int)) {
+			t.Fatalf("got unexpected value for key %s: %v", key, value)
+			return false
+		}
+		met[key] += 1
+		return true
+	})
+	if len(met) == 0 {
+		t.Fatal("no entries were met when iterating")
+	}
+	for k, c := range met {
+		if c != 1 {
+			t.Fatalf("met key %s multiple times: %d", k, c)
+		}
+	}
+	// Make sure that both goroutines finish.
+	atomic.StoreInt64(&stopFlag, 1)
+	<-cdone
+	<-cdone
 }
 
 func TestMapTopHashMutex(t *testing.T) {
