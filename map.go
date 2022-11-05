@@ -50,6 +50,15 @@ var (
 	}
 )
 
+// rangeEntriesPool is a pool used to reduce the number of allocations
+// caused by subsequent Range calls.
+var rangeEntriesPool = sync.Pool{
+	New: func() interface{} {
+		entries := make([]rangeEntry, 0, 3*entriesPerMapBucket)
+		return &entries
+	},
+}
+
 // Map is like a Go map[string]interface{} but is safe for concurrent
 // use by multiple goroutines without additional locking or
 // coordination. It follows the interface of sync.Map with
@@ -582,51 +591,45 @@ func isEmptyBucket(rootb *bucketPadded) bool {
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
 func (m *Map) Range(f func(key string, value interface{}) bool) {
-	var bentries [entriesPerMapBucket]rangeEntry
+	bentries := rangeEntriesPool.Get().(*[]rangeEntry)
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*mapTable)(tablep)
 	for i := range table.buckets {
-		b := &table.buckets[i]
-		for {
-			n := copyRangeEntries(b, &bentries)
-			for j := 0; j < n; j++ {
-				k := derefKey(bentries[j].key)
-				v := derefValue(bentries[j].value)
-				if !f(k, v) {
-					return
-				}
+		copyRangeEntries(&table.buckets[i], bentries)
+		for j := range *bentries {
+			k := derefKey((*bentries)[j].key)
+			v := derefValue((*bentries)[j].value)
+			if !f(k, v) {
+				return
 			}
-			bptr := atomic.LoadPointer(&b.next)
-			if bptr == nil {
-				break
-			}
-			b = (*bucketPadded)(bptr)
 		}
+		// Clean up the slice.
+		for i := range *bentries {
+			(*bentries)[i] = rangeEntry{}
+		}
+		*bentries = (*bentries)[:0]
 	}
+	rangeEntriesPool.Put(bentries)
 }
 
-func copyRangeEntries(b *bucketPadded, destEntries *[entriesPerMapBucket]rangeEntry) int {
-	n := 0
-	for i := 0; i < entriesPerMapBucket; i++ {
-	atomic_snapshot:
-		// Start atomic snapshot.
-		vp := atomic.LoadPointer(&b.values[i])
-		kp := atomic.LoadPointer(&b.keys[i])
-		if kp != nil && vp != nil {
-			if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
-				// Atomic snapshot succeeded.
-				destEntries[n] = rangeEntry{
-					key:   kp,
-					value: vp,
-				}
-				n++
-				continue
+func copyRangeEntries(b *bucketPadded, destEntries *[]rangeEntry) {
+	rootb := b
+	lockBucket(&rootb.topHashMutex)
+	for {
+		for i := 0; i < entriesPerMapBucket; i++ {
+			if b.keys[i] != nil {
+				*destEntries = append(*destEntries, rangeEntry{
+					key:   b.keys[i],
+					value: b.values[i],
+				})
 			}
-			// Concurrent update/remove. Go for another spin.
-			goto atomic_snapshot
 		}
+		if b.next == nil {
+			unlockBucket(&rootb.topHashMutex)
+			return
+		}
+		b = (*bucketPadded)(b.next)
 	}
-	return n
 }
 
 // Clear deletes all keys and values currently stored in the map.
