@@ -4,6 +4,7 @@ const (
 	EntriesPerMapBucket = entriesPerMapBucket
 	MapLoadFactor       = mapLoadFactor
 	MinMapTableLen      = minMapTableLen
+	MinMapTableCap      = minMapTableCap
 	MaxMapCounterLen    = maxMapCounterLen
 )
 

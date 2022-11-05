@@ -68,9 +68,16 @@ type entryOf[K comparable, V any] struct {
 	value V
 }
 
-// NewMapOf creates a new MapOf instance with string keys
+// NewMapOf creates a new MapOf instance with string keys.
 func NewMapOf[V any]() *MapOf[string, V] {
-	return NewTypedMapOf[string, V](hashString)
+	return NewTypedMapOfPresized[string, V](hashString, minMapTableCap)
+}
+
+// NewMapOfPresized creates a new MapOf instance with string keys and capacity
+// enough to hold sizeHint entries. If sizeHint is zero or negative, the value
+// is ignored.
+func NewMapOfPresized[V any](sizeHint int) *MapOf[string, V] {
+	return NewTypedMapOfPresized[string, V](hashString, sizeHint)
 }
 
 // IntegerConstraint represents any integer type.
@@ -82,25 +89,50 @@ type IntegerConstraint interface {
 
 // NewIntegerMapOf creates a new MapOf instance with integer typed keys.
 func NewIntegerMapOf[K IntegerConstraint, V any]() *MapOf[K, V] {
-	return NewTypedMapOf[K, V](hashUint64[K])
+	return NewTypedMapOfPresized[K, V](hashUint64[K], minMapTableCap)
+}
+
+// NewIntegerMapOfPresized creates a new MapOf instance with integer typed keys
+// and capacity enough to hold sizeHint entries. If sizeHint is zero or
+// negative, the value is ignored.
+func NewIntegerMapOfPresized[K IntegerConstraint, V any](sizeHint int) *MapOf[K, V] {
+	return NewTypedMapOfPresized[K, V](hashUint64[K], sizeHint)
 }
 
 // NewTypedMapOf creates a new MapOf instance with arbitrarily typed keys.
+//
 // Keys are hashed to uint64 using the hasher function. It is strongly
 // recommended to use the hash/maphash package to implement hasher. See the
 // example for how to do that.
 func NewTypedMapOf[K comparable, V any](hasher func(maphash.Seed, K) uint64) *MapOf[K, V] {
+	return NewTypedMapOfPresized[K, V](hasher, minMapTableCap)
+}
+
+// NewTypedMapOfPresized creates a new MapOf instance with arbitrarily typed
+// keys and capacity enough to hold sizeHint entries. If sizeHint is zero or
+// negative, the value is ignored.
+//
+// Keys are hashed to uint64 using the hasher function. It is strongly
+// recommended to use the hash/maphash package to implement hasher. See the
+// example for how to do that.
+func NewTypedMapOfPresized[K comparable, V any](hasher func(maphash.Seed, K) uint64, sizeHint int) *MapOf[K, V] {
 	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
 	m.hasher = hasher
-	table := newMapOfTable[K, V](minMapTableLen)
+	var table *mapOfTable[K, V]
+	if sizeHint <= minMapTableCap {
+		table = newMapOfTable[K, V](minMapTableLen)
+	} else {
+		tableLen := nextPowOf2(uint32(sizeHint / entriesPerMapBucket))
+		table = newMapOfTable[K, V](int(tableLen))
+	}
 	atomic.StorePointer(&m.table, unsafe.Pointer(table))
 	return m
 }
 
-func newMapOfTable[K comparable, V any](size int) *mapOfTable[K, V] {
-	buckets := make([]bucketOfPadded, size)
-	counterLen := size >> 10
+func newMapOfTable[K comparable, V any](tableLen int) *mapOfTable[K, V] {
+	buckets := make([]bucketOfPadded, tableLen)
+	counterLen := tableLen >> 10
 	if counterLen < minMapCounterLen {
 		counterLen = minMapCounterLen
 	} else if counterLen > maxMapCounterLen {
