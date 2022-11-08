@@ -50,15 +50,6 @@ var (
 	}
 )
 
-// rangeEntriesPool is a pool used to reduce the number of allocations
-// caused by subsequent Range calls.
-var rangeEntriesPool = sync.Pool{
-	New: func() interface{} {
-		entries := make([]rangeEntry, 0, 3*entriesPerMapBucket)
-		return &entries
-	},
-}
-
 // Map is like a Go map[string]interface{} but is safe for concurrent
 // use by multiple goroutines without additional locking or
 // coordination. It follows the interface of sync.Map with
@@ -316,16 +307,15 @@ func (m *Map) doCompute(
 	for {
 	compute_attempt:
 		var (
-			emptyb   *bucketPadded
-			emptyidx int
+			emptyb       *bucketPadded
+			emptyidx     int
+			hintNonEmpty int
 		)
-		hintNonEmpty := 0
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
 		hash := hashString(table.seed, key)
 		bidx := uint64(len(table.buckets)-1) & hash
 		rootb := &table.buckets[bidx]
-		b := rootb
 		lockBucket(&rootb.topHashMutex)
 		if m.newerTableExists(table) {
 			// Someone resized the table. Go for another attempt.
@@ -338,6 +328,7 @@ func (m *Map) doCompute(
 			m.waitForResize()
 			goto compute_attempt
 		}
+		b := rootb
 		for {
 			topHashes := atomic.LoadUint64(&b.topHashMutex)
 			for i := 0; i < entriesPerMapBucket; i++ {
@@ -591,44 +582,44 @@ func isEmptyBucket(rootb *bucketPadded) bool {
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
 func (m *Map) Range(f func(key string, value interface{}) bool) {
-	bentries := rangeEntriesPool.Get().(*[]rangeEntry)
+	var zeroEntry rangeEntry
+	// Pre-allocate array big enough to fit entries for most hash tables.
+	bentries := make([]rangeEntry, 0, 16*entriesPerMapBucket)
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*mapTable)(tablep)
 	for i := range table.buckets {
-		copyRangeEntries(&table.buckets[i], bentries)
-		for j := range *bentries {
-			k := derefKey((*bentries)[j].key)
-			v := derefValue((*bentries)[j].value)
+		rootb := &table.buckets[i]
+		b := rootb
+		// Prevent concurrent modifications and copy all entries into
+		// the intermediate slice.
+		lockBucket(&rootb.topHashMutex)
+		for {
+			for i := 0; i < entriesPerMapBucket; i++ {
+				if b.keys[i] != nil {
+					bentries = append(bentries, rangeEntry{
+						key:   b.keys[i],
+						value: b.values[i],
+					})
+				}
+			}
+			if b.next == nil {
+				unlockBucket(&rootb.topHashMutex)
+				break
+			}
+			b = (*bucketPadded)(b.next)
+		}
+		// Call the function for all copied entries.
+		for j := range bentries {
+			k := derefKey(bentries[j].key)
+			v := derefValue(bentries[j].value)
 			if !f(k, v) {
 				return
 			}
+			// Remove the reference to avoid preventing the copied
+			// entries from being GCed until this method finishes.
+			bentries[j] = zeroEntry
 		}
-		// Clean up the slice.
-		for i := range *bentries {
-			(*bentries)[i] = rangeEntry{}
-		}
-		*bentries = (*bentries)[:0]
-	}
-	rangeEntriesPool.Put(bentries)
-}
-
-func copyRangeEntries(b *bucketPadded, destEntries *[]rangeEntry) {
-	rootb := b
-	lockBucket(&rootb.topHashMutex)
-	for {
-		for i := 0; i < entriesPerMapBucket; i++ {
-			if b.keys[i] != nil {
-				*destEntries = append(*destEntries, rangeEntry{
-					key:   b.keys[i],
-					value: b.values[i],
-				})
-			}
-		}
-		if b.next == nil {
-			unlockBucket(&rootb.topHashMutex)
-			return
-		}
-		b = (*bucketPadded)(b.next)
+		bentries = bentries[:0]
 	}
 }
 

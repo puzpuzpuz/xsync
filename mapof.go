@@ -12,15 +12,6 @@ import (
 	"unsafe"
 )
 
-// rangeEntriesOfPool is a pool used to reduce the number of allocations
-// caused by subsequent Range calls.
-var rangeEntriesOfPool = sync.Pool{
-	New: func() any {
-		entries := make([]unsafe.Pointer, 0, 3*entriesPerMapBucket)
-		return &entries
-	},
-}
-
 // MapOf is like a Go map[string]V but is safe for concurrent
 // use by multiple goroutines without additional locking or
 // coordination. It follows the interface of sync.Map with
@@ -301,16 +292,15 @@ func (m *MapOf[K, V]) doCompute(
 	for {
 	compute_attempt:
 		var (
-			emptyb   *bucketOfPadded
-			emptyidx int
+			emptyb       *bucketOfPadded
+			emptyidx     int
+			hintNonEmpty int
 		)
-		hintNonEmpty := 0
 		table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
 		hash := shiftHash(m.hasher(table.seed, key))
 		bidx := uint64(len(table.buckets)-1) & hash
 		rootb := &table.buckets[bidx]
-		b := rootb
 		rootb.mu.Lock()
 		if m.newerTableExists(table) {
 			// Someone resized the table. Go for another attempt.
@@ -323,6 +313,7 @@ func (m *MapOf[K, V]) doCompute(
 			m.waitForResize()
 			goto compute_attempt
 		}
+		b := rootb
 		for {
 			for i := 0; i < entriesPerMapBucket; i++ {
 				h := atomic.LoadUint64(&b.hashes[i])
@@ -542,41 +533,40 @@ func copyBucketOf[K comparable, V any](
 // concurrent modification rule apply, i.e. the changes may be not
 // reflected in the subsequently iterated entries.
 func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
-	bentries := rangeEntriesOfPool.Get().(*[]unsafe.Pointer)
+	var zeroPtr unsafe.Pointer
+	// Pre-allocate array big enough to fit entries for most hash tables.
+	bentries := make([]unsafe.Pointer, 0, 16*entriesPerMapBucket)
 	tablep := atomic.LoadPointer(&m.table)
 	table := *(*mapOfTable[K, V])(tablep)
 	for i := range table.buckets {
-		copyRangeEntriesOf(&table.buckets[i], bentries)
-		for j := range *bentries {
-			entry := (*entryOf[K, V])((*bentries)[j])
+		rootb := &table.buckets[i]
+		b := rootb
+		// Prevent concurrent modifications and copy all entries into
+		// the intermediate slice.
+		rootb.mu.Lock()
+		for {
+			for i := 0; i < entriesPerMapBucket; i++ {
+				if b.entries[i] != nil {
+					bentries = append(bentries, b.entries[i])
+				}
+			}
+			if b.next == nil {
+				rootb.mu.Unlock()
+				break
+			}
+			b = (*bucketOfPadded)(b.next)
+		}
+		// Call the function for all copied entries.
+		for j := range bentries {
+			entry := (*entryOf[K, V])(bentries[j])
 			if !f(entry.key, entry.value) {
 				return
 			}
+			// Remove the reference to avoid preventing the copied
+			// entries from being GCed until this method finishes.
+			bentries[j] = zeroPtr
 		}
-		// Clean up the slice.
-		var zeroPtr unsafe.Pointer
-		for i := range *bentries {
-			(*bentries)[i] = zeroPtr
-		}
-		*bentries = (*bentries)[:0]
-	}
-	rangeEntriesOfPool.Put(bentries)
-}
-
-func copyRangeEntriesOf(b *bucketOfPadded, destEntries *[]unsafe.Pointer) {
-	rootb := b
-	rootb.mu.Lock()
-	for {
-		for i := 0; i < entriesPerMapBucket; i++ {
-			if b.entries[i] != nil {
-				*destEntries = append(*destEntries, b.entries[i])
-			}
-		}
-		if b.next == nil {
-			rootb.mu.Unlock()
-			return
-		}
-		b = (*bucketOfPadded)(b.next)
+		bentries = bentries[:0]
 	}
 }
 
