@@ -6,11 +6,21 @@
 
 Concurrent data structures for Go. Aims to provide more scalable alternatives for some of the data structures from the standard `sync` package, but not only.
 
-### Benchmarks
+## Benchmarks
 
-Benchmark results may be found [here](BENCHMARKS.md).
+Benchmark results may be found [here](BENCHMARKS.md). I'd like to thank [@felixge](https://github.com/felixge) who kindly run the benchmarks on a beefy multicore machine.
 
-## Counter
+## Usage
+
+The latest xsync major version is v2, so `/v2` suffix should be used when importing the library:
+
+```go
+import (
+	"github.com/puzpuzpuz/xsync/v2"
+)
+```
+
+### Counter
 
 A `Counter` is a striped `int64` counter inspired by the `j.u.c.a.LongAdder` class from Java standard library.
 
@@ -25,7 +35,7 @@ v := c.Value()
 
 Works better in comparison with a single atomically updated `int64` counter in high contention scenarios.
 
-## Map
+### Map
 
 A `Map` is like a concurrent hash table based map. It follows the interface of `sync.Map` with a number of valuable extensions like `Compute` or `Size`.
 
@@ -72,7 +82,7 @@ m.Store(Point{42, 42}, 42)
 v, ok := m.Load(point{42, 42})
 ```
 
-## MPMCQueue
+### MPMCQueue
 
 A `MPMCQeueue` is a bounded multi-producer multi-consumer concurrent queue.
 
@@ -96,7 +106,7 @@ In essence, `MPMCQueue` is a specialized queue for scenarios where there are mul
 
 To get the optimal performance, you may want to set the queue size to be large enough, say, an order of magnitude greater than the number of producers/consumers, to allow producers and consumers to progress with their queue operations in parallel most of the time.
 
-## RBMutex
+### RBMutex
 
 A `RBMutex` is a reader biased reader/writer mutual exclusion lock. The lock can be held by an many readers or a single writer.
 
