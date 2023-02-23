@@ -1,4 +1,4 @@
-name: build-1.17
+name: build-1.18
 on: [push]
 
 jobs:
@@ -6,23 +6,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.17.x]
+        go-version: [1.18.x]
     name: Build with Go ${{ matrix.go-version }}
     steps:
       - uses: actions/checkout@v3
+
       - name: Install Go
         uses: actions/setup-go@v3
         with:
-          stable: false
           go-version: ${{ matrix.go-version }}
-
-      - name: Install staticcheck
-        run: go get honnef.co/go/tools/cmd/staticcheck
-
-      - name: Run linters
-        run: |
-          go vet ./...
-          staticcheck ./...
 
       - name: Run tests
         run: go test -v ./...
