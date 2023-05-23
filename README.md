@@ -88,7 +88,7 @@ v, ok := m.Load(point{42, 42})
 
 ### MPMCQueue
 
-A `MPMCQeueue` is a bounded multi-producer multi-consumer concurrent queue.
+A `MPMCQueue` is a bounded multi-producer multi-consumer concurrent queue.
 
 ```go
 q := xsync.NewMPMCQueue(1024)
