@@ -5,6 +5,7 @@ package xsync_test
 
 import (
 	"encoding/binary"
+	"errors"
 	"hash/maphash"
 	"math"
 	"math/rand"
@@ -321,6 +322,52 @@ func TestMapOfLoadOrStore(t *testing.T) {
 	}
 }
 
+func TestMapOfLoadOrTryCompute(t *testing.T) {
+	const numEntries = 1000
+	m := NewMapOf[int]()
+	for i := 0; i < numEntries; i++ {
+		v, loaded, err := m.LoadOrTryCompute(strconv.Itoa(i), func() (int, error) {
+			return i, errors.New("error")
+		})
+		if err == nil {
+			t.Fatalf("error not found for %d", i)
+		}
+		if loaded {
+			t.Fatalf("value not computed for %d", i)
+		}
+		if v != i {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+	for i := 0; i < numEntries; i++ {
+		v, loaded, err := m.LoadOrTryCompute(strconv.Itoa(i), func() (int, error) {
+			return i, nil
+		})
+		if err != nil {
+			t.Fatalf("error found for %d", i)
+		}
+		if loaded {
+			t.Fatalf("value not computed for %d", i)
+		}
+		if v != i {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+	for i := 0; i < numEntries; i++ {
+		v, loaded, err := m.LoadOrTryCompute(strconv.Itoa(i), func() (int, error) {
+			return i, nil
+		})
+		if err != nil {
+			t.Fatalf("error found for %d", i)
+		}
+		if !loaded {
+			t.Fatalf("value not loaded for %d", i)
+		}
+		if v != i {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+}
 func TestMapOfLoadOrCompute(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[int]()
