@@ -20,6 +20,9 @@ const (
 // nextPowOf2 computes the next highest power of 2 of 32-bit v.
 // Source: https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
 func nextPowOf2(v uint32) uint32 {
+	if v == 0 {
+		return 1
+	}
 	v--
 	v |= v >> 1
 	v |= v >> 2
