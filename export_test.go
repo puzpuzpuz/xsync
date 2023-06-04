@@ -51,3 +51,7 @@ func DisableAssertions() {
 func Fastrand() uint32 {
 	return fastrand()
 }
+
+func NextPowOf2(v uint32) uint32 {
+	return nextPowOf2(v)
+}
