@@ -24,6 +24,8 @@ import (
 )
 ```
 
+*Note for v1 users*: v1 support is discontinued, so please upgrade to v2. While the API has some breaking changes, the migration should be trivial.
+
 ### Counter
 
 A `Counter` is a striped `int64` counter inspired by the `j.u.c.a.LongAdder` class from Java standard library.
