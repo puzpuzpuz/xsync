@@ -31,7 +31,7 @@ type MPMCQueueOf[I any] struct {
 type slotOfPadded[I any] struct {
 	slotOf[I]
 	//lint:ignore U1000 prevents false sharing
-	pad [cacheLineSize - (unsafe.Sizeof(slot{}) % cacheLineSize)]byte
+	pad [cacheLineSize - (unsafe.Sizeof(slotOf[I]{}) % cacheLineSize)]byte
 }
 
 type slotOf[I any] struct {
