@@ -99,12 +99,20 @@ q.Enqueue("foo")
 // optimistic insertion attempt; doesn't block
 inserted := q.TryEnqueue("bar")
 // consumer obtains an item from the queue
-item := q.Dequeue()
+item := q.Dequeue() // interface{} pointing at a string
 // optimistic obtain attempt; doesn't block
 item, ok := q.TryDequeue()
 ```
 
-Based on the algorithm from the [MPMCQueue](https://github.com/rigtorp/MPMCQueue) C++ library which in its turn references D.Vyukov's [MPMC queue](https://www.1024cores.net/home/lock-free-algorithms/queues/bounded-mpmc-queue). According to the following [classification](https://www.1024cores.net/home/lock-free-algorithms/queues), the queue is array-based, fails on overflow, provides causal FIFO, has blocking producers and consumers.
+`MPMCQueueOf[I]` is an implementation with parametrized item type. It is available for Go 1.18 or later.
+
+```go
+q := xsync.NewMPMCQueueOf[string](1024)
+q.Enqueue("foo")
+item := q.Dequeue() // string
+```
+
+The queue is based on the algorithm from the [MPMCQueue](https://github.com/rigtorp/MPMCQueue) C++ library which in its turn references D.Vyukov's [MPMC queue](https://www.1024cores.net/home/lock-free-algorithms/queues/bounded-mpmc-queue). According to the following [classification](https://www.1024cores.net/home/lock-free-algorithms/queues), the queue is array-based, fails on overflow, provides causal FIFO, has blocking producers and consumers.
 
 The idea of the algorithm is to allow parallelism for concurrent producers and consumers by introducing the notion of tickets, i.e. values of two counters, one per producers/consumers. An atomic increment of one of those counters is the only noticeable contention point in queue operations. The rest of the operation avoids contention on writes thanks to the turn-based read/write access for each of the queue items.
 
