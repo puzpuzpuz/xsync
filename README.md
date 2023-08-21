@@ -99,7 +99,7 @@ q.Enqueue("foo")
 // optimistic insertion attempt; doesn't block
 inserted := q.TryEnqueue("bar")
 // consumer obtains an item from the queue
-item := q.Dequeue() // interface{} pointing at a string
+item := q.Dequeue() // interface{} pointing to a string
 // optimistic obtain attempt; doesn't block
 item, ok := q.TryDequeue()
 ```
