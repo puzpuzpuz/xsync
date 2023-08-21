@@ -1,5 +1,5 @@
-//go:build go1.18
-// +build go1.18
+//go:build go1.19
+// +build go1.19
 
 // Copyright notice. The following tests are partially based on
 // the following file from the Go Programming Language core repo:

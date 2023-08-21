@@ -104,7 +104,7 @@ item := q.Dequeue() // interface{} pointing at a string
 item, ok := q.TryDequeue()
 ```
 
-`MPMCQueueOf[I]` is an implementation with parametrized item type. It is available for Go 1.18 or later.
+`MPMCQueueOf[I]` is an implementation with parametrized item type. It is available for Go 1.19 or later.
 
 ```go
 q := xsync.NewMPMCQueueOf[string](1024)
