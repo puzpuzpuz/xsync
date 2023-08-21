@@ -30,12 +30,20 @@ type MPMCQueueOf[I any] struct {
 
 type slotOfPadded[I any] struct {
 	slotOf[I]
+	// Unfortunately, proper padding like the below one:
+	//
+	// pad [cacheLineSize - (unsafe.Sizeof(slotOf[I]{}) % cacheLineSize)]byte
+	//
+	// won't compile, so here we add a best-effort padding for items up to
+	// 56 bytes size.
 	//lint:ignore U1000 prevents false sharing
-	pad [cacheLineSize - (unsafe.Sizeof(slotOf[I]{}) % cacheLineSize)]byte
+	pad [cacheLineSize - unsafe.Sizeof(atomic.Uint64{})]byte
 }
 
 type slotOf[I any] struct {
-	turn uint64
+	// atomic.Uint64 is used here to get proper 8 byte alignment on
+	// 32-bit archs.
+	turn atomic.Uint64
 	item I
 }
 
@@ -57,11 +65,11 @@ func (q *MPMCQueueOf[I]) Enqueue(item I) {
 	head := atomic.AddUint64(&q.head, 1) - 1
 	slot := &q.slots[q.idx(head)]
 	turn := q.turn(head) * 2
-	for atomic.LoadUint64(&slot.turn) != turn {
+	for slot.turn.Load() != turn {
 		runtime.Gosched()
 	}
 	slot.item = item
-	atomic.StoreUint64(&slot.turn, turn+1)
+	slot.turn.Store(turn + 1)
 }
 
 // Dequeue retrieves and removes the item from the head of the queue.
@@ -71,12 +79,12 @@ func (q *MPMCQueueOf[I]) Dequeue() I {
 	tail := atomic.AddUint64(&q.tail, 1) - 1
 	slot := &q.slots[q.idx(tail)]
 	turn := q.turn(tail)*2 + 1
-	for atomic.LoadUint64(&slot.turn) != turn {
+	for slot.turn.Load() != turn {
 		runtime.Gosched()
 	}
 	item := slot.item
 	slot.item = zeroedI
-	atomic.StoreUint64(&slot.turn, turn+1)
+	slot.turn.Store(turn + 1)
 	return item
 }
 
@@ -88,10 +96,10 @@ func (q *MPMCQueueOf[I]) TryEnqueue(item I) bool {
 	for {
 		slot := &q.slots[q.idx(head)]
 		turn := q.turn(head) * 2
-		if atomic.LoadUint64(&slot.turn) == turn {
+		if slot.turn.Load() == turn {
 			if atomic.CompareAndSwapUint64(&q.head, head, head+1) {
 				slot.item = item
-				atomic.StoreUint64(&slot.turn, turn+1)
+				slot.turn.Store(turn + 1)
 				return true
 			}
 		} else {
@@ -113,13 +121,13 @@ func (q *MPMCQueueOf[I]) TryDequeue() (item I, ok bool) {
 	for {
 		slot := &q.slots[q.idx(tail)]
 		turn := q.turn(tail)*2 + 1
-		if atomic.LoadUint64(&slot.turn) == turn {
+		if slot.turn.Load() == turn {
 			if atomic.CompareAndSwapUint64(&q.tail, tail, tail+1) {
 				var zeroedI I
 				item = slot.item
 				ok = true
 				slot.item = zeroedI
-				atomic.StoreUint64(&slot.turn, turn+1)
+				slot.turn.Store(turn + 1)
 				return
 			}
 		} else {
