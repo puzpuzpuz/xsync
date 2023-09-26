@@ -1,6 +1,7 @@
 package xsync_test
 
 import (
+	"hash/maphash"
 	"math/rand"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestNextPowOf2(t *testing.T) {
 // This test is here to catch potential problems
 // with fastrand-related changes.
 func TestFastrand(t *testing.T) {
-	count := 10000
+	count := 100
 	set := make(map[uint32]struct{}, count)
 
 	for i := 0; i < count; i++ {
@@ -50,4 +51,26 @@ func BenchmarkRand(b *testing.B) {
 		_ = rand.Uint32()
 	}
 	// about 12 ns/op on x86-64
+}
+
+func BenchmarkMapHashString(b *testing.B) {
+	fn := func(seed maphash.Seed, s string) uint64 {
+		var h maphash.Hash
+		h.SetSeed(seed)
+		h.WriteString(s)
+		return h.Sum64()
+	}
+	seed := maphash.MakeSeed()
+	for i := 0; i < b.N; i++ {
+		_ = fn(seed, benchmarkKeyPrefix)
+	}
+	// about 13ns/op on x86-64
+}
+
+func BenchmarkHashString(b *testing.B) {
+	seed := maphash.MakeSeed()
+	for i := 0; i < b.N; i++ {
+		_ = HashString(seed, benchmarkKeyPrefix)
+	}
+	// about 4ns/op on x86-64
 }
