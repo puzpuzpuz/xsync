@@ -1,5 +1,7 @@
 package xsync
 
+import "hash/maphash"
+
 const (
 	EntriesPerMapBucket = entriesPerMapBucket
 	MapLoadFactor       = mapLoadFactor
@@ -46,6 +48,10 @@ func EnableAssertions() {
 
 func DisableAssertions() {
 	assertionsEnabled = false
+}
+
+func HashString(seed maphash.Seed, s string) uint64 {
+	return hashString(seed, s)
 }
 
 func Fastrand() uint32 {

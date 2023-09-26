@@ -2,7 +2,9 @@ package xsync
 
 import (
 	"hash/maphash"
+	"reflect"
 	"runtime"
+	"unsafe"
 	_ "unsafe"
 )
 
@@ -44,11 +46,17 @@ func parallelism() uint32 {
 
 // hashString calculates a hash of s with the given seed.
 func hashString(seed maphash.Seed, s string) uint64 {
-	var h maphash.Hash
-	h.SetSeed(seed)
-	h.WriteString(s)
-	return h.Sum64()
+	seed64 := *(*uint64)(unsafe.Pointer(&seed))
+	if s == "" {
+		return seed64
+	}
+	strh := (*reflect.StringHeader)(unsafe.Pointer(&s))
+	return uint64(memhash(unsafe.Pointer(strh.Data), uintptr(seed64), uintptr(strh.Len)))
 }
+
+//go:noescape
+//go:linkname memhash runtime.memhash
+func memhash(p unsafe.Pointer, h, s uintptr) uintptr
 
 //go:noescape
 //go:linkname fastrand runtime.fastrand
