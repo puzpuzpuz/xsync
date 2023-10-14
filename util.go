@@ -1,7 +1,6 @@
 package xsync
 
 import (
-	"encoding/binary"
 	"fmt"
 	"hash/maphash"
 	"reflect"
@@ -97,20 +96,8 @@ func MakeHashFunc[T comparable]() func(maphash.Seed, T) uint64 {
 			return uint64(memhash(unsafe.Pointer(&v), uintptr(seed64), valSize))
 		}
 
-	// Implementation for interfaces is slow and can throw a panic at runtime.
-	// Technically we should never get here because this is a generic function used for
-	// generic hash-maps.
-	// Maybe it better to disable this case at all?
 	case reflect.Interface:
-		return func(seed maphash.Seed, t T) uint64 {
-			var h maphash.Hash
-			h.SetSeed(seed)
-			err := binary.Write(&h, binary.LittleEndian, t)
-			if err != nil {
-				panic(err)
-			}
-			return h.Sum64()
-		}
+		panic("hashing of interface types is not supported")
 
 	// This should never happen as well, especially taking into account
 	// that T is comparable.
