@@ -28,12 +28,19 @@ func TestNextPowOf2(t *testing.T) {
 func doTestMakeHashFunc[T comparable](t *testing.T, val1, val2 T) {
 	t.Helper()
 
-	if val1 == val2 {
-		t.Error("use two different values for the test")
-	}
-
 	hash := MakeHashFunc[T]()
 	seed := maphash.MakeSeed()
+
+	// For the equal values we run different set of tests.
+	// Here we assume we're given the values that are equal,
+	// but have different underlying memory layout.
+	// For example this could be structs with string fields.
+	if val1 == val2 {
+		if hash(seed, val1) != hash(seed, val2) {
+			t.Error("equal values were given but their hashes are different")
+		}
+		return
+	}
 
 	val1copy := val1
 	if hash(seed, val1) != hash(seed, val1) || hash(seed, val1copy) != hash(seed, val1copy) {
@@ -74,6 +81,21 @@ func TestMakeHashFunc(t *testing.T) {
 		X, Y int
 	}
 
+	type User struct {
+		ID        int
+		FirstName string
+		LastName  string
+		IsActive  bool
+		City      string
+	}
+
+	// makes a clone of the string that is not stored in the same memory location
+	s := func(str string) string {
+		buf := make([]byte, 0, len(str))
+		buf = append(buf, str...)
+		return string(buf)
+	}
+
 	doTestMakeHashFunc(t, int32(116), int32(117))
 	doTestMakeHashFunc(t, 3.1415, 2.7182)
 	doTestMakeHashFunc(t, "foo", "bar")
@@ -85,10 +107,17 @@ func TestMakeHashFunc(t *testing.T) {
 	doTestMakeHashFunc(t, unsafe.Pointer(&Point{1, 2}), unsafe.Pointer(&Point{1, 2}))
 	doTestMakeHashFunc(t, make(chan string), make(chan string))
 
-	// works only in go 1.20+
+	// Special case: interfaces (works only in go 1.20+)
 	//var a any = Point{1, 2}
 	//var b any = Point{3, 4}
 	//doTestMakeHashFunc(t, a, b)
+
+	// Special case: struct with strings
+	user1 := User{ID: 1, FirstName: s("John"), LastName: s("Smith"), IsActive: true, City: s("New York")}
+	user1clone := User{ID: 1, FirstName: s("John"), LastName: s("Smith"), IsActive: true, City: s("New York")}
+
+	doTestMakeHashFunc(t, user1, user1clone)
+
 }
 
 // This test is here to catch potential problems
