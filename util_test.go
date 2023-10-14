@@ -33,23 +33,29 @@ func doTestMakeHashFunc[T comparable](t *testing.T, val1, val2 T) {
 	}
 
 	hash := MakeHashFunc[T]()
+	seed := maphash.MakeSeed()
 
 	val1copy := val1
-	if hash(val1) != hash(val1) || hash(val1copy) != hash(val1copy) {
+	if hash(seed, val1) != hash(seed, val1) || hash(seed, val1copy) != hash(seed, val1copy) {
 		t.Error("two invocations of hash for the same value return different results")
 	}
 
 	// double check
 	val2copy := val2
-	if hash(val2) != hash(val2) || hash(val2copy) != hash(val2copy) {
+	if hash(seed, val2) != hash(seed, val2) || hash(seed, val2copy) != hash(seed, val2copy) {
 		t.Error("two invocations of hash for the same value return different results")
+	}
+
+	hash2 := MakeHashFunc[T]()
+	if hash(seed, val1) != hash2(seed, val1) {
+		t.Error("two hash functions but behave identically for the same seed and value")
 	}
 
 	// Test that different values have different hashes.
 	// That's not always the case, so we'll try multiple hash functions,
 	// to make probability of failure veirtually zero
 	for i := 0; ; i++ {
-		if hash(val1) != hash(val2) {
+		if hash(seed, val1) != hash(seed, val2) {
 			break
 		}
 
@@ -58,8 +64,8 @@ func doTestMakeHashFunc[T comparable](t *testing.T, val1, val2 T) {
 			break
 		}
 
-		t.Log("Different values have the same hash, trying another hash function")
-		hash = MakeHashFunc[T]()
+		t.Log("Different values have the same hash, trying different seed")
+		seed = maphash.MakeSeed()
 	}
 }
 
@@ -139,10 +145,12 @@ func BenchmarkHashString(b *testing.B) {
 
 func doBenchmarkMakeHashFunc[T comparable](b *testing.B, val T) {
 	hash := MakeHashFunc[T]()
+	seed := maphash.MakeSeed()
+
 	b.Run(fmt.Sprintf("%T hash", val), func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = hash(val)
+			_ = hash(seed, val)
 		}
 	})
 
