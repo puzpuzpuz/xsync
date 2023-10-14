@@ -56,6 +56,10 @@ func hashString(seed maphash.Seed, s string) uint64 {
 	return uint64(memhash(unsafe.Pointer(strh.Data), uintptr(seed64), uintptr(strh.Len)))
 }
 
+// MakeHashFunc returns a hash function for the given type.
+// The returned function takes a seed, a value of the given type and returns an uint64 hash.
+// Returned hash function should be created once and then used as many times as needed.
+// The returned function is safe for concurrent use.
 func MakeHashFunc[T comparable]() func(maphash.Seed, T) uint64 {
 	var zero T
 	rt := reflect.TypeOf(&zero).Elem() // Elem() avoids panic when T is interface
