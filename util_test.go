@@ -52,8 +52,8 @@ func doTestMakeHashFunc[T comparable](t *testing.T, val1, val2 T) {
 	}
 
 	// Test that different values have different hashes.
-	// That's not always the case, so we'll try multiple hash functions,
-	// to make probability of failure veirtually zero
+	// That's not always the case, so we'll try different seeds,
+	// to make probability of failure virtually zero
 	for i := 0; ; i++ {
 		if hash(seed, val1) != hash(seed, val2) {
 			break
