@@ -64,6 +64,7 @@ func MakeHashFunc[T comparable]() func(maphash.Seed, T) uint64 {
 	// various integers and pointers, uses the same trick as hashUint64
 	// todo: do even need this case? Maybe fallback to other fixed-size types?
 	case reflect.Int, reflect.Uint, reflect.Int8, reflect.Uint8, reflect.Int16, reflect.Uint16, reflect.Int32, reflect.Uint32, reflect.Int64, reflect.Uint64,
+		reflect.Bool,
 		reflect.Pointer, reflect.UnsafePointer, reflect.Chan:
 		return func(seed maphash.Seed, v T) uint64 {
 			n := uint64(*(*uintptr)(unsafe.Pointer(&v)))
