@@ -25,16 +25,16 @@ func TestMakeHashFunc(t *testing.T) {
 		X, Y int
 	}
 
-	doTestMakeHashFuncNeq(t, int32(116), int32(117))
-	doTestMakeHashFuncNeq(t, 3.1415, 2.7182)
-	doTestMakeHashFuncNeq(t, "foo", "bar")
-	doTestMakeHashFuncNeq(t, Point{1, 2}, Point{3, 4})
-	doTestMakeHashFuncNeq(t, [3]byte{'f', 'o', 'o'}, [3]byte{'b', 'a', 'r'})
+	expectDifferentHashes(t, int32(116), int32(117))
+	expectDifferentHashes(t, 3.1415, 2.7182)
+	expectDifferentHashes(t, "foo", "bar")
+	expectDifferentHashes(t, Point{1, 2}, Point{3, 4})
+	expectDifferentHashes(t, [3]byte{'f', 'o', 'o'}, [3]byte{'b', 'a', 'r'})
 
-	doTestMakeHashFuncNeq(t, &Point{1, 2}, &Point{1, 2})
-	doTestMakeHashFuncNeq(t, nil, &Point{1, 2})
-	doTestMakeHashFuncNeq(t, unsafe.Pointer(&Point{1, 2}), unsafe.Pointer(&Point{1, 2}))
-	doTestMakeHashFuncNeq(t, make(chan string), make(chan string))
+	expectDifferentHashes(t, &Point{1, 2}, &Point{1, 2})
+	expectDifferentHashes(t, nil, &Point{1, 2})
+	expectDifferentHashes(t, unsafe.Pointer(&Point{1, 2}), unsafe.Pointer(&Point{1, 2}))
+	expectDifferentHashes(t, make(chan string), make(chan string))
 
 	// ---- Test complex struct cases
 	type Timestamps struct {
@@ -71,34 +71,34 @@ func TestMakeHashFunc(t *testing.T) {
 	userCopy := user
 
 	// explicitly check that hash of the copy is the same
-	doTestMakeHashFuncEq(t, user, userCopy)
+	expectEqualHashes(t, user, userCopy)
 
 	// change numeric field
 	userCopy.Age = 9000
-	doTestMakeHashFuncNeq(t, user, userCopy)
+	expectDifferentHashes(t, user, userCopy)
 	userCopy = user
 
 	// change string field
 	userCopy.Name = "9000"
-	doTestMakeHashFuncNeq(t, user, userCopy)
+	expectDifferentHashes(t, user, userCopy)
 	userCopy = user
 
 	// change embedded struct field
 	userCopy.CreatedAt = 9000
-	doTestMakeHashFuncNeq(t, user, userCopy)
+	expectDifferentHashes(t, user, userCopy)
 	userCopy = user
 
 	// change string field pointer (but keep the same string value)
 	// hash should remain the same
 	userCopy.Name = cloneString(user.Name)
-	doTestMakeHashFuncEq(t, user, userCopy)
+	expectEqualHashes(t, user, userCopy)
 	userCopy = user
 
 	// change inviter address to it's shallow copy address
 	// hash should change
 	inviterCopy := inviter
 	userCopy.InvitedBy = &inviterCopy
-	doTestMakeHashFuncNeq(t, user, userCopy)
+	expectDifferentHashes(t, user, userCopy)
 	userCopy = user
 
 	// ---- Padded struct
@@ -123,14 +123,14 @@ func TestMakeHashFunc(t *testing.T) {
 	loc2 := time.FixedZone("UTC+3", 3*60*60)
 	now := time.Now()
 
-	doTestMakeHashFuncNeq(t, now.In(loc1), now.In(loc2))
+	expectDifferentHashes(t, now.In(loc1), now.In(loc2))
 }
 
-func doTestMakeHashFuncNeq[T comparable](t *testing.T, val1, val2 T) {
+func expectDifferentHashes[T comparable](t *testing.T, val1, val2 T) {
 	t.Helper()
 
 	if val1 == val2 {
-		t.Error("use doTestMakeHashFuncEq for equal values")
+		t.Error("use expectEqualHashes for equal values")
 		return
 	}
 
@@ -171,11 +171,11 @@ func doTestMakeHashFuncNeq[T comparable](t *testing.T, val1, val2 T) {
 	}
 }
 
-func doTestMakeHashFuncEq[T comparable](t *testing.T, val1, val2 T) {
+func expectEqualHashes[T comparable](t *testing.T, val1, val2 T) {
 	t.Helper()
 
 	if val1 != val2 {
-		t.Error("use doTestMakeHashFuncNeq for non-equal values")
+		t.Error("use expectDifferentHashes for non-equal values")
 		return
 	}
 
