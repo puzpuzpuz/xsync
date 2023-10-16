@@ -1,7 +1,6 @@
 package xsync
 
 import (
-	"fmt"
 	"hash/maphash"
 	"reflect"
 	"runtime"
@@ -53,58 +52,6 @@ func hashString(seed maphash.Seed, s string) uint64 {
 	}
 	strh := (*reflect.StringHeader)(unsafe.Pointer(&s))
 	return uint64(memhash(unsafe.Pointer(strh.Data), uintptr(seed64), uintptr(strh.Len)))
-}
-
-// MakeHashFunc returns a hash function for the given type.
-// The returned function takes a seed, a value of the given type and returns an uint64 hash.
-// Returned hash function should be created once and then used as many times as needed.
-// The returned function is safe for concurrent use.
-func MakeHashFunc[T comparable]() func(maphash.Seed, T) uint64 {
-	var zero T
-	rt := reflect.TypeOf(&zero).Elem() // Elem() avoids panic when T is interface
-
-	switch rt.Kind() {
-	// various integers and pointers, uses the same trick as hashUint64
-	// todo: do even need this case? Maybe fallback to other fixed-size types?
-	case reflect.Int, reflect.Uint, reflect.Int8, reflect.Uint8, reflect.Int16, reflect.Uint16, reflect.Int32, reflect.Uint32, reflect.Int64, reflect.Uint64,
-		reflect.Bool,
-		reflect.Pointer, reflect.UnsafePointer, reflect.Chan:
-		return func(seed maphash.Seed, v T) uint64 {
-			n := uint64(*(*uintptr)(unsafe.Pointer(&v)))
-			seed64 := *(*uint64)(unsafe.Pointer(&seed))
-
-			// Java's Long standard hash function.
-			n = n ^ (n >> 32)
-			// 64-bit variation of boost's hash_combine.
-			seed64 ^= n + 0x9e3779b97f4a7c15 + (seed64 << 12) + (seed64 >> 4)
-			return seed64
-		}
-
-	// strings use the same trick as in hashString()
-	case reflect.String:
-		return func(seed maphash.Seed, v T) uint64 {
-			seed64 := *(*uint64)(unsafe.Pointer(&seed))
-			strh := (*reflect.StringHeader)(unsafe.Pointer(&v))
-			return uint64(memhash(unsafe.Pointer(strh.Data), uintptr(seed64), uintptr(strh.Len)))
-		}
-
-	// other comparable fixed-size types
-	case reflect.Struct, reflect.Array, reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
-		return func(seed maphash.Seed, v T) uint64 {
-			seed64 := *(*uint64)(unsafe.Pointer(&seed))
-			valSize := unsafe.Sizeof(v)
-			return uint64(memhash(unsafe.Pointer(&v), uintptr(seed64), valSize))
-		}
-
-	case reflect.Interface:
-		panic("hashing of interface types is not supported")
-
-	// This should never happen as well, especially taking into account
-	// that T is comparable.
-	default:
-		panic(fmt.Sprintf("unsupported type %v", rt))
-
-	}
 }
 
 //go:noescape

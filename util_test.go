@@ -1,11 +1,9 @@
 package xsync_test
 
 import (
-	"fmt"
 	"hash/maphash"
 	"math/rand"
 	"testing"
-	"unsafe"
 
 	. "github.com/puzpuzpuz/xsync/v2"
 )
@@ -23,101 +21,6 @@ func TestNextPowOf2(t *testing.T) {
 	if NextPowOf2(3) != 4 {
 		t.Error("nextPowOf2 failed")
 	}
-}
-
-func doTestMakeHashFunc[T comparable](t *testing.T, val1, val2 T) {
-	t.Helper()
-
-	hash := MakeHashFunc[T]()
-	seed := maphash.MakeSeed()
-
-	// For the equal values we run different set of tests.
-	// Here we assume we're given the values that are equal,
-	// but have different underlying memory layout.
-	// For example this could be structs with string fields.
-	if val1 == val2 {
-		if hash(seed, val1) != hash(seed, val2) {
-			t.Error("equal values were given but their hashes are different")
-		}
-		return
-	}
-
-	val1copy := val1
-	if hash(seed, val1) != hash(seed, val1) || hash(seed, val1copy) != hash(seed, val1copy) {
-		t.Error("two invocations of hash for the same value return different results")
-	}
-
-	// double check
-	val2copy := val2
-	if hash(seed, val2) != hash(seed, val2) || hash(seed, val2copy) != hash(seed, val2copy) {
-		t.Error("two invocations of hash for the same value return different results")
-	}
-
-	hash2 := MakeHashFunc[T]()
-	if hash(seed, val1) != hash2(seed, val1) {
-		t.Error("two hash functions but behave identically for the same seed and value")
-	}
-
-	// Test that different values have different hashes.
-	// That's not always the case, so we'll try different seeds,
-	// to make probability of failure virtually zero
-	for i := 0; ; i++ {
-		if hash(seed, val1) != hash(seed, val2) {
-			break
-		}
-
-		if i >= 20 {
-			t.Error("Different values have the same hash")
-			break
-		}
-
-		t.Log("Different values have the same hash, trying different seed")
-		seed = maphash.MakeSeed()
-	}
-}
-
-func TestMakeHashFunc(t *testing.T) {
-	type Point struct {
-		X, Y int
-	}
-
-	type User struct {
-		ID        int
-		FirstName string
-		LastName  string
-		IsActive  bool
-		City      string
-	}
-
-	// makes a clone of the string that is not stored in the same memory location
-	s := func(str string) string {
-		buf := make([]byte, 0, len(str))
-		buf = append(buf, str...)
-		return string(buf)
-	}
-
-	doTestMakeHashFunc(t, int32(116), int32(117))
-	doTestMakeHashFunc(t, 3.1415, 2.7182)
-	doTestMakeHashFunc(t, "foo", "bar")
-	doTestMakeHashFunc(t, Point{1, 2}, Point{3, 4})
-	doTestMakeHashFunc(t, [3]byte{'f', 'o', 'o'}, [3]byte{'b', 'a', 'r'})
-
-	doTestMakeHashFunc(t, &Point{1, 2}, &Point{1, 2})
-	doTestMakeHashFunc(t, nil, &Point{1, 2})
-	doTestMakeHashFunc(t, unsafe.Pointer(&Point{1, 2}), unsafe.Pointer(&Point{1, 2}))
-	doTestMakeHashFunc(t, make(chan string), make(chan string))
-
-	// Special case: interfaces (works only in go 1.20+)
-	//var a any = Point{1, 2}
-	//var b any = Point{3, 4}
-	//doTestMakeHashFunc(t, a, b)
-
-	// Special case: struct with strings
-	user1 := User{ID: 1, FirstName: s("John"), LastName: s("Smith"), IsActive: true, City: s("New York")}
-	user1clone := User{ID: 1, FirstName: s("John"), LastName: s("Smith"), IsActive: true, City: s("New York")}
-
-	doTestMakeHashFunc(t, user1, user1clone)
-
 }
 
 // This test is here to catch potential problems
@@ -170,42 +73,4 @@ func BenchmarkHashString(b *testing.B) {
 		_ = HashString(seed, benchmarkKeyPrefix)
 	}
 	// about 4ns/op on x86-64
-}
-
-func doBenchmarkMakeHashFunc[T comparable](b *testing.B, val T) {
-	hash := MakeHashFunc[T]()
-	seed := maphash.MakeSeed()
-
-	b.Run(fmt.Sprintf("%T hash", val), func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_ = hash(seed, val)
-		}
-	})
-
-	// Since hashing is a function call, let's wrap map read into a function call as well.
-	// Seems this should give better comparison of the performance of the hash function itself.
-	m := map[T]int{val: 10}
-	readMap := func() int {
-		return m[val]
-	}
-
-	b.Run(fmt.Sprintf("%T map read", val), func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_ = readMap()
-		}
-	})
-}
-
-func BenchmarkMakeHashFunc(b *testing.B) {
-	type Point struct {
-		X, Y, Z int
-	}
-
-	doBenchmarkMakeHashFunc(b, 116)
-	doBenchmarkMakeHashFunc(b, "test key")
-	doBenchmarkMakeHashFunc(b, Point{1, 2, 3})
-	doBenchmarkMakeHashFunc(b, &Point{1, 2, 3})
-
 }
