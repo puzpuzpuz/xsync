@@ -41,6 +41,10 @@ func TestMakeHashFunc(t *testing.T) {
 		CreatedAt, UpdatedAt int64
 	}
 
+	type Settings struct {
+		A, B bool
+	}
+
 	type User struct {
 		ID       int
 		Name     string
@@ -48,6 +52,7 @@ func TestMakeHashFunc(t *testing.T) {
 		Age      int
 
 		InvitedBy *User
+		s         Settings
 		Timestamps
 	}
 
@@ -66,6 +71,7 @@ func TestMakeHashFunc(t *testing.T) {
 	user.Age = 25
 	user.CreatedAt = 118
 	user.UpdatedAt = 119
+	user.s.A = true
 	user.InvitedBy = &inviter
 
 	userCopy := user
@@ -80,6 +86,11 @@ func TestMakeHashFunc(t *testing.T) {
 
 	// change string field
 	userCopy.Name = "9000"
+	expectDifferentHashes(t, user, userCopy)
+	userCopy = user
+
+	// change nested struct field
+	userCopy.s.B = true
 	expectDifferentHashes(t, user, userCopy)
 	userCopy = user
 
