@@ -11,160 +11,164 @@ import (
 
 // makeHashFunc creates a fast hash function for the given comparable type.
 // The only limitation is that the type should not contain interfaces inside
+// based on runtime.typehash.
 func makeHashFunc[T comparable]() func(maphash.Seed, T) uint64 {
 	var zero T
-	rt := reflect.TypeOf(&zero).Elem() // Elem() avoids uninformative panics when T is interface
 
-	blocks := hGetMemLayout(rt)
+	isInterface := reflect.TypeOf(&zero).Elem().Kind() == reflect.Interface
+	is64Bit := unsafe.Sizeof(uintptr(0)) == 8
 
-	// empty struct case, should never happen irl
-	if len(blocks) == 0 {
-		return func(seed maphash.Seed, v T) uint64 {
-			return maphash.Bytes(seed, nil)
-		}
-	}
-
-	// string or a struct with a single string field
-	if len(blocks) == 1 && !blocks[0].IsString {
-		block := blocks[0]
-		return func(seed maphash.Seed, v T) uint64 {
-			return maphash.Bytes(seed, asBytes(unsafe.Pointer(&v), block.Offset, block.Length))
-		}
-	}
-
-	// data type is a single contiguous region of memory (e.g. struct with integer fields)
-	if len(blocks) == 1 && blocks[0].IsString {
-		block := blocks[0]
-		return func(seed maphash.Seed, v T) uint64 {
-			return maphash.String(seed, asString(unsafe.Pointer(&v), block.Offset))
-		}
-	}
-
-	// complex data type consisting of multiple blocks
-	{
-		return func(seed maphash.Seed, v T) uint64 {
-			var h maphash.Hash
-			h.SetSeed(seed)
-			ptr := unsafe.Pointer(&v)
-
-			for _, b := range blocks {
-				if b.IsString {
-					h.WriteString(asString(ptr, b.Offset))
-				} else {
-					h.Write(asBytes(ptr, b.Offset, b.Length))
-				}
+	if isInterface {
+		if is64Bit {
+			return func(seed maphash.Seed, value T) uint64 {
+				seed64 := *(*uint64)(unsafe.Pointer(&seed))
+				iValue := any(value)
+				i := (*iface)(unsafe.Pointer(&iValue))
+				return uint64(runtime_typehash(i.typ, noescape(i.word), uintptr(seed64)))
 			}
-			return h.Sum64()
-		}
-	}
-}
+		} else {
+			return func(seed maphash.Seed, value T) uint64 {
+				seed64 := *(*uint64)(unsafe.Pointer(&seed))
+				iValue := any(value)
+				i := (*iface)(unsafe.Pointer(&iValue))
 
-// asString interprets memory at p + offset as a string header and returns the string.
-func asString(p unsafe.Pointer, offset uintptr) string {
-	sp := unsafe.Add(p, offset)
-	return *(*string)(sp)
-}
-
-// asBytes returns block of memory at p + offset as a byte slice.
-func asBytes(p unsafe.Pointer, offset uintptr, length uintptr) []byte {
-	sp := unsafe.Add(p, offset)
-
-	// Fast approach: 4.5 ns/op for int hashing.
-	// Dirty, because runtime thinks that returned slice hash 1Tb of capacity
-	return (*[1 << 40]byte)(sp)[:length]
-
-	// go 1.20 way: 4.5 ns/op for int hashing
-	// Need to change go.mod
-	//return unsafe.Slice((*byte)(sp), int(length))
-
-	// Clean pre go 1.20 way: 12 ns/op for int hashing
-	// Very slow compared to others
-	//var res []byte
-	//sh := (*reflect.SliceHeader)(unsafe.Pointer(&res))
-	//sh.Data = uintptr(sp)
-	//sh.Len = int(length)
-	//sh.Cap = int(length)
-	//return res
-}
-
-type hMemBlock struct {
-	Offset   uintptr
-	Length   uintptr
-	IsString bool
-}
-
-// hGetMemLayout returns memory layout of the given type.
-// It works for comparable types with any level of nesting as long as there's no interfaces anywhere inside.
-// Each type can be described as a list of memory blocks, where each block is either a string or a plain block.
-// For example:
-// - Point3d(x,y,z) is a single plain block of size 24
-// - User(id, name, age, height) is 3 blocks plain(id), string(name), plain(age, height)
-// Type can consist of multiple blocks even when there's no strings, but when padding is involved.
-func hGetMemLayout(t reflect.Type) []hMemBlock {
-	if !t.Comparable() {
-		// this filters out slices, maps, functions, etc
-		panic("type is not comparable")
-	}
-
-	return getGetMemLayoutAcc(t, 0, nil)
-}
-
-func getGetMemLayoutAcc(t reflect.Type, offset uintptr, acc []hMemBlock) []hMemBlock {
-	switch t.Kind() {
-	case reflect.Struct:
-		n := t.NumField()
-		for i := 0; i < n; i++ {
-			f := t.Field(i)
-			if f.Name == "_" {
-				continue
+				lo := runtime_typehash(i.typ, noescape(i.word), uintptr(seed64))
+				hi := runtime_typehash(i.typ, noescape(i.word), uintptr(seed64>>32))
+				return uint64(hi)<<32 | uint64(lo)
 			}
-			acc = getGetMemLayoutAcc(f.Type, offset+f.Offset, acc)
 		}
+	} else {
+		var iZero any = zero
+		i := (*iface)(unsafe.Pointer(&iZero))
 
-	case reflect.Array:
-		// Optional optimization for [n]byte.
-		// It's possible to optimize for much wider range of array types, but it's better to keep code clear.
-		// This code will be executed only once per type, and people rarely use large data types for map keys
-		if t.Elem().Kind() == reflect.Uint8 {
-			acc = appendHashMemBlock(acc, hMemBlock{Offset: offset, Length: uintptr(t.Len()), IsString: false})
-			break
-		}
+		if is64Bit {
+			return func(seed maphash.Seed, value T) uint64 {
+				seed64 := *(*uint64)(unsafe.Pointer(&seed))
+				return uint64(runtime_typehash(i.typ, noescape(unsafe.Pointer(&value)), uintptr(seed64)))
+			}
+		} else {
+			return func(seed maphash.Seed, value T) uint64 {
+				seed64 := *(*uint64)(unsafe.Pointer(&seed))
 
-		// General array case
-		n := t.Len()
-		elem := t.Elem()
-		elemSize := elem.Size()
-		currentOffset := offset
-		for i := 0; i < n; i++ {
-			acc = getGetMemLayoutAcc(elem, currentOffset, acc)
-			currentOffset += elemSize
-		}
-
-	case reflect.Interface:
-		// we only support types whose layout is fully known at compile time
-		panic("interface types are not supported")
-
-	case reflect.String:
-		// For strings, we use special block type
-		acc = appendHashMemBlock(acc, hMemBlock{Offset: offset, Length: t.Size(), IsString: true})
-
-	default:
-		// All other comparable types are just regular blocks
-		acc = appendHashMemBlock(acc, hMemBlock{Offset: offset, Length: t.Size(), IsString: false})
-	}
-	return acc
-}
-
-// appendHashMemBlock appends block to acc, merging it with the last block if possible
-func appendHashMemBlock(acc []hMemBlock, block hMemBlock) []hMemBlock {
-	if len(acc) > 0 {
-		last := &acc[len(acc)-1]
-		if !last.IsString && !block.IsString && last.Offset+last.Length == block.Offset {
-			// merge into last segment
-			last.Length += block.Length
-			return acc
+				lo := runtime_typehash(i.typ, noescape(unsafe.Pointer(&value)), uintptr(seed64))
+				hi := runtime_typehash(i.typ, noescape(unsafe.Pointer(&value)), uintptr(seed64>>32))
+				return uint64(hi)<<32 | uint64(lo)
+			}
 		}
 	}
-
-	return append(acc, block)
 }
+
+// DRY version of makeHashFunc
+func makeHashFuncDRY[T comparable]() func(maphash.Seed, T) uint64 {
+	var zero T
+
+	if reflect.TypeOf(&zero).Elem().Kind() == reflect.Interface {
+		return func(seed maphash.Seed, value T) uint64 {
+			iValue := any(value)
+			i := (*iface)(unsafe.Pointer(&iValue))
+			return runtime_typehash64(i.typ, noescape(i.word), seed)
+		}
+	} else {
+		var iZero any = zero
+		i := (*iface)(unsafe.Pointer(&iZero))
+		return func(seed maphash.Seed, value T) uint64 {
+			return runtime_typehash64(i.typ, noescape(unsafe.Pointer(&value)), seed)
+		}
+	}
+}
+
+func makeHashFuncNative[T comparable]() func(maphash.Seed, T) uint64 {
+	hasher := makeHashFuncNativeInternal(make(map[T]struct{}))
+
+	is64Bit := unsafe.Sizeof(uintptr(0)) == 8
+
+	if is64Bit {
+		return func(seed maphash.Seed, value T) uint64 {
+			seed64 := *(*uint64)(unsafe.Pointer(&seed))
+			return uint64(hasher(noescape(unsafe.Pointer(&value)), uintptr(seed64)))
+		}
+	} else {
+		return func(seed maphash.Seed, value T) uint64 {
+			seed64 := *(*uint64)(unsafe.Pointer(&seed))
+			lo := hasher(noescape(unsafe.Pointer(&value)), uintptr(seed64))
+			hi := hasher(noescape(unsafe.Pointer(&value)), uintptr(seed64>>32))
+			return uint64(hi)<<32 | uint64(lo)
+		}
+	}
+
+}
+
+type nativeHasher func(unsafe.Pointer, uintptr) uintptr
+
+func makeHashFuncNativeInternal(mapValue any) nativeHasher {
+	// go/src/runtime/type.go
+	type tflag uint8
+	type nameOff int32
+	type typeOff int32
+
+	// go/src/runtime/type.go
+	type _type struct {
+		size       uintptr
+		ptrdata    uintptr
+		hash       uint32
+		tflag      tflag
+		align      uint8
+		fieldAlign uint8
+		kind       uint8
+		equal      func(unsafe.Pointer, unsafe.Pointer) bool
+		gcdata     *byte
+		str        nameOff
+		ptrToThis  typeOff
+	}
+
+	// go/src/runtime/type.go
+	type maptype struct {
+		typ    _type
+		key    *_type
+		elem   *_type
+		bucket *_type
+		// function for hashing keys (ptr to key, seed) -> hash
+		hasher     nativeHasher
+		keysize    uint8
+		elemsize   uint8
+		bucketsize uint16
+		flags      uint32
+	}
+
+	type mapiface struct {
+		typ *maptype
+		val uintptr
+	}
+
+	i := (*mapiface)(unsafe.Pointer(&mapValue))
+	return i.typ.hasher
+}
+
+// how interface is represented in memory
+type iface struct {
+	typ  uintptr
+	word unsafe.Pointer
+}
+
+// same as runtime_typehash, but always returns a uint64
+// see: maphash.rthash function for details
+func runtime_typehash64(t uintptr, p unsafe.Pointer, seed maphash.Seed) uint64 {
+	seed64 := *(*uint64)(unsafe.Pointer(&seed))
+	if unsafe.Sizeof(uintptr(0)) == 8 {
+		return uint64(runtime_typehash(t, noescape(p), uintptr(seed64)))
+	}
+
+	lo := runtime_typehash(t, noescape(p), uintptr(seed64))
+	hi := runtime_typehash(t, noescape(p), uintptr(seed64>>32))
+	return uint64(hi)<<32 | uint64(lo)
+}
+
+//go:nosplit
+//go:nocheckptr
+func noescape(p unsafe.Pointer) unsafe.Pointer {
+	x := uintptr(p)
+	return unsafe.Pointer(x ^ 0)
+}
+
+//go:linkname runtime_typehash runtime.typehash
+func runtime_typehash(t uintptr, p unsafe.Pointer, h uintptr) uintptr
