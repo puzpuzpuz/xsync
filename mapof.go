@@ -130,6 +130,20 @@ func NewTypedMapOfPresized[K comparable, V any](hasher func(maphash.Seed, K) uin
 	return m
 }
 
+// NewUniversalMapOf creates a new MapOf instance with arbitrarily typed comparable keys.
+// The only limitation is that key type should not contain interfaces inside.
+func NewUniversalMapOf[K comparable, V any]() *MapOf[K, V] {
+	return NewTypedMapOfPresized[K, V](makeHashFunc[K](), minMapTableCap)
+}
+
+// NewUniversalMapOfPresized creates a new MapOf instance with arbitrarily typed
+// comparable keys and capacity enough to hold sizeHint entries. If sizeHint is zero or
+// negative, the value is ignored.
+// The only limitation is that key type should not contain interfaces inside.
+func NewUniversalMapOfPresized[K comparable, V any](sizeHint int) *MapOf[K, V] {
+	return NewTypedMapOfPresized[K, V](makeHashFunc[K](), sizeHint)
+}
+
 func newMapOfTable[K comparable, V any](tableLen int) *mapOfTable[K, V] {
 	buckets := make([]bucketOfPadded, tableLen)
 	counterLen := tableLen >> 10
