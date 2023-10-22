@@ -1,5 +1,5 @@
-[![GoDoc reference](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/puzpuzpuz/xsync/v2)
-[![GoReport](https://goreportcard.com/badge/github.com/puzpuzpuz/xsync/v2)](https://goreportcard.com/report/github.com/puzpuzpuz/xsync/v2)
+[![GoDoc reference](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/puzpuzpuz/xsync/v3)
+[![GoReport](https://goreportcard.com/badge/github.com/puzpuzpuz/xsync/v3)](https://goreportcard.com/report/github.com/puzpuzpuz/xsync/v3)
 [![codecov](https://codecov.io/gh/puzpuzpuz/xsync/branch/main/graph/badge.svg)](https://codecov.io/gh/puzpuzpuz/xsync)
 
 # xsync
@@ -16,15 +16,15 @@ Also, a non-scientific, unfair benchmark comparing Java's [j.u.c.ConcurrentHashM
 
 ## Usage
 
-The latest xsync major version is v2, so `/v2` suffix should be used when importing the library:
+The latest xsync major version is v3, so `/v3` suffix should be used when importing the library:
 
 ```go
 import (
-	"github.com/puzpuzpuz/xsync/v2"
+	"github.com/puzpuzpuz/xsync/v3"
 )
 ```
 
-*Note for v1 users*: v1 support is discontinued, so please upgrade to v2. While the API has some breaking changes, the migration should be trivial.
+*Note for v1 users*: v1 support is discontinued, so please upgrade to v3. While the API has some breaking changes, the migration should be trivial.
 
 ### Counter
 
@@ -35,7 +35,7 @@ c := xsync.NewCounter()
 // increment and decrement the counter
 c.Inc()
 c.Dec()
-// read the current value 
+// read the current value
 v := c.Value()
 ```
 
@@ -58,10 +58,10 @@ CLHT is built around idea to organize the hash table in cache-line-sized buckets
 
 One important difference with `sync.Map` is that only string keys are supported. That's because Golang standard library does not expose the built-in hash functions for `interface{}` values.
 
-`MapOf[K, V]` is an implementation with parametrized value type. It is available for Go 1.18 or later. While it's still a CLHT-inspired hash map, `MapOf`'s design is quite different from `Map`. As a result, less GC pressure and less atomic operations on reads.
+`MapOf[K, V]` is an implementation with parametrized value type. While it's still a CLHT-inspired hash map, `MapOf`'s design is quite different from `Map`. As a result, less GC pressure and less atomic operations on reads.
 
 ```go
-m := xsync.NewMapOf[string]()
+m := xsync.NewMapOf[string, string]()
 m.Store("foo", "bar")
 v, ok := m.Load("foo")
 ```
@@ -73,17 +73,7 @@ type Point struct {
 	x int32
 	y int32
 }
-m := NewTypedMapOf[Point, int](func(seed maphash.Seed, p Point) uint64 {
-	// provide a hash function when creating the MapOf;
-	// we recommend using the hash/maphash package for the function
-	var h maphash.Hash
-	h.SetSeed(seed)
-	binary.Write(&h, binary.LittleEndian, p.x)
-	hash := h.Sum64()
-	h.Reset()
-	binary.Write(&h, binary.LittleEndian, p.y)
-	return 31*hash + h.Sum64()
-})
+m := NewMapOf[Point, int]()
 m.Store(Point{42, 42}, 42)
 v, ok := m.Load(point{42, 42})
 ```

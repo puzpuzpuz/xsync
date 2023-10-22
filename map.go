@@ -2,7 +2,6 @@ package xsync
 
 import (
 	"fmt"
-	"hash/maphash"
 	"math"
 	"runtime"
 	"strings"
@@ -85,7 +84,7 @@ type mapTable struct {
 	// used to determine if a table shrinking is needed
 	// occupies min(buckets_memory/1024, 64KB) of memory
 	size []counterStripe
-	seed maphash.Seed
+	seed uint64
 }
 
 type counterStripe struct {
@@ -153,7 +152,7 @@ func newMapTable(tableLen int) *mapTable {
 	t := &mapTable{
 		buckets: buckets,
 		size:    counter,
-		seed:    maphash.MakeSeed(),
+		seed:    makeSeed(),
 	}
 	return t
 }
@@ -163,7 +162,7 @@ func newMapTable(tableLen int) *mapTable {
 // The ok result indicates whether value was found in the map.
 func (m *Map) Load(key string) (value interface{}, ok bool) {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
-	hash := hashString(table.seed, key)
+	hash := hashString(key, table.seed)
 	bidx := uint64(len(table.buckets)-1) & hash
 	b := &table.buckets[bidx]
 	for {
@@ -313,7 +312,7 @@ func (m *Map) doCompute(
 		)
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
-		hash := hashString(table.seed, key)
+		hash := hashString(key, table.seed)
 		bidx := uint64(len(table.buckets)-1) & hash
 		rootb := &table.buckets[bidx]
 		lockBucket(&rootb.topHashMutex)
@@ -517,7 +516,7 @@ func copyBucket(b *bucketPadded, destTable *mapTable) (copied int) {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
 				k := derefKey(b.keys[i])
-				hash := hashString(destTable.seed, k)
+				hash := hashString(k, destTable.seed)
 				bidx := uint64(len(destTable.buckets)-1) & hash
 				destb := &destTable.buckets[bidx]
 				appendToBucket(hash, b.keys[i], b.values[i], destb)
