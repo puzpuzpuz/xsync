@@ -10,7 +10,7 @@ Covered with tests following the approach described [here](https://puzpuzpuz.dev
 
 ## Benchmarks
 
-Benchmark results may be found [here](BENCHMARKS.md). I'd like to thank [@felixge](https://github.com/felixge) who kindly run the benchmarks on a beefy multicore machine.
+Benchmark results may be found [here](BENCHMARKS.md). I'd like to thank [@felixge](https://github.com/felixge) who kindly ran the benchmarks on a beefy multicore machine.
 
 Also, a non-scientific, unfair benchmark comparing Java's [j.u.c.ConcurrentHashMap](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ConcurrentHashMap.html) and `xsync.MapOf` is available [here](https://puzpuzpuz.dev/concurrent-map-in-go-vs-java-yet-another-meaningless-benchmark).
 
@@ -28,7 +28,7 @@ import (
 
 ### Counter
 
-A `Counter` is a striped `int64` counter inspired by the `j.u.c.a.LongAdder` class from Java standard library.
+A `Counter` is a striped `int64` counter inspired by the `j.u.c.a.LongAdder` class from the Java standard library.
 
 ```go
 c := xsync.NewCounter()
@@ -43,7 +43,7 @@ Works better in comparison with a single atomically updated `int64` counter in h
 
 ### Map
 
-A `Map` is like a concurrent hash table based map. It follows the interface of `sync.Map` with a number of valuable extensions like `Compute` or `Size`.
+A `Map` is like a concurrent hash table-based map. It follows the interface of `sync.Map` with a number of valuable extensions like `Compute` or `Size`.
 
 ```go
 m := xsync.NewMap()
@@ -54,11 +54,11 @@ s := m.Size()
 
 `Map` uses a modified version of Cache-Line Hash Table (CLHT) data structure: https://github.com/LPD-EPFL/CLHT
 
-CLHT is built around idea to organize the hash table in cache-line-sized buckets, so that on all modern CPUs update operations complete with minimal cache-line transfer. Also, `Get` operations are obstruction-free and involve no writes to shared memory, hence no mutexes or any other sort of locks. Due to this design, in all considered scenarios `Map` outperforms `sync.Map`.
+CLHT is built around the idea of organizing the hash table in cache-line-sized buckets, so that on all modern CPUs update operations complete with minimal cache-line transfer. Also, `Get` operations are obstruction-free and involve no writes to shared memory, hence no mutexes or any other sort of locks. Due to this design, in all considered scenarios `Map` outperforms `sync.Map`.
 
 One important difference with `sync.Map` is that only string keys are supported. That's because Golang standard library does not expose the built-in hash functions for `interface{}` values.
 
-`MapOf[K, V]` is an implementation with parametrized value type. While it's still a CLHT-inspired hash map, `MapOf`'s design is quite different from `Map`. As a result, less GC pressure and less atomic operations on reads.
+`MapOf[K, V]` is an implementation with parametrized key and value types. While it's still a CLHT-inspired hash map, `MapOf`'s design is quite different from `Map`. As a result, less GC pressure and fewer atomic operations on reads.
 
 ```go
 m := xsync.NewMapOf[string, string]()
@@ -112,7 +112,7 @@ To get the optimal performance, you may want to set the queue size to be large e
 
 ### RBMutex
 
-A `RBMutex` is a reader biased reader/writer mutual exclusion lock. The lock can be held by an many readers or a single writer.
+A `RBMutex` is a reader-biased reader/writer mutual exclusion lock. The lock can be held by many readers or a single writer.
 
 ```go
 mu := xsync.NewRBMutex()
@@ -127,7 +127,7 @@ mu.Unlock()
 
 `RBMutex` is based on a modified version of BRAVO (Biased Locking for Reader-Writer Locks) algorithm: https://arxiv.org/pdf/1810.01553.pdf
 
-The idea of the algorithm is to build on top of an existing reader-writer mutex and introduce a fast path for readers. On the fast path, reader lock attempts are sharded over an internal array based on the reader identity (a token in case of Golang). This means that readers do not contend over a single atomic counter like it's done in, say, `sync.RWMutex` allowing for better scalability in terms of cores.
+The idea of the algorithm is to build on top of an existing reader-writer mutex and introduce a fast path for readers. On the fast path, reader lock attempts are sharded over an internal array based on the reader identity (a token in the case of Golang). This means that readers do not contend over a single atomic counter like it's done in, say, `sync.RWMutex` allowing for better scalability in terms of cores.
 
 Hence, by the design `RBMutex` is a specialized mutex for scenarios, such as caches, where the vast majority of locks are acquired by readers and write lock acquire attempts are infrequent. In such scenarios, `RBMutex` should perform better than the `sync.RWMutex` on large multicore machines.
 
