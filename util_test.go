@@ -1,11 +1,10 @@
 package xsync_test
 
 import (
-	"hash/maphash"
 	"math/rand"
 	"testing"
 
-	. "github.com/puzpuzpuz/xsync/v2"
+	. "github.com/puzpuzpuz/xsync/v3"
 )
 
 func TestNextPowOf2(t *testing.T) {
@@ -51,26 +50,4 @@ func BenchmarkRand(b *testing.B) {
 		_ = rand.Uint32()
 	}
 	// about 12 ns/op on x86-64
-}
-
-func BenchmarkMapHashString(b *testing.B) {
-	fn := func(seed maphash.Seed, s string) uint64 {
-		var h maphash.Hash
-		h.SetSeed(seed)
-		h.WriteString(s)
-		return h.Sum64()
-	}
-	seed := maphash.MakeSeed()
-	for i := 0; i < b.N; i++ {
-		_ = fn(seed, benchmarkKeyPrefix)
-	}
-	// about 13ns/op on x86-64
-}
-
-func BenchmarkHashString(b *testing.B) {
-	seed := maphash.MakeSeed()
-	for i := 0; i < b.N; i++ {
-		_ = HashString(seed, benchmarkKeyPrefix)
-	}
-	// about 4ns/op on x86-64
 }

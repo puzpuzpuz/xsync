@@ -1,3 +1,3 @@
-module github.com/puzpuzpuz/xsync/v2
+module github.com/puzpuzpuz/xsync/v3
 
-go 1.20
+go 1.18

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	. "github.com/puzpuzpuz/xsync/v2"
+	. "github.com/puzpuzpuz/xsync/v3"
 )
 
 func TestRBMutexSerialReader(t *testing.T) {

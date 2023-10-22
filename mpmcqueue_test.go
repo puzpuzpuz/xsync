@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/puzpuzpuz/xsync/v2"
+	. "github.com/puzpuzpuz/xsync/v3"
 )
 
 func TestQueue_InvalidSize(t *testing.T) {

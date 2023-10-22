@@ -1,7 +1,5 @@
 package xsync
 
-import "hash/maphash"
-
 const (
 	EntriesPerMapBucket = entriesPerMapBucket
 	MapLoadFactor       = mapLoadFactor
@@ -11,7 +9,8 @@ const (
 )
 
 type (
-	BucketPadded = bucketPadded
+	BucketPadded   = bucketPadded
+	BucketOfPadded = bucketOfPadded
 )
 
 type MapStats struct {
@@ -50,14 +49,33 @@ func DisableAssertions() {
 	assertionsEnabled = false
 }
 
-func HashString(seed maphash.Seed, s string) uint64 {
-	return hashString(seed, s)
-}
-
 func Fastrand() uint32 {
-	return fastrand()
+	return runtime_fastrand()
 }
 
 func NextPowOf2(v uint32) uint32 {
 	return nextPowOf2(v)
+}
+
+func MakeSeed() uint64 {
+	return makeSeed()
+}
+
+func HashString(s string, seed uint64) uint64 {
+	return hashString(s, seed)
+}
+
+func MakeHasher[T comparable]() func(T, uint64) uint64 {
+	return makeHasher[T]()
+}
+
+func CollectMapOfStats[K comparable, V any](m *MapOf[K, V]) MapStats {
+	return MapStats{m.stats()}
+}
+
+func NewMapOfPresizedWithHasher[K comparable, V any](
+	hasher func(K, uint64) uint64,
+	sizeHint int,
+) *MapOf[K, V] {
+	return newMapOfPresized[K, V](hasher, sizeHint)
 }
