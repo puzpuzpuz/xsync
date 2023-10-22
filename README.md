@@ -24,7 +24,7 @@ import (
 )
 ```
 
-*Note for v1 users*: v1 support is discontinued, so please upgrade to v3. While the API has some breaking changes, the migration should be trivial.
+*Note for v1 and v2 users*: v1 and v2 support is discontinued, so please upgrade to v3. While the API has some breaking changes, the migration should be trivial.
 
 ### Counter
 
