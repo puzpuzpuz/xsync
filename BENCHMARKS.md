@@ -2,7 +2,7 @@
 
 If you're interested in `MapOf` comparison with some of the popular concurrent hash maps written in Go, check [this](https://github.com/cornelk/hashmap/pull/70) and [this](https://github.com/alphadose/haxmap/pull/22) PRs.
 
-The below results were obtained for xsync v2.3.1 on a c6g.metal EC2 instance (64 CPU, 128GB RAM) running Linux and Go 1.19.3. I'd like to thank [@felixge](https://github.com/felixge) who kindly run the benchmarks.
+The below results were obtained for xsync v2.3.1 on a c6g.metal EC2 instance (64 CPU, 128GB RAM) running Linux and Go 1.19.3. I'd like to thank [@felixge](https://github.com/felixge) who kindly ran the benchmarks.
 
 The following commands were used to run the benchmarks:
 ```bash
@@ -32,11 +32,11 @@ AtomicInt64-32                                  13.0ns ± 6%
 AtomicInt64-64                                  12.9ns ± 7%
 ```
 
-Here `time/op` stands for average time spent on operation. If you divide `10^9` by the result in nanosecond per operation, you'd get the throughput in operations per second. Thus, ideal theoretical scalability of a concurrent data structure implies that the reported `time/op` decreases proportionally with the increased number of CPU cores. On the contrary, if the measured time per operation increases when run on more cores, it means performance degradation.
+Here `time/op` stands for average time spent on operation. If you divide `10^9` by the result in nanoseconds per operation, you'd get the throughput in operations per second. Thus, the ideal theoretical scalability of a concurrent data structure implies that the reported `time/op` decreases proportionally with the increased number of CPU cores. On the contrary, if the measured time per operation increases when run on more cores, it means performance degradation.
 
 ### MapOf vs. sync.Map
 
-1,000 `[int, int]` entries with warm-up, 100% Loads:
+1,000 `[int, int]` entries with a warm-up, 100% Loads:
 ```
 IntegerMapOf_WarmUp/reads=100%                  24.0ns ± 0%
 IntegerMapOf_WarmUp/reads=100%-2                12.0ns ± 0%
@@ -54,7 +54,7 @@ IntegerMapStandard_WarmUp/reads=100%-32         2.18ns ± 6%
 IntegerMapStandard_WarmUp/reads=100%-64         1.11ns ± 3%
 ```
 
-1,000 `[int, int]` entries with warm-up, 99% Loads, 0.5% Stores, 0.5% Deletes:
+1,000 `[int, int]` entries with a warm-up, 99% Loads, 0.5% Stores, 0.5% Deletes:
 ```
 IntegerMapOf_WarmUp/reads=99%                   31.0ns ± 0%
 IntegerMapOf_WarmUp/reads=99%-2                 16.4ns ± 1%
@@ -72,7 +72,7 @@ IntegerMapStandard_WarmUp/reads=99%-32          97.0ns ± 3%
 IntegerMapStandard_WarmUp/reads=99%-64          98.0ns ± 2%
 ```
 
-1,000 `[int, int]` entries with warm-up, 75% Loads, 12.5% Stores, 12.5% Deletes:
+1,000 `[int, int]` entries with a warm-up, 75% Loads, 12.5% Stores, 12.5% Deletes:
 ```
 IntegerMapOf_WarmUp/reads=75%-reads             46.2ns ± 1%
 IntegerMapOf_WarmUp/reads=75%-reads-2           36.7ns ± 2%
@@ -92,7 +92,7 @@ IntegerMapStandard_WarmUp/reads=75%-reads-64     264ns ± 1%
 
 ### MPMCQueue vs. Go channels
 
-Concurrent producers and consumers (1:1), queue/channel size 1,000, some work:
+Concurrent producers and consumers (1:1), queue/channel size 1,000, some work done by both producers and consumers:
 ```
 QueueProdConsWork100                             252ns ± 0%
 QueueProdConsWork100-2                           206ns ± 5%
@@ -112,7 +112,7 @@ ChanProdConsWork100-64                           832ns ± 4%
 
 ### RBMutex vs. sync.RWMutex
 
-Writer locks on each 100,000 iteration, both no work and some work in the critical section:
+The writer locks on each 100,000 iteration with some work in the critical section for both readers and the writer:
 ```
 RBMutexWorkWrite100000                           146ns ± 0%
 RBMutexWorkWrite100000-2                        73.3ns ± 0%
