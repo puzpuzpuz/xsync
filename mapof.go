@@ -266,15 +266,17 @@ func (m *MapOf[K, V]) doCompute(
 		bidx := uint64(len(table.buckets)-1) & hash
 		rootb := &table.buckets[bidx]
 		rootb.mu.Lock()
-		if m.newerTableExists(table) {
-			// Someone resized the table. Go for another attempt.
-			rootb.mu.Unlock()
-			goto compute_attempt
-		}
+		// The following two checks must go in reverse to what's
+		// in the resize method.
 		if m.resizeInProgress() {
 			// Resize is in progress. Wait, then go for another attempt.
 			rootb.mu.Unlock()
 			m.waitForResize()
+			goto compute_attempt
+		}
+		if m.newerTableExists(table) {
+			// Someone resized the table. Go for another attempt.
+			rootb.mu.Unlock()
 			goto compute_attempt
 		}
 		b := rootb
@@ -403,13 +405,12 @@ func (m *MapOf[K, V]) waitForResize() {
 	m.resizeMu.Unlock()
 }
 
-func (m *MapOf[K, V]) resize(table *mapOfTable[K, V], hint mapResizeHint) {
-	var shrinkThreshold int64
-	tableLen := len(table.buckets)
+func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
+	knownTableLen := len(knownTable.buckets)
 	// Fast path for shrink attempts.
 	if hint == mapShrinkHint {
-		shrinkThreshold = int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
-		if tableLen == minMapTableLen || table.sumSize() > shrinkThreshold {
+		shrinkThreshold := int64((knownTableLen * entriesPerMapBucket) / mapShrinkFraction)
+		if knownTableLen == minMapTableLen || knownTable.sumSize() > shrinkThreshold {
 			return
 		}
 	}
@@ -420,12 +421,15 @@ func (m *MapOf[K, V]) resize(table *mapOfTable[K, V], hint mapResizeHint) {
 		return
 	}
 	var newTable *mapOfTable[K, V]
+	table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
+	tableLen := len(table.buckets)
 	switch hint {
 	case mapGrowHint:
 		// Grow the table with factor of 2.
 		atomic.AddInt64(&m.totalGrowths, 1)
 		newTable = newMapOfTable[K, V](tableLen << 1)
 	case mapShrinkHint:
+		shrinkThreshold := int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
 		if table.sumSize() <= shrinkThreshold {
 			// Shrink the table with factor of 2.
 			atomic.AddInt64(&m.totalShrinks, 1)

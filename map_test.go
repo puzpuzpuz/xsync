@@ -945,6 +945,53 @@ func TestMapParallelRange(t *testing.T) {
 	<-cdone
 }
 
+func parallelShrinker(t *testing.T, m *Map, numIters, numEntries int, stopFlag *int64, cdone chan bool) {
+	for i := 0; i < numIters; i++ {
+		for j := 0; j < numEntries; j++ {
+			if p, loaded := m.LoadOrStore(strconv.Itoa(j), &point{int32(j), int32(j)}); loaded {
+				t.Errorf("value was present for %d: %v", j, p)
+			}
+		}
+		for j := 0; j < numEntries; j++ {
+			m.Delete(strconv.Itoa(j))
+		}
+	}
+	atomic.StoreInt64(stopFlag, 1)
+	cdone <- true
+}
+
+func parallelUpdater(t *testing.T, m *Map, idx int, stopFlag *int64, cdone chan bool) {
+	for atomic.LoadInt64(stopFlag) != 1 {
+		sleepUs := int(Fastrand() % 10)
+		if p, loaded := m.LoadOrStore(strconv.Itoa(idx), &point{int32(idx), int32(idx)}); loaded {
+			t.Errorf("value was present for %d: %v", idx, p)
+		}
+		time.Sleep(time.Duration(sleepUs) * time.Microsecond)
+		if _, ok := m.Load(strconv.Itoa(idx)); !ok {
+			t.Errorf("value was not found for %d", idx)
+		}
+		m.Delete(strconv.Itoa(idx))
+	}
+	cdone <- true
+}
+
+func TestMapDoesNotLoseEntriesOnResize(t *testing.T) {
+	const numIters = 10_000
+	const numEntries = 128
+	m := NewMap()
+	cdone := make(chan bool)
+	stopFlag := int64(0)
+	go parallelShrinker(t, m, numIters, numEntries, &stopFlag, cdone)
+	go parallelUpdater(t, m, numEntries, &stopFlag, cdone)
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+	// Verify map contents.
+	if s := m.Size(); s != 0 {
+		t.Fatalf("map is not empty: %d", s)
+	}
+}
+
 func TestMapTopHashMutex(t *testing.T) {
 	const (
 		numLockers    = 4

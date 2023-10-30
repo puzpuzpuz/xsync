@@ -316,15 +316,17 @@ func (m *Map) doCompute(
 		bidx := uint64(len(table.buckets)-1) & hash
 		rootb := &table.buckets[bidx]
 		lockBucket(&rootb.topHashMutex)
-		if m.newerTableExists(table) {
-			// Someone resized the table. Go for another attempt.
-			unlockBucket(&rootb.topHashMutex)
-			goto compute_attempt
-		}
+		// The following two checks must go in reverse to what's
+		// in the resize method.
 		if m.resizeInProgress() {
 			// Resize is in progress. Wait, then go for another attempt.
 			unlockBucket(&rootb.topHashMutex)
 			m.waitForResize()
+			goto compute_attempt
+		}
+		if m.newerTableExists(table) {
+			// Someone resized the table. Go for another attempt.
+			unlockBucket(&rootb.topHashMutex)
 			goto compute_attempt
 		}
 		b := rootb
@@ -454,13 +456,12 @@ func (m *Map) waitForResize() {
 	m.resizeMu.Unlock()
 }
 
-func (m *Map) resize(table *mapTable, hint mapResizeHint) {
-	var shrinkThreshold int64
-	tableLen := len(table.buckets)
+func (m *Map) resize(knownTable *mapTable, hint mapResizeHint) {
+	knownTableLen := len(knownTable.buckets)
 	// Fast path for shrink attempts.
 	if hint == mapShrinkHint {
-		shrinkThreshold = int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
-		if tableLen == minMapTableLen || table.sumSize() > shrinkThreshold {
+		shrinkThreshold := int64((knownTableLen * entriesPerMapBucket) / mapShrinkFraction)
+		if knownTableLen == minMapTableLen || knownTable.sumSize() > shrinkThreshold {
 			return
 		}
 	}
@@ -471,12 +472,15 @@ func (m *Map) resize(table *mapTable, hint mapResizeHint) {
 		return
 	}
 	var newTable *mapTable
+	table := (*mapTable)(atomic.LoadPointer(&m.table))
+	tableLen := len(table.buckets)
 	switch hint {
 	case mapGrowHint:
 		// Grow the table with factor of 2.
 		atomic.AddInt64(&m.totalGrowths, 1)
 		newTable = newMapTable(tableLen << 1)
 	case mapShrinkHint:
+		shrinkThreshold := int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
 		if table.sumSize() <= shrinkThreshold {
 			// Shrink the table with factor of 2.
 			atomic.AddInt64(&m.totalShrinks, 1)
