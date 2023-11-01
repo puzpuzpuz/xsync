@@ -989,6 +989,53 @@ func TestMapOfParallelRange(t *testing.T) {
 	<-cdone
 }
 
+func parallelTypedShrinker(t *testing.T, m *MapOf[uint64, *point], numIters, numEntries int, stopFlag *int64, cdone chan bool) {
+	for i := 0; i < numIters; i++ {
+		for j := 0; j < numEntries; j++ {
+			if p, loaded := m.LoadOrStore(uint64(j), &point{int32(j), int32(j)}); loaded {
+				t.Errorf("value was present for %d: %v", j, p)
+			}
+		}
+		for j := 0; j < numEntries; j++ {
+			m.Delete(uint64(j))
+		}
+	}
+	atomic.StoreInt64(stopFlag, 1)
+	cdone <- true
+}
+
+func parallelTypedUpdater(t *testing.T, m *MapOf[uint64, *point], idx int, stopFlag *int64, cdone chan bool) {
+	for atomic.LoadInt64(stopFlag) != 1 {
+		sleepUs := int(Fastrand() % 10)
+		if p, loaded := m.LoadOrStore(uint64(idx), &point{int32(idx), int32(idx)}); loaded {
+			t.Errorf("value was present for %d: %v", idx, p)
+		}
+		time.Sleep(time.Duration(sleepUs) * time.Microsecond)
+		if _, ok := m.Load(uint64(idx)); !ok {
+			t.Errorf("value was not found for %d", idx)
+		}
+		m.Delete(uint64(idx))
+	}
+	cdone <- true
+}
+
+func TestMapOfDoesNotLoseEntriesOnResize(t *testing.T) {
+	const numIters = 10_000
+	const numEntries = 128
+	m := NewMapOf[uint64, *point]()
+	cdone := make(chan bool)
+	stopFlag := int64(0)
+	go parallelTypedShrinker(t, m, numIters, numEntries, &stopFlag, cdone)
+	go parallelTypedUpdater(t, m, numEntries, &stopFlag, cdone)
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+	// Verify map contents.
+	if s := m.Size(); s != 0 {
+		t.Fatalf("map is not empty: %d", s)
+	}
+}
+
 func BenchmarkMapOf_NoWarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
 		if bc.readPercentage == 100 {
