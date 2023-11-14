@@ -481,7 +481,7 @@ func (m *Map) resize(knownTable *mapTable, hint mapResizeHint) {
 		newTable = newMapTable(tableLen << 1)
 	case mapShrinkHint:
 		shrinkThreshold := int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
-		if table.sumSize() <= shrinkThreshold {
+		if tableLen > minMapTableLen && table.sumSize() <= shrinkThreshold {
 			// Shrink the table with factor of 2.
 			atomic.AddInt64(&m.totalShrinks, 1)
 			newTable = newMapTable(tableLen >> 1)

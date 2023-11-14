@@ -470,6 +470,37 @@ func TestMapStoreThenLoadAndDelete(t *testing.T) {
 	}
 }
 
+func TestMapStoreThenParallelDelete_DoesNotShrinkBelowMinTableLen(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap()
+	for i := 0; i < numEntries; i++ {
+		m.Store(strconv.Itoa(i), i)
+	}
+
+	cdone := make(chan bool)
+	go func() {
+		for i := 0; i < numEntries; i++ {
+			m.Delete(strconv.Itoa(int(i)))
+		}
+		cdone <- true
+	}()
+	go func() {
+		for i := 0; i < numEntries; i++ {
+			m.Delete(strconv.Itoa(int(i)))
+		}
+		cdone <- true
+	}()
+
+	// Wait for the goroutines to finish.
+	<-cdone
+	<-cdone
+
+	stats := CollectMapStats(m)
+	if stats.RootBuckets < MinMapTableLen {
+		t.Fatalf("table was too small: %d", stats.RootBuckets)
+	}
+}
+
 func sizeBasedOnRange(m *Map) int {
 	size := 0
 	m.Range(func(key string, value interface{}) bool {
