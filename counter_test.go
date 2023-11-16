@@ -38,6 +38,17 @@ func TestCounterAdd(t *testing.T) {
 	}
 }
 
+func TestCounterAddAndLoad(t *testing.T) {
+	c := NewCounter()
+	var v int64
+	for i := 0; i < 100; i++ {
+		if v != int64(i*42) {
+			t.Fatalf("got %v, want %d", v, i*42)
+		}
+		v = c.AddAndLoad(42)
+	}
+}
+
 func TestCounterReset(t *testing.T) {
 	c := NewCounter()
 	c.Add(42)

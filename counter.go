@@ -59,21 +59,29 @@ func (c *Counter) Dec() {
 
 // Add adds the delta to the counter.
 func (c *Counter) Add(delta int64) {
+	c.AddAndLoad(delta)
+}
+
+// AddAndLoad adds the delta to the counter and returns the result value
+func (c *Counter) AddAndLoad(delta int64) int64 {
 	t, ok := ptokenPool.Get().(*ptoken)
 	if !ok {
 		t = new(ptoken)
 		t.idx = runtime_fastrand()
 	}
+	var newCnt int64
 	for {
 		stripe := &c.stripes[t.idx&c.mask]
 		cnt := atomic.LoadInt64(&stripe.c)
-		if atomic.CompareAndSwapInt64(&stripe.c, cnt, cnt+delta) {
+		newCnt = cnt + delta
+		if atomic.CompareAndSwapInt64(&stripe.c, cnt, newCnt) {
 			break
 		}
 		// Give a try with another randomly selected stripe.
 		t.idx = runtime_fastrand()
 	}
 	ptokenPool.Put(t)
+	return newCnt
 }
 
 // Value returns the current counter value.
