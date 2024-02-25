@@ -541,8 +541,8 @@ func TestMapOfStoreThenParallelDelete_DoesNotShrinkBelowMinTableLen(t *testing.T
 	<-cdone
 
 	stats := CollectMapOfStats(m)
-	if stats.RootBuckets < MinMapTableLen {
-		t.Fatalf("table was too small: %d", stats.RootBuckets)
+	if stats.RootBuckets != DefaultMinMapTableLen {
+		t.Fatalf("table length was different from the minimum: %d", stats.RootBuckets)
 	}
 }
 
@@ -618,12 +618,35 @@ func assertMapOfCapacity[K comparable, V any](t *testing.T, m *MapOf[K, V], expe
 }
 
 func TestNewMapOfPresized(t *testing.T) {
-	assertMapOfCapacity(t, NewMapOf[string, string](), MinMapTableCap)
-	assertMapOfCapacity(t, NewMapOfPresized[string, string](0), MinMapTableCap)
-	assertMapOfCapacity(t, NewMapOfPresized[string, string](-100), MinMapTableCap)
+	assertMapOfCapacity(t, NewMapOf[string, string](), DefaultMinMapTableCap)
+	assertMapOfCapacity(t, NewMapOfPresized[string, string](0), DefaultMinMapTableCap)
+	assertMapOfCapacity(t, NewMapOfPresized[string, string](-100), DefaultMinMapTableCap)
 	assertMapOfCapacity(t, NewMapOfPresized[string, string](500), 768)
 	assertMapOfCapacity(t, NewMapOfPresized[int, int](1_000_000), 1_572_864)
 	assertMapOfCapacity(t, NewMapOfPresized[point, point](100), 192)
+}
+
+func TestNewMapOfPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
+	const minTableLen = 1024
+	const numEntries = minTableLen * EntriesPerMapBucket
+	m := NewMapOfPresized[int, int](numEntries)
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+
+	stats := CollectMapOfStats(m)
+	if stats.RootBuckets <= minTableLen {
+		t.Fatalf("table did not grow: %d", stats.RootBuckets)
+	}
+
+	for i := 0; i < numEntries; i++ {
+		m.Delete(i)
+	}
+
+	stats = CollectMapOfStats(m)
+	if stats.RootBuckets != minTableLen {
+		t.Fatalf("table length was different from the minimum: %d", stats.RootBuckets)
+	}
 }
 
 func TestMapOfResize(t *testing.T) {
@@ -641,7 +664,7 @@ func TestMapOfResize(t *testing.T) {
 	if stats.Capacity > expectedCapacity {
 		t.Fatalf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
-	if stats.RootBuckets <= MinMapTableLen {
+	if stats.RootBuckets <= DefaultMinMapTableLen {
 		t.Fatalf("table was too small: %d", stats.RootBuckets)
 	}
 	if stats.TotalGrowths == 0 {
@@ -665,7 +688,7 @@ func TestMapOfResize(t *testing.T) {
 	if stats.Capacity != expectedCapacity {
 		t.Fatalf("capacity was too large: %d, expected: %d", stats.Capacity, expectedCapacity)
 	}
-	if stats.RootBuckets != MinMapTableLen {
+	if stats.RootBuckets != DefaultMinMapTableLen {
 		t.Fatalf("table was too large: %d", stats.RootBuckets)
 	}
 	if stats.TotalShrinks == 0 {
@@ -743,7 +766,7 @@ func parallelRandTypedResizer(t *testing.T, m *MapOf[string, int], numIters, num
 
 func TestMapOfParallelResize(t *testing.T) {
 	const numIters = 1_000
-	const numEntries = 2 * EntriesPerMapBucket * MinMapTableLen
+	const numEntries = 2 * EntriesPerMapBucket * DefaultMinMapTableLen
 	m := NewMapOf[string, int]()
 	cdone := make(chan bool)
 	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)

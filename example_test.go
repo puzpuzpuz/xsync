@@ -1,6 +1,7 @@
 package xsync_test
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/puzpuzpuz/xsync/v3"
@@ -54,4 +55,17 @@ func ExampleMapOf_Compute() {
 	})
 	// v: 84, ok: false
 	fmt.Printf("v: %v, ok: %v\n", v, ok)
+
+	// Propagate an error from the compute function to the outer scope.
+	var err error
+	v, ok = counts.Compute(42, func(oldValue int, loaded bool) (newValue int, delete bool) {
+		if oldValue == 42 {
+			err = errors.New("something went wrong")
+			return 0, true // no need to create a key/value pair
+		}
+		newValue = 0
+		delete = false
+		return
+	})
+	fmt.Printf("err: %v\n", err)
 }
