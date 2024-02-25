@@ -124,7 +124,10 @@ func NewMap() *Map {
 }
 
 // NewMapPresized creates a new Map instance with capacity enough to hold
-// sizeHint entries. If sizeHint is zero or negative, the value is ignored.
+// sizeHint entries. The capacity is treated as the minimal capacity
+// meaning that the underlying hash table will never shrink to
+// a smaller capacity. If sizeHint is zero or negative, the value
+// is ignored.
 func NewMapPresized(sizeHint int) *Map {
 	m := &Map{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
