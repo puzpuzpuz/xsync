@@ -1,11 +1,11 @@
 package xsync
 
 const (
-	EntriesPerMapBucket = entriesPerMapBucket
-	MapLoadFactor       = mapLoadFactor
-	MinMapTableLen      = minMapTableLen
-	MinMapTableCap      = minMapTableCap
-	MaxMapCounterLen    = maxMapCounterLen
+	EntriesPerMapBucket   = entriesPerMapBucket
+	MapLoadFactor         = mapLoadFactor
+	DefaultMinMapTableLen = defaultMinMapTableLen
+	DefaultMinMapTableCap = defaultMinMapTableLen * entriesPerMapBucket
+	MaxMapCounterLen      = maxMapCounterLen
 )
 
 type (
