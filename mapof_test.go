@@ -142,6 +142,25 @@ func TestMapOfLoadAndStore_NonNilValue(t *testing.T) {
 	}
 }
 
+func TestMapOfAllocsPerRun(t *testing.T) {
+	tt := func() string {
+		tmp := []byte("foo")
+		return string(tmp)
+	}
+
+	m := NewMapOfPresized[string, *struct{}](100_000)
+	m.Store(tt(), nil)
+	allocs := testing.AllocsPerRun(100, func() {
+		_, ok := m.Load(tt())
+		if !ok {
+			t.Fatal("value was expected, but is missing", ok)
+		}
+	})
+	if allocs != 1.0 {
+		t.Fatalf("got unexpected number of allocs: %f", allocs)
+	}
+}
+
 func TestMapOfRange(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[string, int]()
