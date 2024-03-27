@@ -1320,3 +1320,22 @@ func BenchmarkMapRangeStandard(b *testing.B) {
 		}
 	})
 }
+
+func TestMapAllocsPerRun(t *testing.T) {
+	tt := func() string {
+		tmp := []byte("foo")
+		return string(tmp)
+	}
+
+	m := NewMapPresized(100_000)
+	m.Store(tt(), nil)
+	allocs := testing.AllocsPerRun(100, func() {
+		_, ok := m.Load(tt())
+		if !ok {
+			t.Fatal("value was expected, but is missing", ok)
+		}
+	})
+	if allocs != 0.0 {
+		t.Fatalf("got unexpected number of allocs: %f", allocs)
+	}
+}
