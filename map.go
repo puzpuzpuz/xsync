@@ -75,6 +75,7 @@ type Map struct {
 	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
 	table        unsafe.Pointer // *mapTable
 	minTableLen  int
+	growOnly     bool
 }
 
 type mapTable struct {
@@ -118,9 +119,57 @@ type rangeEntry struct {
 	value unsafe.Pointer
 }
 
-// NewMap creates a new Map instance.
-func NewMap() *Map {
-	return NewMapPresized(defaultMinMapTableLen * entriesPerMapBucket)
+// MapConfig defines configurable Map/MapOf options.
+type MapConfig struct {
+	sizeHint int
+	growOnly bool
+}
+
+// WithPresize configures new Map/MapOf instance with capacity enough
+// to hold sizeHint entries. The capacity is treated as the minimal
+// capacity meaning that the underlying hash table will never shrink
+// to a smaller capacity. If sizeHint is zero or negative, the value
+// is ignored.
+func WithPresize(sizeHint int) func(*MapConfig) {
+	return func(c *MapConfig) {
+		c.sizeHint = sizeHint
+	}
+}
+
+// WithGrowOnly configures new Map/MapOf instance to be grow-only.
+// This means that the underlying hash table grows in capacity when
+// new keys are added, but does not shrink when keys are deleted.
+// The only exception to this rule is the Clear method which
+// shrinks the hash table back to the initial capacity.
+func WithGrowOnly() func(*MapConfig) {
+	return func(c *MapConfig) {
+		c.growOnly = true
+	}
+}
+
+// NewMap creates a new Map instance configured with the given
+// options.
+func NewMap(options ...func(*MapConfig)) *Map {
+	c := &MapConfig{
+		sizeHint: defaultMinMapTableLen * entriesPerMapBucket,
+	}
+	for _, o := range options {
+		o(c)
+	}
+
+	m := &Map{}
+	m.resizeCond = *sync.NewCond(&m.resizeMu)
+	var table *mapTable
+	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
+		table = newMapTable(defaultMinMapTableLen)
+	} else {
+		tableLen := nextPowOf2(uint32(c.sizeHint / entriesPerMapBucket))
+		table = newMapTable(int(tableLen))
+	}
+	m.minTableLen = len(table.buckets)
+	m.growOnly = c.growOnly
+	atomic.StorePointer(&m.table, unsafe.Pointer(table))
+	return m
 }
 
 // NewMapPresized creates a new Map instance with capacity enough to hold
@@ -128,19 +177,10 @@ func NewMap() *Map {
 // meaning that the underlying hash table will never shrink to
 // a smaller capacity. If sizeHint is zero or negative, the value
 // is ignored.
+//
+// Deprecated: use NewMap in combination with WithPresize.
 func NewMapPresized(sizeHint int) *Map {
-	m := &Map{}
-	m.resizeCond = *sync.NewCond(&m.resizeMu)
-	var table *mapTable
-	if sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
-		table = newMapTable(defaultMinMapTableLen)
-	} else {
-		tableLen := nextPowOf2(uint32(sizeHint / entriesPerMapBucket))
-		table = newMapTable(int(tableLen))
-	}
-	m.minTableLen = len(table.buckets)
-	atomic.StorePointer(&m.table, unsafe.Pointer(table))
-	return m
+	return NewMap(WithPresize(sizeHint))
 }
 
 func newMapTable(minTableLen int) *mapTable {
@@ -473,8 +513,9 @@ func (m *Map) resize(knownTable *mapTable, hint mapResizeHint) {
 	knownTableLen := len(knownTable.buckets)
 	// Fast path for shrink attempts.
 	if hint == mapShrinkHint {
-		shrinkThreshold := int64((knownTableLen * entriesPerMapBucket) / mapShrinkFraction)
-		if knownTableLen == m.minTableLen || knownTable.sumSize() > shrinkThreshold {
+		if m.growOnly ||
+			m.minTableLen == knownTableLen ||
+			knownTable.sumSize() > int64((knownTableLen*entriesPerMapBucket)/mapShrinkFraction) {
 			return
 		}
 	}

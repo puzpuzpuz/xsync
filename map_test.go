@@ -575,14 +575,17 @@ func assertMapCapacity(t *testing.T, m *Map, expectedCap int) {
 func TestNewMapPresized(t *testing.T) {
 	assertMapCapacity(t, NewMap(), DefaultMinMapTableCap)
 	assertMapCapacity(t, NewMapPresized(1000), 1536)
+	assertMapCapacity(t, NewMap(WithPresize(1000)), 1536)
 	assertMapCapacity(t, NewMapPresized(0), DefaultMinMapTableCap)
+	assertMapCapacity(t, NewMap(WithPresize(0)), DefaultMinMapTableCap)
 	assertMapCapacity(t, NewMapPresized(-1), DefaultMinMapTableCap)
+	assertMapCapacity(t, NewMap(WithPresize(-1)), DefaultMinMapTableCap)
 }
 
 func TestNewMapPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 	const minTableLen = 1024
 	const numEntries = minTableLen * EntriesPerMapBucket
-	m := NewMapPresized(numEntries)
+	m := NewMap(WithPresize(numEntries))
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -599,6 +602,38 @@ func TestNewMapPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 	stats = CollectMapStats(m)
 	if stats.RootBuckets != minTableLen {
 		t.Fatalf("table length was different from the minimum: %d", stats.RootBuckets)
+	}
+}
+
+func TestNewMapGrowOnly_OnlyShrinksOnClear(t *testing.T) {
+	const minTableLen = 128
+	const numEntries = minTableLen * EntriesPerMapBucket
+	m := NewMap(WithPresize(numEntries), WithGrowOnly())
+
+	stats := CollectMapStats(m)
+	initialTableLen := stats.RootBuckets
+
+	for i := 0; i < 2*numEntries; i++ {
+		m.Store(strconv.Itoa(i), i)
+	}
+	stats = CollectMapStats(m)
+	maxTableLen := stats.RootBuckets
+	if maxTableLen <= minTableLen {
+		t.Fatalf("table did not grow: %d", maxTableLen)
+	}
+
+	for i := 0; i < numEntries; i++ {
+		m.Delete(strconv.Itoa(int(i)))
+	}
+	stats = CollectMapStats(m)
+	if stats.RootBuckets != maxTableLen {
+		t.Fatalf("table length was different from the expected: %d", stats.RootBuckets)
+	}
+
+	m.Clear()
+	stats = CollectMapStats(m)
+	if stats.RootBuckets != initialTableLen {
+		t.Fatalf("table length was different from the initial: %d", stats.RootBuckets)
 	}
 }
 
@@ -1217,7 +1252,7 @@ func BenchmarkMapStandard_NoWarmUp(b *testing.B) {
 func BenchmarkMap_WarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
 		b.Run(bc.name, func(b *testing.B) {
-			m := NewMapPresized(benchmarkNumEntries)
+			m := NewMap(WithPresize(benchmarkNumEntries))
 			for i := 0; i < benchmarkNumEntries; i++ {
 				m.Store(benchmarkKeyPrefix+strconv.Itoa(i), i)
 			}
