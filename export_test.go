@@ -73,9 +73,9 @@ func CollectMapOfStats[K comparable, V any](m *MapOf[K, V]) MapStats {
 	return MapStats{m.stats()}
 }
 
-func NewMapOfPresizedWithHasher[K comparable, V any](
+func NewMapOfWithHasher[K comparable, V any](
 	hasher func(K, uint64) uint64,
-	sizeHint int,
+	options ...func(*MapConfig),
 ) *MapOf[K, V] {
-	return newMapOfPresized[K, V](hasher, sizeHint)
+	return newMapOf[K, V](hasher, options...)
 }

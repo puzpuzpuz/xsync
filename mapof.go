@@ -33,6 +33,7 @@ type MapOf[K comparable, V any] struct {
 	table        unsafe.Pointer // *mapOfTable
 	hasher       func(K, uint64) uint64
 	minTableLen  int
+	growOnly     bool
 }
 
 type mapOfTable[K comparable, V any] struct {
@@ -65,9 +66,10 @@ type entryOf[K comparable, V any] struct {
 	value V
 }
 
-// NewMapOf creates a new MapOf instance.
-func NewMapOf[K comparable, V any]() *MapOf[K, V] {
-	return NewMapOfPresized[K, V](defaultMinMapTableLen * entriesPerMapBucket)
+// NewMapOf creates a new MapOf instance configured with the given
+// options.
+func NewMapOf[K comparable, V any](options ...func(*MapConfig)) *MapOf[K, V] {
+	return newMapOf[K, V](makeHasher[K](), options...)
 }
 
 // NewMapOfPresized creates a new MapOf instance with capacity enough
@@ -75,25 +77,35 @@ func NewMapOf[K comparable, V any]() *MapOf[K, V] {
 // meaning that the underlying hash table will never shrink to
 // a smaller capacity. If sizeHint is zero or negative, the value
 // is ignored.
+//
+// Deprecated: use NewMapOf in combination with WithPresize.
 func NewMapOfPresized[K comparable, V any](sizeHint int) *MapOf[K, V] {
-	return newMapOfPresized[K, V](makeHasher[K](), sizeHint)
+	return NewMapOf[K, V](WithPresize(sizeHint))
 }
 
-func newMapOfPresized[K comparable, V any](
+func newMapOf[K comparable, V any](
 	hasher func(K, uint64) uint64,
-	sizeHint int,
+	options ...func(*MapConfig),
 ) *MapOf[K, V] {
+	c := &MapConfig{
+		sizeHint: defaultMinMapTableLen * entriesPerMapBucket,
+	}
+	for _, o := range options {
+		o(c)
+	}
+
 	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
 	m.hasher = hasher
 	var table *mapOfTable[K, V]
-	if sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
+	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
 		table = newMapOfTable[K, V](defaultMinMapTableLen)
 	} else {
-		tableLen := nextPowOf2(uint32(sizeHint / entriesPerMapBucket))
+		tableLen := nextPowOf2(uint32(c.sizeHint / entriesPerMapBucket))
 		table = newMapOfTable[K, V](int(tableLen))
 	}
 	m.minTableLen = len(table.buckets)
+	m.growOnly = c.growOnly
 	atomic.StorePointer(&m.table, unsafe.Pointer(table))
 	return m
 }
@@ -423,8 +435,9 @@ func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
 	knownTableLen := len(knownTable.buckets)
 	// Fast path for shrink attempts.
 	if hint == mapShrinkHint {
-		shrinkThreshold := int64((knownTableLen * entriesPerMapBucket) / mapShrinkFraction)
-		if knownTableLen == m.minTableLen || knownTable.sumSize() > shrinkThreshold {
+		if m.growOnly ||
+			m.minTableLen == knownTableLen ||
+			knownTable.sumSize() > int64((knownTableLen*entriesPerMapBucket)/mapShrinkFraction) {
 			return
 		}
 	}
