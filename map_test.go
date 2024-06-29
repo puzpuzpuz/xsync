@@ -495,7 +495,7 @@ func TestMapStoreThenParallelDelete_DoesNotShrinkBelowMinTableLen(t *testing.T) 
 	<-cdone
 	<-cdone
 
-	stats := CollectMapStats(m)
+	stats := m.Stats()
 	if stats.RootBuckets != DefaultMinMapTableLen {
 		t.Fatalf("table length was different from the minimum: %d", stats.RootBuckets)
 	}
@@ -566,7 +566,7 @@ func TestMapClear(t *testing.T) {
 }
 
 func assertMapCapacity(t *testing.T, m *Map, expectedCap int) {
-	stats := CollectMapStats(m)
+	stats := m.Stats()
 	if stats.Capacity != expectedCap {
 		t.Fatalf("capacity was different from %d: %d", expectedCap, stats.Capacity)
 	}
@@ -590,7 +590,7 @@ func TestNewMapPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 		m.Store(strconv.Itoa(i), i)
 	}
 
-	stats := CollectMapStats(m)
+	stats := m.Stats()
 	if stats.RootBuckets <= minTableLen {
 		t.Fatalf("table did not grow: %d", stats.RootBuckets)
 	}
@@ -599,7 +599,7 @@ func TestNewMapPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 		m.Delete(strconv.Itoa(int(i)))
 	}
 
-	stats = CollectMapStats(m)
+	stats = m.Stats()
 	if stats.RootBuckets != minTableLen {
 		t.Fatalf("table length was different from the minimum: %d", stats.RootBuckets)
 	}
@@ -610,13 +610,13 @@ func TestNewMapGrowOnly_OnlyShrinksOnClear(t *testing.T) {
 	const numEntries = minTableLen * EntriesPerMapBucket
 	m := NewMap(WithPresize(numEntries), WithGrowOnly())
 
-	stats := CollectMapStats(m)
+	stats := m.Stats()
 	initialTableLen := stats.RootBuckets
 
 	for i := 0; i < 2*numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
-	stats = CollectMapStats(m)
+	stats = m.Stats()
 	maxTableLen := stats.RootBuckets
 	if maxTableLen <= minTableLen {
 		t.Fatalf("table did not grow: %d", maxTableLen)
@@ -625,13 +625,13 @@ func TestNewMapGrowOnly_OnlyShrinksOnClear(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(int(i)))
 	}
-	stats = CollectMapStats(m)
+	stats = m.Stats()
 	if stats.RootBuckets != maxTableLen {
 		t.Fatalf("table length was different from the expected: %d", stats.RootBuckets)
 	}
 
 	m.Clear()
-	stats = CollectMapStats(m)
+	stats = m.Stats()
 	if stats.RootBuckets != initialTableLen {
 		t.Fatalf("table length was different from the initial: %d", stats.RootBuckets)
 	}
@@ -644,7 +644,7 @@ func TestMapResize(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
-	stats := CollectMapStats(m)
+	stats := m.Stats()
 	if stats.Size != numEntries {
 		t.Fatalf("size was too small: %d", stats.Size)
 	}
@@ -668,7 +668,7 @@ func TestMapResize(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Delete(strconv.Itoa(i))
 	}
-	stats = CollectMapStats(m)
+	stats = m.Stats()
 	if stats.Size > 0 {
 		t.Fatalf("zero size was expected: %d", stats.Size)
 	}
@@ -692,7 +692,7 @@ func TestMapResize_CounterLenLimit(t *testing.T) {
 	for i := 0; i < numEntries; i++ {
 		m.Store("foo"+strconv.Itoa(i), "bar"+strconv.Itoa(i))
 	}
-	stats := CollectMapStats(m)
+	stats := m.Stats()
 	if stats.Size != numEntries {
 		t.Fatalf("size was too small: %d", stats.Size)
 	}
@@ -702,7 +702,7 @@ func TestMapResize_CounterLenLimit(t *testing.T) {
 	}
 }
 
-func parallelSeqResizer(t *testing.T, m *Map, numEntries int, positive bool, cdone chan bool) {
+func parallelSeqResizer(m *Map, numEntries int, positive bool, cdone chan bool) {
 	for i := 0; i < numEntries; i++ {
 		if positive {
 			m.Store(strconv.Itoa(i), i)
@@ -717,8 +717,8 @@ func TestMapParallelResize_GrowOnly(t *testing.T) {
 	const numEntries = 100_000
 	m := NewMap()
 	cdone := make(chan bool)
-	go parallelSeqResizer(t, m, numEntries, true, cdone)
-	go parallelSeqResizer(t, m, numEntries, false, cdone)
+	go parallelSeqResizer(m, numEntries, true, cdone)
+	go parallelSeqResizer(m, numEntries, false, cdone)
 	// Wait for the goroutines to finish.
 	<-cdone
 	<-cdone
@@ -937,7 +937,7 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 	}
 }
 
-func parallelComputer(t *testing.T, m *Map, numIters, numEntries int, cdone chan bool) {
+func parallelComputer(m *Map, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			m.Compute(strconv.Itoa(j), func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
@@ -957,7 +957,7 @@ func TestMapParallelComputes(t *testing.T) {
 	m := NewMap()
 	cdone := make(chan bool)
 	for i := 0; i < numWorkers; i++ {
-		go parallelComputer(t, m, numIters, numWorkers, cdone)
+		go parallelComputer(m, numIters, numWorkers, cdone)
 	}
 	// Wait for the goroutines to finish.
 	for i := 0; i < numWorkers; i++ {
@@ -975,7 +975,7 @@ func TestMapParallelComputes(t *testing.T) {
 	}
 }
 
-func parallelRangeStorer(t *testing.T, m *Map, numEntries int, stopFlag *int64, cdone chan bool) {
+func parallelRangeStorer(m *Map, numEntries int, stopFlag *int64, cdone chan bool) {
 	for {
 		for i := 0; i < numEntries; i++ {
 			m.Store(strconv.Itoa(i), i)
@@ -987,7 +987,7 @@ func parallelRangeStorer(t *testing.T, m *Map, numEntries int, stopFlag *int64, 
 	cdone <- true
 }
 
-func parallelRangeDeleter(t *testing.T, m *Map, numEntries int, stopFlag *int64, cdone chan bool) {
+func parallelRangeDeleter(m *Map, numEntries int, stopFlag *int64, cdone chan bool) {
 	for {
 		for i := 0; i < numEntries; i++ {
 			m.Delete(strconv.Itoa(i))
@@ -1008,8 +1008,8 @@ func TestMapParallelRange(t *testing.T) {
 	// Start goroutines that would be storing and deleting items in parallel.
 	cdone := make(chan bool)
 	stopFlag := int64(0)
-	go parallelRangeStorer(t, m, numEntries, &stopFlag, cdone)
-	go parallelRangeDeleter(t, m, numEntries, &stopFlag, cdone)
+	go parallelRangeStorer(m, numEntries, &stopFlag, cdone)
+	go parallelRangeDeleter(m, numEntries, &stopFlag, cdone)
 	// Iterate the map and verify that no duplicate keys were met.
 	met := make(map[string]int)
 	m.Range(func(key string, value interface{}) bool {
@@ -1208,6 +1208,60 @@ func testMapTopHashMutex_StoreAfterErase(t *testing.T, topHashes *uint64) {
 	}
 	if !TopHashMatch(hashTwo, *topHashes, idx) {
 		t.Fatalf("top hash mismatch for hash two: %#b, %#b", hashTwo, *topHashes)
+	}
+}
+
+func TestMapStats(t *testing.T) {
+	m := NewMap()
+
+	stats := m.Stats()
+	if stats.RootBuckets != DefaultMinMapTableLen {
+		t.Fatalf("unexpected number of root buckets: %d", stats.RootBuckets)
+	}
+	if stats.TotalBuckets != stats.RootBuckets {
+		t.Fatalf("unexpected number of total buckets: %d", stats.TotalBuckets)
+	}
+	if stats.EmptyBuckets != stats.RootBuckets {
+		t.Fatalf("unexpected number of empty buckets: %d", stats.EmptyBuckets)
+	}
+	if stats.Capacity != EntriesPerMapBucket*DefaultMinMapTableLen {
+		t.Fatalf("unexpected capacity: %d", stats.Capacity)
+	}
+	if stats.Size != 0 {
+		t.Fatalf("unexpected size: %d", stats.Size)
+	}
+	if stats.Counter != 0 {
+		t.Fatalf("unexpected counter: %d", stats.Counter)
+	}
+	if stats.CounterLen != 8 {
+		t.Fatalf("unexpected counter length: %d", stats.CounterLen)
+	}
+
+	for i := 0; i < 100; i++ {
+		m.Store(strconv.Itoa(int(i)), i)
+	}
+
+	stats = m.Stats()
+	if stats.RootBuckets != 2*DefaultMinMapTableLen {
+		t.Fatalf("unexpected number of root buckets: %d", stats.RootBuckets)
+	}
+	if stats.TotalBuckets < stats.RootBuckets {
+		t.Fatalf("unexpected number of total buckets: %d", stats.TotalBuckets)
+	}
+	if stats.EmptyBuckets >= stats.RootBuckets {
+		t.Fatalf("unexpected number of empty buckets: %d", stats.EmptyBuckets)
+	}
+	if stats.Capacity < 2*EntriesPerMapBucket*DefaultMinMapTableLen {
+		t.Fatalf("unexpected capacity: %d", stats.Capacity)
+	}
+	if stats.Size != 100 {
+		t.Fatalf("unexpected size: %d", stats.Size)
+	}
+	if stats.Counter != 100 {
+		t.Fatalf("unexpected counter: %d", stats.Counter)
+	}
+	if stats.CounterLen != 8 {
+		t.Fatalf("unexpected counter length: %d", stats.CounterLen)
 	}
 }
 

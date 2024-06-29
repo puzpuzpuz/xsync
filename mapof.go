@@ -639,9 +639,11 @@ func shiftHash(h uint64) uint64 {
 	return h
 }
 
-// O(N) operation; use for debug purposes only
-func (m *MapOf[K, V]) stats() mapStats {
-	stats := mapStats{
+// Stats returns statistics for the MapOf. Just like other map
+// methods, this one is thread-safe. Yet it's an O(N) operation,
+// so it should be used only for diagnostics or debugging purposes.
+func (m *MapOf[K, V]) Stats() MapStats {
+	stats := MapStats{
 		TotalGrowths: atomic.LoadInt64(&m.totalGrowths),
 		TotalShrinks: atomic.LoadInt64(&m.totalShrinks),
 		MinEntries:   math.MaxInt32,
@@ -670,7 +672,7 @@ func (m *MapOf[K, V]) stats() mapStats {
 			if b.next == nil {
 				break
 			}
-			b = (*bucketOfPadded)(b.next)
+			b = (*bucketOfPadded)(atomic.LoadPointer(&b.next))
 			stats.TotalBuckets++
 		}
 		if nentries < stats.MinEntries {
