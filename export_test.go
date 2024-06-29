@@ -13,14 +13,6 @@ type (
 	BucketOfPadded = bucketOfPadded
 )
 
-type MapStats struct {
-	mapStats
-}
-
-func CollectMapStats(m *Map) MapStats {
-	return MapStats{m.stats()}
-}
-
 func LockBucket(mu *uint64) {
 	lockBucket(mu)
 }
@@ -67,10 +59,6 @@ func HashString(s string, seed uint64) uint64 {
 
 func MakeHasher[T comparable]() func(T, uint64) uint64 {
 	return makeHasher[T]()
-}
-
-func CollectMapOfStats[K comparable, V any](m *MapOf[K, V]) MapStats {
-	return MapStats{m.stats()}
 }
 
 func NewMapOfWithHasher[K comparable, V any](
