@@ -20,9 +20,9 @@ jobs:
         run: go vet ./...
 
       - name: Run staticcheck
-        uses: dominikh/staticcheck-action@v1.3.0
+        uses: dominikh/staticcheck-action@v1.3.1
         with:
-          version: "2023.1.2"
+          version: "2023.1.7"
           install-go: false
           cache-key: ${{ matrix.go-version }}
 
