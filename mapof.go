@@ -34,6 +34,11 @@ const (
 // Also, Get operations involve no write to memory, as well as no
 // mutexes or any other sort of locks. Due to this design, in all
 // considered scenarios MapOf outperforms sync.Map.
+//
+// MapOf also borrows ideas from Java's j.u.c.ConcurrentHashMap
+// (immutable K/V pair structs instead of atomic snapshots)
+// and C++'s absl::flat_hash_map (meta memory and SWAR-based
+// lookups).
 type MapOf[K comparable, V any] struct {
 	totalGrowths int64
 	totalShrinks int64
