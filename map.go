@@ -19,7 +19,7 @@ const (
 )
 
 const (
-	// number of entries per bucket; 3 entries lead to size of 64B
+	// number of Map entries per bucket; 3 entries lead to size of 64B
 	// (one cache line) on 64-bit machines
 	entriesPerMapBucket = 3
 	// threshold fraction of table occupation to start a table shrinking
@@ -477,7 +477,7 @@ func (m *Map) doCompute(
 					unlockBucket(&rootb.topHashMutex)
 					return newValue, false
 				}
-				// Create and append the bucket.
+				// Create and append a bucket.
 				newb := new(bucketPadded)
 				newb.keys[0] = unsafe.Pointer(&key)
 				newb.values[0] = unsafe.Pointer(&newValue)

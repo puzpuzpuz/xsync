@@ -1,6 +1,7 @@
 package xsync
 
 import (
+	"math/bits"
 	"runtime"
 	_ "unsafe"
 )
@@ -44,3 +45,22 @@ func parallelism() uint32 {
 //go:noescape
 //go:linkname runtime_fastrand runtime.fastrand
 func runtime_fastrand() uint32
+
+func broadcast(b uint8) uint64 {
+	return 0x101010101010101 * uint64(b)
+}
+
+func firstMarkedByteIndex(w uint64) int {
+	return bits.TrailingZeros64(w) >> 3
+}
+
+// SWAR byte search: may produce false positives, e.g. for 0x0100,
+// so make sure to double-check bytes found by this function.
+func markZeroBytes(w uint64) uint64 {
+	return ((w - 0x0101010101010101) & (^w) & 0x8080808080808080)
+}
+
+func setByte(w uint64, b uint8, idx int) uint64 {
+	shift := idx << 3
+	return (w &^ (0xff << shift)) | (uint64(b) << shift)
+}

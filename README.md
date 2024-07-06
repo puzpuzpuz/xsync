@@ -66,7 +66,9 @@ m.Store("foo", "bar")
 v, ok := m.Load("foo")
 ```
 
-One important difference with `Map` is that `MapOf` supports arbitrary `comparable` key types:
+Apart from CLHT, `MapOf` borrows ideas from Java's `j.u.c.ConcurrentHashMap` (immutable K/V pair structs instead of atomic snapshots) and C++'s `absl::flat_hash_map` (meta memory and SWAR-based lookups). It also has more dense memory layout when compared with `Map`. Long story short, `MapOf` should be preferred over `Map` when possible.
+
+An important difference with `Map` is that `MapOf` supports arbitrary `comparable` key types:
 
 ```go
 type Point struct {
