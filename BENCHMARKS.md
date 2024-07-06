@@ -12,6 +12,8 @@ $ benchstat bench.txt | tee benchstat.txt
 
 The below sections contain some of the results. Refer to [this gist](https://gist.github.com/puzpuzpuz/e62e38e06feadecfdc823c0f941ece0b) for the complete output.
 
+Please note that `MapOf` got a number of optimizations since v2.3.1, so the current result is likely to be different.
+
 ### Counter vs. atomic int64
 
 ```
