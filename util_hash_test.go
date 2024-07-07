@@ -20,8 +20,8 @@ func TestMakeHashFunc(t *testing.T) {
 
 	seed := MakeSeed()
 
-	hashString := MakeHasher[string]()
-	hashUser := MakeHasher[User]()
+	hashString := DefaultHasher[string]()
+	hashUser := DefaultHasher[User]()
 
 	hashUserMap := makeMapHasher[User]()
 
@@ -186,7 +186,7 @@ func BenchmarkMakeHashFunc(b *testing.B) {
 }
 
 func doBenchmarkMakeHashFunc[T comparable](b *testing.B, val T) {
-	hash := MakeHasher[T]()
+	hash := DefaultHasher[T]()
 	hashNativeMap := makeMapHasher[T]()
 	seed := MakeSeed()
 

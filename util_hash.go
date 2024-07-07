@@ -33,10 +33,10 @@ func hashString(s string, seed uint64) uint64 {
 //go:linkname runtime_memhash runtime.memhash
 func runtime_memhash(p unsafe.Pointer, h, s uintptr) uintptr
 
-// makeHasher creates a fast hash function for the given comparable type.
+// defaultHasher creates a fast hash function for the given comparable type.
 // The only limitation is that the type should not contain interfaces inside
 // based on runtime.typehash.
-func makeHasher[T comparable]() func(T, uint64) uint64 {
+func defaultHasher[T comparable]() func(T, uint64) uint64 {
 	var zero T
 
 	if reflect.TypeOf(&zero).Elem().Kind() == reflect.Interface {

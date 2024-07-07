@@ -84,21 +84,14 @@ type entryOf[K comparable, V any] struct {
 // NewMapOf creates a new MapOf instance configured with the given
 // options.
 func NewMapOf[K comparable, V any](options ...func(*MapConfig)) *MapOf[K, V] {
-	return newMapOf[K, V](makeHasher[K](), options...)
+	return NewMapOfWithHasher[K, V](defaultHasher[K](), options...)
 }
 
-// NewMapOfPresized creates a new MapOf instance with capacity enough
-// to hold sizeHint entries. The capacity is treated as the minimal capacity
-// meaning that the underlying hash table will never shrink to
-// a smaller capacity. If sizeHint is zero or negative, the value
-// is ignored.
-//
-// Deprecated: use NewMapOf in combination with WithPresize.
-func NewMapOfPresized[K comparable, V any](sizeHint int) *MapOf[K, V] {
-	return NewMapOf[K, V](WithPresize(sizeHint))
-}
-
-func newMapOf[K comparable, V any](
+// NewMapOf creates a new MapOf instance configured with the given
+// hasher and options. The hash function is used instead of
+// the built-in hash function configured when a map is created
+// with the NewMapOf function.
+func NewMapOfWithHasher[K comparable, V any](
 	hasher func(K, uint64) uint64,
 	options ...func(*MapConfig),
 ) *MapOf[K, V] {
@@ -123,6 +116,17 @@ func newMapOf[K comparable, V any](
 	m.growOnly = c.growOnly
 	atomic.StorePointer(&m.table, unsafe.Pointer(table))
 	return m
+}
+
+// NewMapOfPresized creates a new MapOf instance with capacity enough
+// to hold sizeHint entries. The capacity is treated as the minimal capacity
+// meaning that the underlying hash table will never shrink to
+// a smaller capacity. If sizeHint is zero or negative, the value
+// is ignored.
+//
+// Deprecated: use NewMapOf in combination with WithPresize.
+func NewMapOfPresized[K comparable, V any](sizeHint int) *MapOf[K, V] {
+	return NewMapOf[K, V](WithPresize(sizeHint))
 }
 
 func newMapOfTable[K comparable, V any](minTableLen int) *mapOfTable[K, V] {
