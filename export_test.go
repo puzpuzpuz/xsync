@@ -75,13 +75,6 @@ func HashString(s string, seed uint64) uint64 {
 	return hashString(s, seed)
 }
 
-func MakeHasher[T comparable]() func(T, uint64) uint64 {
-	return makeHasher[T]()
-}
-
-func NewMapOfWithHasher[K comparable, V any](
-	hasher func(K, uint64) uint64,
-	options ...func(*MapConfig),
-) *MapOf[K, V] {
-	return newMapOf[K, V](hasher, options...)
+func DefaultHasher[T comparable]() func(T, uint64) uint64 {
+	return defaultHasher[T]()
 }
