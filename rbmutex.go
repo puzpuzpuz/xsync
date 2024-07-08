@@ -64,12 +64,22 @@ func NewRBMutex() *RBMutex {
 	return &mu
 }
 
-// RLock locks m for reading and returns a reader token. The
-// token must be used in the later RUnlock call.
-//
-// Should not be used for recursive read locking; a blocked Lock
-// call excludes new readers from acquiring the lock.
-func (mu *RBMutex) RLock() *RToken {
+// TryRLock tries to retrieve a reader lock token via
+// the fast path or gives up returning nil.
+func (mu *RBMutex) TryRLock() *RToken {
+	if _, mux := mu.fastTryRlock(); mux != nil {
+		return mux
+	}
+	return nil
+}
+
+// TryLock tries to acquire a write lock without blocking,
+// exposing the underlying TryLock method of sync.RWMutex.
+func (mu *RBMutex) TryLock() bool {
+	return mu.rw.TryLock()
+}
+
+func (mu *RBMutex) fastTryRlock() (*rslot, *RToken) {
 	if atomic.LoadInt32(&mu.rbias) == 1 {
 		t, ok := rtokenPool.Get().(*RToken)
 		if !ok {
@@ -85,15 +95,30 @@ func (mu *RBMutex) RLock() *RToken {
 				if atomic.LoadInt32(&mu.rbias) == 1 {
 					// Hot path succeeded.
 					t.slot = slot
-					return t
+					return rslot, t
 				}
-				// The mutex is no longer reader biased. Go to the slow path.
-				atomic.AddInt32(&rslot.mu, -1)
 				rtokenPool.Put(t)
-				break
+				return rslot, nil
 			}
 			// Contention detected. Give a try with the next slot.
 		}
+	}
+	return nil, nil
+}
+
+// RLock locks m for reading and returns a reader token. The
+// token must be used in the later RUnlock call.
+//
+// Should not be used for recursive read locking; a blocked Lock
+// call excludes new readers from acquiring the lock.
+func (mu *RBMutex) RLock() *RToken {
+	rslot, r := mu.fastTryRlock()
+	if r != nil {
+		return r
+	}
+	if rslot != nil {
+		// The mutex is no longer reader biased. Go to the slow path.
+		atomic.AddInt32(&rslot.mu, -1)
 	}
 	// Slow path.
 	mu.rw.RLock()
