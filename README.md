@@ -80,6 +80,19 @@ m.Store(Point{42, 42}, 42)
 v, ok := m.Load(point{42, 42})
 ```
 
+Both maps use the built-in Golang's hash function which has DDOS protection. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation. However, for smaller keys this hash function has some overhead. So, if you don't need DDOS protection, you may provide a custom hash function when creating a `MapOf`. For instance, Murmur3 finalizer does a decent job when it comes to integers:
+
+```go
+m := NewMapOfWithHasher[int, int](func(i int, _ uint64) uint64 {
+	h := uint64(i)
+	h = (h ^ (h >> 33)) * 0xff51afd7ed558ccd
+	h = (h ^ (h >> 33)) * 0xc4ceb9fe1a85ec53
+	return h ^ (h >> 33)
+})
+```
+
+When benchmarking concurrent maps, make sure to configure all of the competitors with the same hash function or, at least, take hash function performance into the consideration.
+
 ### MPMCQueue
 
 A `MPMCQueue` is a bounded multi-producer multi-consumer concurrent queue.

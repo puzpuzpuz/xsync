@@ -584,9 +584,9 @@ func TestNewMapPresized(t *testing.T) {
 
 func TestNewMapPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 	const minTableLen = 1024
-	const numEntries = minTableLen * EntriesPerMapBucket
+	const numEntries = int(minTableLen * EntriesPerMapBucket * MapLoadFactor)
 	m := NewMap(WithPresize(numEntries))
-	for i := 0; i < numEntries; i++ {
+	for i := 0; i < 2*numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
 
@@ -595,7 +595,7 @@ func TestNewMapPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 		t.Fatalf("table did not grow: %d", stats.RootBuckets)
 	}
 
-	for i := 0; i < numEntries; i++ {
+	for i := 0; i < 2*numEntries; i++ {
 		m.Delete(strconv.Itoa(int(i)))
 	}
 

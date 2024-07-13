@@ -647,19 +647,19 @@ func TestNewMapOfPresized(t *testing.T) {
 	assertMapOfCapacity(t, NewMapOf[string, string](WithPresize(0)), DefaultMinMapOfTableCap)
 	assertMapOfCapacity(t, NewMapOfPresized[string, string](-100), DefaultMinMapOfTableCap)
 	assertMapOfCapacity(t, NewMapOf[string, string](WithPresize(-100)), DefaultMinMapOfTableCap)
-	assertMapOfCapacity(t, NewMapOfPresized[string, string](500), 640)
-	assertMapOfCapacity(t, NewMapOf[string, string](WithPresize(500)), 640)
-	assertMapOfCapacity(t, NewMapOfPresized[int, int](1_000_000), 1_310_720)
-	assertMapOfCapacity(t, NewMapOf[int, int](WithPresize(1_000_000)), 1_310_720)
+	assertMapOfCapacity(t, NewMapOfPresized[string, string](500), 1280)
+	assertMapOfCapacity(t, NewMapOf[string, string](WithPresize(500)), 1280)
+	assertMapOfCapacity(t, NewMapOfPresized[int, int](1_000_000), 2621440)
+	assertMapOfCapacity(t, NewMapOf[int, int](WithPresize(1_000_000)), 2621440)
 	assertMapOfCapacity(t, NewMapOfPresized[point, point](100), 160)
 	assertMapOfCapacity(t, NewMapOf[point, point](WithPresize(100)), 160)
 }
 
 func TestNewMapOfPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 	const minTableLen = 1024
-	const numEntries = minTableLen * EntriesPerMapOfBucket
+	const numEntries = int(minTableLen * EntriesPerMapOfBucket * MapLoadFactor)
 	m := NewMapOf[int, int](WithPresize(numEntries))
-	for i := 0; i < numEntries; i++ {
+	for i := 0; i < 2*numEntries; i++ {
 		m.Store(i, i)
 	}
 
@@ -668,7 +668,7 @@ func TestNewMapOfPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 		t.Fatalf("table did not grow: %d", stats.RootBuckets)
 	}
 
-	for i := 0; i < numEntries; i++ {
+	for i := 0; i < 2*numEntries; i++ {
 		m.Delete(i)
 	}
 
