@@ -87,9 +87,9 @@ func NewMapOf[K comparable, V any](options ...func(*MapConfig)) *MapOf[K, V] {
 	return NewMapOfWithHasher[K, V](defaultHasher[K](), options...)
 }
 
-// NewMapOf creates a new MapOf instance configured with the given
-// hasher and options. The hash function is used instead of
-// the built-in hash function configured when a map is created
+// NewMapOfWithHasher creates a new MapOf instance configured with
+// the given hasher and options. The hash function is used instead
+// of the built-in hash function configured when a map is created
 // with the NewMapOf function.
 func NewMapOfWithHasher[K comparable, V any](
 	hasher func(K, uint64) uint64,
@@ -109,7 +109,7 @@ func NewMapOfWithHasher[K comparable, V any](
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapOfBucket {
 		table = newMapOfTable[K, V](defaultMinMapTableLen)
 	} else {
-		tableLen := nextPowOf2(uint32(c.sizeHint / entriesPerMapOfBucket))
+		tableLen := nextPowOf2(uint32((float64(c.sizeHint) / entriesPerMapOfBucket) / mapLoadFactor))
 		table = newMapOfTable[K, V](int(tableLen))
 	}
 	m.minTableLen = len(table.buckets)

@@ -163,7 +163,7 @@ func NewMap(options ...func(*MapConfig)) *Map {
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
 		table = newMapTable(defaultMinMapTableLen)
 	} else {
-		tableLen := nextPowOf2(uint32(c.sizeHint / entriesPerMapBucket))
+		tableLen := nextPowOf2(uint32((float64(c.sizeHint) / entriesPerMapBucket) / mapLoadFactor))
 		table = newMapTable(int(tableLen))
 	}
 	m.minTableLen = len(table.buckets)
