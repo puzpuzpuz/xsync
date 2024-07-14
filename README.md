@@ -148,6 +148,19 @@ Hence, by the design `RBMutex` is a specialized mutex for scenarios, such as cac
 
 `RBMutex` extends `sync.RWMutex` internally and uses it as the "reader bias disabled" fallback, so the same semantics apply. The only noticeable difference is in the reader tokens returned from the `RLock`/`RUnlock` methods.
 
+Apart from blocking methods, `RBMutex` also has methods for optimistic locking:
+```go
+mu := xsync.NewRBMutex()
+if locked, t := mu.TryRLock(); locked {
+	// critical reader section...
+	mu.RUnlock(t)
+}
+if mu.TryLock() {
+	// critical writer section...
+	mu.Unlock()
+}
+```
+
 ## License
 
 Licensed under MIT.

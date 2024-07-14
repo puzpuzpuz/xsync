@@ -155,7 +155,6 @@ func (mu *RBMutex) TryLock() bool {
 					return false
 				}
 			}
-			mu.inhibitUntil = time.Now()
 		}
 		return true
 	}
