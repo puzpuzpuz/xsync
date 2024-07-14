@@ -15,23 +15,55 @@ import (
 )
 
 func TestRBMutexSerialReader(t *testing.T) {
-	const numIters = 10
+	const numCalls = 10
 	mu := NewRBMutex()
-	var rtokens [numIters]*RToken
-	for i := 0; i < numIters; i++ {
-		rtokens[i] = mu.RLock()
-
+	for i := 0; i < 3; i++ {
+		var rtokens [numCalls]*RToken
+		for j := 0; j < numCalls; j++ {
+			rtokens[j] = mu.RLock()
+		}
+		for j := 0; j < numCalls; j++ {
+			mu.RUnlock(rtokens[j])
+		}
 	}
-	for i := 0; i < numIters; i++ {
-		mu.RUnlock(rtokens[i])
+}
+
+func TestRBMutexSerialOptimisticReader(t *testing.T) {
+	const numCalls = 10
+	mu := NewRBMutex()
+	for i := 0; i < 3; i++ {
+		var rtokens [numCalls]*RToken
+		for j := 0; j < numCalls; j++ {
+			ok, rt := mu.TryRLock()
+			if !ok {
+				t.Fatalf("TryRLock failed for %d", j)
+			}
+			if rt == nil {
+				t.Fatalf("nil reader token for %d", j)
+			}
+			rtokens[j] = rt
+		}
+		for j := 0; j < numCalls; j++ {
+			mu.RUnlock(rtokens[j])
+		}
+	}
+}
+
+func TestRBMutexSerialOptimisticWriter(t *testing.T) {
+	mu := NewRBMutex()
+	for i := 0; i < 3; i++ {
+		if !mu.TryLock() {
+			t.Fatal("TryLock failed")
+		}
+		mu.Unlock()
 	}
 }
 
 func parallelReader(mu *RBMutex, clocked, cunlock, cdone chan bool) {
-	tk := mu.RLock()
+	t := mu.RLock()
 	clocked <- true
 	<-cunlock
-	mu.RUnlock(tk)
+	mu.RUnlock(t)
 	cdone <- true
 }
 
@@ -66,16 +98,16 @@ func TestRBMutexParallelReaders(t *testing.T) {
 
 func reader(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
 	for i := 0; i < numIterations; i++ {
-		tk := mu.RLock()
+		t := mu.RLock()
 		n := atomic.AddInt32(activity, 1)
 		if n < 1 || n >= 10000 {
-			mu.RUnlock(tk)
+			mu.RUnlock(t)
 			panic(fmt.Sprintf("rlock(%d)\n", n))
 		}
 		for i := 0; i < 100; i++ {
 		}
 		atomic.AddInt32(activity, -1)
-		mu.RUnlock(tk)
+		mu.RUnlock(t)
 	}
 	cdone <- true
 }
@@ -130,6 +162,112 @@ func TestRBMutex(t *testing.T) {
 	hammerRBMutex(10, 3, n)
 	hammerRBMutex(10, 10, n)
 	hammerRBMutex(10, 5, n)
+}
+
+func optimisticReader(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
+	for i := 0; i < numIterations; i++ {
+		if ok, t := mu.TryRLock(); ok {
+			n := atomic.AddInt32(activity, 1)
+			if n < 1 || n >= 10000 {
+				mu.RUnlock(t)
+				panic(fmt.Sprintf("rlock(%d)\n", n))
+			}
+			for i := 0; i < 100; i++ {
+			}
+			atomic.AddInt32(activity, -1)
+			mu.RUnlock(t)
+		}
+	}
+	cdone <- true
+}
+
+func optimisticWriter(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
+	for i := 0; i < numIterations; i++ {
+		if mu.TryLock() {
+			n := atomic.AddInt32(activity, 10000)
+			if n != 10000 {
+				mu.Unlock()
+				panic(fmt.Sprintf("wlock(%d)\n", n))
+			}
+			for i := 0; i < 100; i++ {
+			}
+			atomic.AddInt32(activity, -10000)
+			mu.Unlock()
+		}
+	}
+	cdone <- true
+}
+
+func hammerOptimisticRBMutex(gomaxprocs, numReaders, numIterations int) {
+	runtime.GOMAXPROCS(gomaxprocs)
+	// Number of active readers + 10000 * number of active writers.
+	var activity int32
+	mu := NewRBMutex()
+	cdone := make(chan bool)
+	go optimisticWriter(mu, numIterations, &activity, cdone)
+	var i int
+	for i = 0; i < numReaders/2; i++ {
+		go optimisticReader(mu, numIterations, &activity, cdone)
+	}
+	go optimisticWriter(mu, numIterations, &activity, cdone)
+	for ; i < numReaders; i++ {
+		go optimisticReader(mu, numIterations, &activity, cdone)
+	}
+	// Wait for the 2 writers and all readers to finish.
+	for i := 0; i < 2+numReaders; i++ {
+		<-cdone
+	}
+}
+
+func TestRBMutex_Optimistic(t *testing.T) {
+	const n = 1000
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
+	hammerOptimisticRBMutex(1, 1, n)
+	hammerOptimisticRBMutex(1, 3, n)
+	hammerOptimisticRBMutex(1, 10, n)
+	hammerOptimisticRBMutex(4, 1, n)
+	hammerOptimisticRBMutex(4, 3, n)
+	hammerOptimisticRBMutex(4, 10, n)
+	hammerOptimisticRBMutex(10, 1, n)
+	hammerOptimisticRBMutex(10, 3, n)
+	hammerOptimisticRBMutex(10, 10, n)
+	hammerOptimisticRBMutex(10, 5, n)
+}
+
+func hammerMixedRBMutex(gomaxprocs, numReaders, numIterations int) {
+	runtime.GOMAXPROCS(gomaxprocs)
+	// Number of active readers + 10000 * number of active writers.
+	var activity int32
+	mu := NewRBMutex()
+	cdone := make(chan bool)
+	go writer(mu, numIterations, &activity, cdone)
+	var i int
+	for i = 0; i < numReaders/2; i++ {
+		go reader(mu, numIterations, &activity, cdone)
+	}
+	go optimisticWriter(mu, numIterations, &activity, cdone)
+	for ; i < numReaders; i++ {
+		go optimisticReader(mu, numIterations, &activity, cdone)
+	}
+	// Wait for the 2 writers and all readers to finish.
+	for i := 0; i < 2+numReaders; i++ {
+		<-cdone
+	}
+}
+
+func TestRBMutex_Mixed(t *testing.T) {
+	const n = 1000
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
+	hammerMixedRBMutex(1, 1, n)
+	hammerMixedRBMutex(1, 3, n)
+	hammerMixedRBMutex(1, 10, n)
+	hammerMixedRBMutex(4, 1, n)
+	hammerMixedRBMutex(4, 3, n)
+	hammerMixedRBMutex(4, 10, n)
+	hammerMixedRBMutex(10, 1, n)
+	hammerMixedRBMutex(10, 3, n)
+	hammerMixedRBMutex(10, 10, n)
+	hammerMixedRBMutex(10, 5, n)
 }
 
 func benchmarkRBMutex(b *testing.B, parallelism, localWork, writeRatio int) {
