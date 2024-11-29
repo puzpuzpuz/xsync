@@ -26,7 +26,18 @@ func hashString(s string, seed uint64) uint64 {
 		return seed
 	}
 	strh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	return uint64(runtime_memhash(unsafe.Pointer(strh.Data), uintptr(seed), uintptr(strh.Len)))
+	return runtime_memhash64(unsafe.Pointer(strh.Data), seed, uintptr(strh.Len))
+}
+
+// same as runtime_memhash, but always returns a uint64
+func runtime_memhash64(p unsafe.Pointer, seed uint64, length uintptr) uint64 {
+	if unsafe.Sizeof(uintptr(0)) == 8 {
+		return uint64(runtime_memhash(p, uintptr(seed), length))
+	}
+
+	lo := runtime_memhash(p, uintptr(seed), length)
+	hi := runtime_memhash(p, uintptr(seed>>32), length)
+	return uint64(hi)<<32 | uint64(lo)
 }
 
 //go:noescape
