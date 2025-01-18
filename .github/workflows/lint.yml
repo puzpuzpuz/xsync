@@ -1,4 +1,4 @@
-name: report-coverage
+name: lint
 on: [push]
 
 jobs:
@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.23.x]
+        go-version: [1.21.x]
     name: Build with Go ${{ matrix.go-version }}
     steps:
       - uses: actions/checkout@v3
@@ -16,10 +16,9 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-      - name: Run coverage
-        run: go test -race -coverprofile=coverage.out -covermode=atomic
-
-      - name: Publish to Codecov
-        uses: codecov/codecov-action@v3
+      - name: Run staticcheck
+        uses: dominikh/staticcheck-action@v1.3.1
         with:
-          files: coverage.out
+          version: "2023.1.7"
+          install-go: false
+          cache-key: ${{ matrix.go-version }}
