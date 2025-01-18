@@ -1205,6 +1205,30 @@ func TestMapOfStats(t *testing.T) {
 	}
 }
 
+func TestToPlainMapOf_NilPointer(t *testing.T) {
+	pm := ToPlainMapOf[int, int](nil)
+	if len(pm) != 0 {
+		t.Fatalf("got unexpected size of nil map copy: %d", len(pm))
+	}
+}
+
+func TestToPlainMapOf(t *testing.T) {
+	const numEntries = 1000
+	m := NewMapOf[int, int]()
+	for i := 0; i < numEntries; i++ {
+		m.Store(i, i)
+	}
+	pm := ToPlainMapOf[int, int](m)
+	if len(pm) != numEntries {
+		t.Fatalf("got unexpected size of nil map copy: %d", len(pm))
+	}
+	for i := 0; i < numEntries; i++ {
+		if v := pm[i]; v != i {
+			t.Fatalf("unexpected value for key %d: %d", i, v)
+		}
+	}
+}
+
 func BenchmarkMapOf_NoWarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
 		if bc.readPercentage == 100 {

@@ -1265,6 +1265,30 @@ func TestMapStats(t *testing.T) {
 	}
 }
 
+func TestToPlainMap_NilPointer(t *testing.T) {
+	pm := ToPlainMap(nil)
+	if len(pm) != 0 {
+		t.Fatalf("got unexpected size of nil map copy: %d", len(pm))
+	}
+}
+
+func TestToPlainMap(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap()
+	for i := 0; i < numEntries; i++ {
+		m.Store(strconv.Itoa(i), i)
+	}
+	pm := ToPlainMap(m)
+	if len(pm) != numEntries {
+		t.Fatalf("got unexpected size of nil map copy: %d", len(pm))
+	}
+	for i := 0; i < numEntries; i++ {
+		if v := pm[strconv.Itoa(i)]; v != i {
+			t.Fatalf("unexpected value for key %d: %d", i, v)
+		}
+	}
+}
+
 func BenchmarkMap_NoWarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
 		if bc.readPercentage == 100 {

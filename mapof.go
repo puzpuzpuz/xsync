@@ -149,6 +149,21 @@ func newMapOfTable[K comparable, V any](minTableLen int) *mapOfTable[K, V] {
 	return t
 }
 
+// ToPlainMapOf returns a native map with a copy of xsync Map's
+// contents. The copied xsync Map should not be modified while
+// this call is made. If the copied Map is modified, the copying
+// behavior is the same as in the Range method.
+func ToPlainMapOf[K comparable, V any](m *MapOf[K, V]) map[K]V {
+	pm := make(map[K]V)
+	if m != nil {
+		m.Range(func(key K, value V) bool {
+			pm[key] = value
+			return true
+		})
+	}
+	return pm
+}
+
 // Load returns the value stored in the map for a key, or zero value
 // of type V if no value is present.
 // The ok result indicates whether value was found in the map.
