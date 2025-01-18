@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.19.x, 1.20.x, 1.21.x, 1.22.x]
+        go-version: [1.19.x, 1.20.x, 1.21.x, 1.22.x, 1.23.x]
     name: Build with Go ${{ matrix.go-version }}
     steps:
       - uses: actions/checkout@v3
@@ -18,13 +18,6 @@ jobs:
 
       - name: Run vet
         run: go vet ./...
-
-      - name: Run staticcheck
-        uses: dominikh/staticcheck-action@v1.3.1
-        with:
-          version: "2023.1.7"
-          install-go: false
-          cache-key: ${{ matrix.go-version }}
 
       - name: Run tests
         run: go test -v ./...

@@ -80,7 +80,14 @@ m.Store(Point{42, 42}, 42)
 v, ok := m.Load(point{42, 42})
 ```
 
-Both maps use the built-in Golang's hash function which has DDOS protection. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation. However, for smaller keys this hash function has some overhead. So, if you don't need DDOS protection, you may provide a custom hash function when creating a `MapOf`. For instance, Murmur3 finalizer does a decent job when it comes to integers:
+Apart from `Range` method available for map iteration, there are also `ToPlainMap`/`ToPlainMapOf` utility functions to convert a `Map`/`MapOf` to a built-in Go's `map`:
+```go
+m := xsync.NewMapOf[int, int]()
+m.Store(42, 42)
+pm := xsync.ToPlainMapOf(m)
+```
+
+Both `Map` and `MapOf` use the built-in Golang's hash function which has DDOS protection. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation. However, for smaller keys this hash function has some overhead. So, if you don't need DDOS protection, you may provide a custom hash function when creating a `MapOf`. For instance, Murmur3 finalizer does a decent job when it comes to integers:
 
 ```go
 m := NewMapOfWithHasher[int, int](func(i int, _ uint64) uint64 {
