@@ -18,17 +18,17 @@ import (
 // Based on the data structure from the following article:
 // https://rigtorp.se/ringbuffer/
 type SPSCQueueOf[I any] struct {
-	cap   uint64
-	p_idx uint64
+	cap  uint64
+	pidx uint64
 	//lint:ignore U1000 prevents false sharing
-	pad0         [cacheLineSize - 8]byte
-	p_cached_idx uint64
+	pad0       [cacheLineSize - 8]byte
+	pcachedIdx uint64
 	//lint:ignore U1000 prevents false sharing
-	pad1  [cacheLineSize - 8]byte
-	c_idx uint64
+	pad1 [cacheLineSize - 8]byte
+	cidx uint64
 	//lint:ignore U1000 prevents false sharing
-	pad2         [cacheLineSize - 8]byte
-	c_cached_idx uint64
+	pad2       [cacheLineSize - 8]byte
+	ccachedIdx uint64
 	//lint:ignore U1000 prevents false sharing
 	pad3  [cacheLineSize - 8]byte
 	items []I
@@ -51,21 +51,21 @@ func NewSPSCQueueOf[I any](capacity int) *SPSCQueueOf[I] {
 // full and the item was inserted.
 func (q *SPSCQueueOf[I]) TryEnqueue(item I) bool {
 	// relaxed memory order would be enough here
-	idx := atomic.LoadUint64(&q.p_idx)
+	idx := atomic.LoadUint64(&q.pidx)
 	next_idx := idx + 1
 	if next_idx == q.cap {
 		next_idx = 0
 	}
-	cached_idx := q.c_cached_idx
+	cached_idx := q.ccachedIdx
 	if next_idx == cached_idx {
-		cached_idx = atomic.LoadUint64(&q.c_idx)
-		q.c_cached_idx = cached_idx
+		cached_idx = atomic.LoadUint64(&q.cidx)
+		q.ccachedIdx = cached_idx
 		if next_idx == cached_idx {
 			return false
 		}
 	}
 	q.items[idx] = item
-	atomic.StoreUint64(&q.p_idx, next_idx)
+	atomic.StoreUint64(&q.pidx, next_idx)
 	return true
 }
 
@@ -74,11 +74,11 @@ func (q *SPSCQueueOf[I]) TryEnqueue(item I) bool {
 // indicates that the queue isn't empty and an item was retrieved.
 func (q *SPSCQueueOf[I]) TryDequeue() (item I, ok bool) {
 	// relaxed memory order would be enough here
-	idx := atomic.LoadUint64(&q.c_idx)
-	cached_idx := q.p_cached_idx
+	idx := atomic.LoadUint64(&q.cidx)
+	cached_idx := q.pcachedIdx
 	if idx == cached_idx {
-		cached_idx = atomic.LoadUint64(&q.p_idx)
-		q.p_cached_idx = cached_idx
+		cached_idx = atomic.LoadUint64(&q.pidx)
+		q.pcachedIdx = cached_idx
 		if idx == cached_idx {
 			return
 		}
@@ -91,6 +91,6 @@ func (q *SPSCQueueOf[I]) TryDequeue() (item I, ok bool) {
 	if next_idx == q.cap {
 		next_idx = 0
 	}
-	atomic.StoreUint64(&q.c_idx, next_idx)
+	atomic.StoreUint64(&q.cidx, next_idx)
 	return
 }

@@ -294,6 +294,34 @@ func (m *Map) LoadAndStore(key string, value interface{}) (actual interface{}, l
 	)
 }
 
+// LoadOrTryCompute returns the existing value for the key if present.
+// Otherwise, it tries to compute the value using the provided function
+// and, if success, returns the computed value. The loaded result is true
+// if the value was loaded, false if stored. If the compute attempt was
+// cancelled, a nil will be returned.
+//
+// This call locks a hash table bucket while the compute function
+// is executed. It means that modifications on other entries in
+// the bucket will be blocked until the valueFn executes. Consider
+// this when the function includes long-running operations.
+func (m *Map) LoadOrTryCompute(
+	key string,
+	valueFn func() (newValue interface{}, cancel bool),
+) (value interface{}, loaded bool) {
+	return m.doCompute(
+		key,
+		func(interface{}, bool) (interface{}, bool) {
+			nv, c := valueFn()
+			if !c {
+				return nv, false
+			}
+			return nil, true
+		},
+		true,
+		false,
+	)
+}
+
 // LoadOrCompute returns the existing value for the key if present.
 // Otherwise, it computes the value using the provided function and
 // returns the computed value. The loaded result is true if the value
