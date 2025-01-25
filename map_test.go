@@ -363,11 +363,11 @@ func TestMapLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 }
 
 func TestMapCompute(t *testing.T) {
-	var zeroedV interface{}
+	var zeroV interface{}
 	m := NewMap()
 	// Store a new value.
 	v, ok := m.Compute("foobar", func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
-		if oldValue != zeroedV {
+		if oldValue != zeroV {
 			t.Fatalf("oldValue should be empty interface{} when computing a new value: %d", oldValue)
 		}
 		if loaded {
@@ -420,8 +420,8 @@ func TestMapCompute(t *testing.T) {
 	}
 	// Try to delete a non-existing value. Notice different key.
 	v, ok = m.Compute("barbaz", func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
-		var zeroedV interface{}
-		if oldValue != zeroedV {
+		var zeroV interface{}
+		if oldValue != zeroV {
 			t.Fatalf("oldValue should be empty interface{} when trying to delete a non-existing value: %d", oldValue)
 		}
 		if loaded {
@@ -432,7 +432,7 @@ func TestMapCompute(t *testing.T) {
 		delete = true
 		return
 	})
-	if v != zeroedV {
+	if v != zeroV {
 		t.Fatalf("v should be empty interface{} when trying to delete a non-existing value: %d", v)
 	}
 	if ok {

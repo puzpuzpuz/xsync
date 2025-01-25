@@ -462,11 +462,11 @@ func (m *Map) doCompute(
 			if b.next == nil {
 				if emptyb != nil {
 					// Insertion into an existing bucket.
-					var zeroedV interface{}
-					newValue, del := valueFn(zeroedV, false)
+					var zeroV interface{}
+					newValue, del := valueFn(zeroV, false)
 					if del {
 						unlockBucket(&rootb.topHashMutex)
-						return zeroedV, false
+						return zeroV, false
 					}
 					// First we update the value, then the key.
 					// This is important for atomic snapshot states.
@@ -486,8 +486,8 @@ func (m *Map) doCompute(
 					goto compute_attempt
 				}
 				// Insertion into a new bucket.
-				var zeroedV interface{}
-				newValue, del := valueFn(zeroedV, false)
+				var zeroV interface{}
+				newValue, del := valueFn(zeroV, false)
 				if del {
 					unlockBucket(&rootb.topHashMutex)
 					return newValue, false
