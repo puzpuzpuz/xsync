@@ -15,17 +15,17 @@ import (
 // Based on the data structure from the following article:
 // https://rigtorp.se/ringbuffer/
 type SPSCQueue struct {
-	cap   uint64
-	p_idx uint64
+	cap  uint64
+	pidx uint64
 	//lint:ignore U1000 prevents false sharing
-	pad0         [cacheLineSize - 8]byte
-	p_cached_idx uint64
+	pad0       [cacheLineSize - 8]byte
+	pcachedIdx uint64
 	//lint:ignore U1000 prevents false sharing
-	pad1  [cacheLineSize - 8]byte
-	c_idx uint64
+	pad1 [cacheLineSize - 8]byte
+	cidx uint64
 	//lint:ignore U1000 prevents false sharing
-	pad2         [cacheLineSize - 8]byte
-	c_cached_idx uint64
+	pad2       [cacheLineSize - 8]byte
+	ccachedIdx uint64
 	//lint:ignore U1000 prevents false sharing
 	pad3  [cacheLineSize - 8]byte
 	items []interface{}
@@ -48,21 +48,21 @@ func NewSPSCQueue(capacity int) *SPSCQueue {
 // full and the item was inserted.
 func (q *SPSCQueue) TryEnqueue(item interface{}) bool {
 	// relaxed memory order would be enough here
-	idx := atomic.LoadUint64(&q.p_idx)
-	next_idx := idx + 1
-	if next_idx == q.cap {
-		next_idx = 0
+	idx := atomic.LoadUint64(&q.pidx)
+	nextIdx := idx + 1
+	if nextIdx == q.cap {
+		nextIdx = 0
 	}
-	cached_idx := q.c_cached_idx
-	if next_idx == cached_idx {
-		cached_idx = atomic.LoadUint64(&q.c_idx)
-		q.c_cached_idx = cached_idx
-		if next_idx == cached_idx {
+	cachedIdx := q.ccachedIdx
+	if nextIdx == cachedIdx {
+		cachedIdx = atomic.LoadUint64(&q.cidx)
+		q.ccachedIdx = cachedIdx
+		if nextIdx == cachedIdx {
 			return false
 		}
 	}
 	q.items[idx] = item
-	atomic.StoreUint64(&q.p_idx, next_idx)
+	atomic.StoreUint64(&q.pidx, nextIdx)
 	return true
 }
 
@@ -71,22 +71,22 @@ func (q *SPSCQueue) TryEnqueue(item interface{}) bool {
 // indicates that the queue isn't empty and an item was retrieved.
 func (q *SPSCQueue) TryDequeue() (item interface{}, ok bool) {
 	// relaxed memory order would be enough here
-	idx := atomic.LoadUint64(&q.c_idx)
-	cached_idx := q.p_cached_idx
-	if idx == cached_idx {
-		cached_idx = atomic.LoadUint64(&q.p_idx)
-		q.p_cached_idx = cached_idx
-		if idx == cached_idx {
+	idx := atomic.LoadUint64(&q.cidx)
+	cachedIdx := q.pcachedIdx
+	if idx == cachedIdx {
+		cachedIdx = atomic.LoadUint64(&q.pidx)
+		q.pcachedIdx = cachedIdx
+		if idx == cachedIdx {
 			return
 		}
 	}
 	item = q.items[idx]
 	q.items[idx] = nil
 	ok = true
-	next_idx := idx + 1
-	if next_idx == q.cap {
-		next_idx = 0
+	nextIdx := idx + 1
+	if nextIdx == q.cap {
+		nextIdx = 0
 	}
-	atomic.StoreUint64(&q.c_idx, next_idx)
+	atomic.StoreUint64(&q.cidx, nextIdx)
 	return
 }
