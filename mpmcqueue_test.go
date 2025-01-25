@@ -14,13 +14,13 @@ import (
 	. "github.com/puzpuzpuz/xsync/v3"
 )
 
-func TestQueue_InvalidSize(t *testing.T) {
+func TestMPMCQueue_InvalidSize(t *testing.T) {
 	defer func() { recover() }()
 	NewMPMCQueue(0)
 	t.Fatal("no panic detected")
 }
 
-func TestQueueEnqueueDequeue(t *testing.T) {
+func TestMPMCQueueEnqueueDequeue(t *testing.T) {
 	q := NewMPMCQueue(10)
 	for i := 0; i < 10; i++ {
 		q.Enqueue(i)
@@ -32,7 +32,7 @@ func TestQueueEnqueueDequeue(t *testing.T) {
 	}
 }
 
-func TestQueueEnqueueBlocksOnFull(t *testing.T) {
+func TestMPMCQueueEnqueueBlocksOnFull(t *testing.T) {
 	q := NewMPMCQueue(1)
 	q.Enqueue("foo")
 	cdone := make(chan bool)
@@ -52,7 +52,7 @@ func TestQueueEnqueueBlocksOnFull(t *testing.T) {
 	<-cdone
 }
 
-func TestQueueDequeueBlocksOnEmpty(t *testing.T) {
+func TestMPMCQueueDequeueBlocksOnEmpty(t *testing.T) {
 	q := NewMPMCQueue(2)
 	cdone := make(chan bool)
 	flag := int32(0)
@@ -69,7 +69,7 @@ func TestQueueDequeueBlocksOnEmpty(t *testing.T) {
 	<-cdone
 }
 
-func TestQueueTryEnqueueDequeue(t *testing.T) {
+func TestMPMCQueueTryEnqueueDequeue(t *testing.T) {
 	q := NewMPMCQueue(10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(i) {
@@ -83,7 +83,7 @@ func TestQueueTryEnqueueDequeue(t *testing.T) {
 	}
 }
 
-func TestQueueTryEnqueueOnFull(t *testing.T) {
+func TestMPMCQueueTryEnqueueOnFull(t *testing.T) {
 	q := NewMPMCQueue(1)
 	if !q.TryEnqueue("foo") {
 		t.Error("failed to enqueue initial item")
@@ -93,14 +93,14 @@ func TestQueueTryEnqueueOnFull(t *testing.T) {
 	}
 }
 
-func TestQueueTryDequeueBlocksOnEmpty(t *testing.T) {
+func TestMPMCQueueTryDequeueOnEmpty(t *testing.T) {
 	q := NewMPMCQueue(2)
 	if _, ok := q.TryDequeue(); ok {
 		t.Error("got success for enqueue on empty queue")
 	}
 }
 
-func hammerQueueBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
+func hammerMPMCQueueBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
 	runtime.GOMAXPROCS(gomaxprocs)
 	q := NewMPMCQueue(numThreads)
 	startwg := sync.WaitGroup{}
@@ -142,21 +142,21 @@ func hammerQueueBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) 
 	}
 }
 
-func TestQueueBlockingCalls(t *testing.T) {
+func TestMPMCQueueBlockingCalls(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
 	n := 100
 	if testing.Short() {
 		n = 10
 	}
-	hammerQueueBlockingCalls(t, 1, 100*n, n)
-	hammerQueueBlockingCalls(t, 1, 1000*n, 10*n)
-	hammerQueueBlockingCalls(t, 4, 100*n, n)
-	hammerQueueBlockingCalls(t, 4, 1000*n, 10*n)
-	hammerQueueBlockingCalls(t, 8, 100*n, n)
-	hammerQueueBlockingCalls(t, 8, 1000*n, 10*n)
+	hammerMPMCQueueBlockingCalls(t, 1, 100*n, n)
+	hammerMPMCQueueBlockingCalls(t, 1, 1000*n, 10*n)
+	hammerMPMCQueueBlockingCalls(t, 4, 100*n, n)
+	hammerMPMCQueueBlockingCalls(t, 4, 1000*n, 10*n)
+	hammerMPMCQueueBlockingCalls(t, 8, 100*n, n)
+	hammerMPMCQueueBlockingCalls(t, 8, 1000*n, 10*n)
 }
 
-func hammerQueueNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
+func hammerMPMCQueueNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
 	runtime.GOMAXPROCS(gomaxprocs)
 	q := NewMPMCQueue(numThreads)
 	startwg := sync.WaitGroup{}
@@ -209,18 +209,18 @@ func hammerQueueNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads in
 	}
 }
 
-func TestQueueNonBlockingCalls(t *testing.T) {
+func TestMPMCQueueNonBlockingCalls(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
 	n := 10
 	if testing.Short() {
 		n = 1
 	}
-	hammerQueueNonBlockingCalls(t, 1, n, n)
-	hammerQueueNonBlockingCalls(t, 2, 10*n, 2*n)
-	hammerQueueNonBlockingCalls(t, 4, 100*n, 4*n)
+	hammerMPMCQueueNonBlockingCalls(t, 1, n, n)
+	hammerMPMCQueueNonBlockingCalls(t, 2, 10*n, 2*n)
+	hammerMPMCQueueNonBlockingCalls(t, 4, 100*n, 4*n)
 }
 
-func benchmarkQueueProdCons(b *testing.B, queueSize, localWork int) {
+func benchmarkMPMCQueue(b *testing.B, queueSize, localWork int) {
 	callsPerSched := queueSize
 	procs := runtime.GOMAXPROCS(-1) / 2
 	if procs == 0 {
@@ -265,15 +265,15 @@ func benchmarkQueueProdCons(b *testing.B, queueSize, localWork int) {
 	}
 }
 
-func BenchmarkQueueProdCons(b *testing.B) {
-	benchmarkQueueProdCons(b, 1000, 0)
+func BenchmarkMPMCQueue(b *testing.B) {
+	benchmarkMPMCQueue(b, 1000, 0)
 }
 
-func BenchmarkQueueProdConsWork100(b *testing.B) {
-	benchmarkQueueProdCons(b, 1000, 100)
+func BenchmarkMPMCQueueWork100(b *testing.B) {
+	benchmarkMPMCQueue(b, 1000, 100)
 }
 
-func benchmarkChanProdCons(b *testing.B, chanSize, localWork int) {
+func benchmarkMPMCChan(b *testing.B, chanSize, localWork int) {
 	callsPerSched := chanSize
 	procs := runtime.GOMAXPROCS(-1) / 2
 	if procs == 0 {
@@ -318,10 +318,10 @@ func benchmarkChanProdCons(b *testing.B, chanSize, localWork int) {
 	}
 }
 
-func BenchmarkChanProdCons(b *testing.B) {
-	benchmarkChanProdCons(b, 1000, 0)
+func BenchmarkMPMCChan(b *testing.B) {
+	benchmarkMPMCChan(b, 1000, 0)
 }
 
-func BenchmarkChanProdConsWork100(b *testing.B) {
-	benchmarkChanProdCons(b, 1000, 100)
+func BenchmarkMPMCChanWork100(b *testing.B) {
+	benchmarkMPMCChan(b, 1000, 100)
 }

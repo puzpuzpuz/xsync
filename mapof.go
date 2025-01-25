@@ -405,11 +405,11 @@ func (m *MapOf[K, V]) doCompute(
 			if b.next == nil {
 				if emptyb != nil {
 					// Insertion into an existing bucket.
-					var zeroedV V
-					newValue, del := valueFn(zeroedV, false)
+					var zeroV V
+					newValue, del := valueFn(zeroV, false)
 					if del {
 						rootb.mu.Unlock()
-						return zeroedV, false
+						return zeroV, false
 					}
 					newe := new(entryOf[K, V])
 					newe.key = key
@@ -429,8 +429,8 @@ func (m *MapOf[K, V]) doCompute(
 					goto compute_attempt
 				}
 				// Insertion into a new bucket.
-				var zeroedV V
-				newValue, del := valueFn(zeroedV, false)
+				var zeroV V
+				newValue, del := valueFn(zeroV, false)
 				if del {
 					rootb.mu.Unlock()
 					return newValue, false

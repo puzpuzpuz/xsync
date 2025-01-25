@@ -18,13 +18,13 @@ import (
 	. "github.com/puzpuzpuz/xsync/v3"
 )
 
-func TestQueueOf_InvalidSize(t *testing.T) {
+func TestMPMCQueueOf_InvalidSize(t *testing.T) {
 	defer func() { recover() }()
 	NewMPMCQueueOf[int](0)
 	t.Fatal("no panic detected")
 }
 
-func TestQueueOfEnqueueDequeueInt(t *testing.T) {
+func TestMPMCQueueOfEnqueueDequeueInt(t *testing.T) {
 	q := NewMPMCQueueOf[int](10)
 	for i := 0; i < 10; i++ {
 		q.Enqueue(i)
@@ -36,7 +36,7 @@ func TestQueueOfEnqueueDequeueInt(t *testing.T) {
 	}
 }
 
-func TestQueueOfEnqueueDequeueString(t *testing.T) {
+func TestMPMCQueueOfEnqueueDequeueString(t *testing.T) {
 	q := NewMPMCQueueOf[string](10)
 	for i := 0; i < 10; i++ {
 		q.Enqueue(strconv.Itoa(i))
@@ -48,7 +48,7 @@ func TestQueueOfEnqueueDequeueString(t *testing.T) {
 	}
 }
 
-func TestQueueOfEnqueueDequeueStruct(t *testing.T) {
+func TestMPMCQueueOfEnqueueDequeueStruct(t *testing.T) {
 	type foo struct {
 		bar int
 		baz int
@@ -64,7 +64,7 @@ func TestQueueOfEnqueueDequeueStruct(t *testing.T) {
 	}
 }
 
-func TestQueueOfEnqueueDequeueStructRef(t *testing.T) {
+func TestMPMCQueueOfEnqueueDequeueStructRef(t *testing.T) {
 	type foo struct {
 		bar int
 		baz int
@@ -84,7 +84,7 @@ func TestQueueOfEnqueueDequeueStructRef(t *testing.T) {
 	}
 }
 
-func TestQueueOfEnqueueBlocksOnFull(t *testing.T) {
+func TestMPMCQueueOfEnqueueBlocksOnFull(t *testing.T) {
 	q := NewMPMCQueueOf[string](1)
 	q.Enqueue("foo")
 	cdone := make(chan bool)
@@ -104,7 +104,7 @@ func TestQueueOfEnqueueBlocksOnFull(t *testing.T) {
 	<-cdone
 }
 
-func TestQueueOfDequeueBlocksOnEmpty(t *testing.T) {
+func TestMPMCQueueOfDequeueBlocksOnEmpty(t *testing.T) {
 	q := NewMPMCQueueOf[string](2)
 	cdone := make(chan bool)
 	flag := int32(0)
@@ -121,7 +121,7 @@ func TestQueueOfDequeueBlocksOnEmpty(t *testing.T) {
 	<-cdone
 }
 
-func TestQueueOfTryEnqueueDequeue(t *testing.T) {
+func TestMPMCQueueOfTryEnqueueDequeue(t *testing.T) {
 	q := NewMPMCQueueOf[int](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(i) {
@@ -135,7 +135,7 @@ func TestQueueOfTryEnqueueDequeue(t *testing.T) {
 	}
 }
 
-func TestQueueOfTryEnqueueOnFull(t *testing.T) {
+func TestMPMCQueueOfTryEnqueueOnFull(t *testing.T) {
 	q := NewMPMCQueueOf[string](1)
 	if !q.TryEnqueue("foo") {
 		t.Error("failed to enqueue initial item")
@@ -145,14 +145,14 @@ func TestQueueOfTryEnqueueOnFull(t *testing.T) {
 	}
 }
 
-func TestQueueOfTryDequeueBlocksOnEmpty(t *testing.T) {
+func TestMPMCQueueOfTryDequeueOnEmpty(t *testing.T) {
 	q := NewMPMCQueueOf[int](2)
 	if _, ok := q.TryDequeue(); ok {
 		t.Error("got success for enqueue on empty queue")
 	}
 }
 
-func hammerQueueOfBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
+func hammerMPMCQueueOfBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
 	runtime.GOMAXPROCS(gomaxprocs)
 	q := NewMPMCQueueOf[int](numThreads)
 	startwg := sync.WaitGroup{}
@@ -194,21 +194,21 @@ func hammerQueueOfBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int
 	}
 }
 
-func TestQueueOfBlockingCalls(t *testing.T) {
+func TestMPMCQueueOfBlockingCalls(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
 	n := 100
 	if testing.Short() {
 		n = 10
 	}
-	hammerQueueOfBlockingCalls(t, 1, 100*n, n)
-	hammerQueueOfBlockingCalls(t, 1, 1000*n, 10*n)
-	hammerQueueOfBlockingCalls(t, 4, 100*n, n)
-	hammerQueueOfBlockingCalls(t, 4, 1000*n, 10*n)
-	hammerQueueOfBlockingCalls(t, 8, 100*n, n)
-	hammerQueueOfBlockingCalls(t, 8, 1000*n, 10*n)
+	hammerMPMCQueueOfBlockingCalls(t, 1, 100*n, n)
+	hammerMPMCQueueOfBlockingCalls(t, 1, 1000*n, 10*n)
+	hammerMPMCQueueOfBlockingCalls(t, 4, 100*n, n)
+	hammerMPMCQueueOfBlockingCalls(t, 4, 1000*n, 10*n)
+	hammerMPMCQueueOfBlockingCalls(t, 8, 100*n, n)
+	hammerMPMCQueueOfBlockingCalls(t, 8, 1000*n, 10*n)
 }
 
-func hammerQueueOfNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
+func hammerMPMCQueueOfNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
 	runtime.GOMAXPROCS(gomaxprocs)
 	q := NewMPMCQueueOf[int](numThreads)
 	startwg := sync.WaitGroup{}
@@ -261,18 +261,18 @@ func hammerQueueOfNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads 
 	}
 }
 
-func TestQueueOfNonBlockingCalls(t *testing.T) {
+func TestMPMCQueueOfNonBlockingCalls(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
 	n := 10
 	if testing.Short() {
 		n = 1
 	}
-	hammerQueueOfNonBlockingCalls(t, 1, n, n)
-	hammerQueueOfNonBlockingCalls(t, 2, 10*n, 2*n)
-	hammerQueueOfNonBlockingCalls(t, 4, 100*n, 4*n)
+	hammerMPMCQueueOfNonBlockingCalls(t, 1, n, n)
+	hammerMPMCQueueOfNonBlockingCalls(t, 2, 10*n, 2*n)
+	hammerMPMCQueueOfNonBlockingCalls(t, 4, 100*n, 4*n)
 }
 
-func benchmarkQueueOfProdCons(b *testing.B, queueSize, localWork int) {
+func benchmarkMPMCQueueOf(b *testing.B, queueSize, localWork int) {
 	callsPerSched := queueSize
 	procs := runtime.GOMAXPROCS(-1) / 2
 	if procs == 0 {
@@ -317,10 +317,10 @@ func benchmarkQueueOfProdCons(b *testing.B, queueSize, localWork int) {
 	}
 }
 
-func BenchmarkQueueOfProdCons(b *testing.B) {
-	benchmarkQueueOfProdCons(b, 1000, 0)
+func BenchmarkMPMCQueueOf(b *testing.B) {
+	benchmarkMPMCQueueOf(b, 1000, 0)
 }
 
-func BenchmarkOfQueueProdConsWork100(b *testing.B) {
-	benchmarkQueueOfProdCons(b, 1000, 100)
+func BenchmarkMPMCQueueOfWork100(b *testing.B) {
+	benchmarkMPMCQueueOf(b, 1000, 100)
 }
