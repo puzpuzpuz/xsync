@@ -39,7 +39,7 @@ const (
 // (immutable K/V pair structs instead of atomic snapshots)
 // and C++'s absl::flat_hash_map (meta memory and SWAR-based
 // lookups).
-type MapOf[K comparable, V any] struct {
+type MapOf[K any, V any] struct {
 	totalGrowths int64
 	totalShrinks int64
 	resizing     int64          // resize in progress flag; updated atomically
@@ -47,11 +47,12 @@ type MapOf[K comparable, V any] struct {
 	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
 	table        unsafe.Pointer // *mapOfTable
 	hasher       func(K, uint64) uint64
+	cmp          func(K, K) bool
 	minTableLen  int
 	growOnly     bool
 }
 
-type mapOfTable[K comparable, V any] struct {
+type mapOfTable[K any, V any] struct {
 	buckets []bucketOfPadded
 	// striped counter for number of table entries;
 	// used to determine if a table shrinking is needed
@@ -76,7 +77,7 @@ type bucketOf struct {
 }
 
 // entryOf is an immutable map entry.
-type entryOf[K comparable, V any] struct {
+type entryOf[K any, V any] struct {
 	key   K
 	value V
 }
@@ -95,6 +96,19 @@ func NewMapOfWithHasher[K comparable, V any](
 	hasher func(K, uint64) uint64,
 	options ...func(*MapConfig),
 ) *MapOf[K, V] {
+	cmp := func(a, b K) bool { return a == b }
+	return NewMapOfWithMethods[K, V](hasher, cmp, options...)
+}
+
+// NewMapOfWithHasher creates a new MapOf instance configured with
+// the given hasher and options. The hash function is used instead
+// of the built-in hash function configured when a map is created
+// with the NewMapOf function.
+func NewMapOfWithMethods[K any, V any](
+	hasher func(K, uint64) uint64,
+	cmp func(K, K) bool,
+	options ...func(*MapConfig),
+) *MapOf[K, V] {
 	c := &MapConfig{
 		sizeHint: defaultMinMapTableLen * entriesPerMapOfBucket,
 	}
@@ -105,6 +119,7 @@ func NewMapOfWithHasher[K comparable, V any](
 	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
 	m.hasher = hasher
+	m.cmp = cmp
 	var table *mapOfTable[K, V]
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapOfBucket {
 		table = newMapOfTable[K, V](defaultMinMapTableLen)
@@ -129,7 +144,7 @@ func NewMapOfPresized[K comparable, V any](sizeHint int) *MapOf[K, V] {
 	return NewMapOf[K, V](WithPresize(sizeHint))
 }
 
-func newMapOfTable[K comparable, V any](minTableLen int) *mapOfTable[K, V] {
+func newMapOfTable[K any, V any](minTableLen int) *mapOfTable[K, V] {
 	buckets := make([]bucketOfPadded, minTableLen)
 	for i := range buckets {
 		buckets[i].meta = defaultMeta
@@ -182,7 +197,7 @@ func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 			eptr := atomic.LoadPointer(&b.entries[idx])
 			if eptr != nil {
 				e := (*entryOf[K, V])(eptr)
-				if e.key == key {
+				if m.cmp(e.key, key) {
 					return e.value, true
 				}
 			}
@@ -381,7 +396,7 @@ func (m *MapOf[K, V]) doCompute(
 				eptr := b.entries[idx]
 				if eptr != nil {
 					e := (*entryOf[K, V])(eptr)
-					if e.key == key {
+					if m.cmp(e.key, key) {
 						if loadIfExists {
 							rootb.mu.Unlock()
 							return e.value, !computeOnly
@@ -556,7 +571,7 @@ func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
 	m.resizeMu.Unlock()
 }
 
-func copyBucketOf[K comparable, V any](
+func copyBucketOf[K any, V any](
 	b *bucketOfPadded,
 	destTable *mapOfTable[K, V],
 	hasher func(K, uint64) uint64,

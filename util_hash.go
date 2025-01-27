@@ -26,7 +26,18 @@ func hashString(s string, seed uint64) uint64 {
 		return seed
 	}
 	strh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	return uint64(runtime_memhash(unsafe.Pointer(strh.Data), uintptr(seed), uintptr(strh.Len)))
+	return runtime_memhash64(unsafe.Pointer(strh.Data), seed, uintptr(strh.Len))
+}
+
+// same as runtime_memhash, but always returns a uint64
+func runtime_memhash64(p unsafe.Pointer, seed uint64, length uintptr) uint64 {
+	if unsafe.Sizeof(uintptr(0)) == 8 {
+		return uint64(runtime_memhash(p, uintptr(seed), length))
+	}
+
+	lo := runtime_memhash(p, uintptr(seed), length)
+	hi := runtime_memhash(p, uintptr(seed>>32), length)
+	return uint64(hi)<<32 | uint64(lo)
 }
 
 //go:noescape
@@ -75,3 +86,36 @@ func runtime_typehash64(t uintptr, p unsafe.Pointer, seed uint64) uint64 {
 //go:noescape
 //go:linkname runtime_typehash runtime.typehash
 func runtime_typehash(t uintptr, p unsafe.Pointer, h uintptr) uintptr
+
+// Hasher returns a fast hash function for the given comparable type, based on
+// runtime.typehash.
+// The type T must not contain interfaces.
+func Hasher[T comparable]() func(T, uint64) uint64 {
+	return defaultHasher[T]()
+}
+
+// HashAnything computes the hash of a given object, based on runtime.typehash.
+//
+// Deprecated: Use xsync.Hasher instead.
+func HashAnything[T comparable](data T, seed uint64) uint64 {
+	return defaultHasher[T]()(data, seed)
+}
+
+// HashString computes the hash of a given string, based on runtime.memhash.
+func HashString(s string, seed uint64) uint64 {
+	return hashString(s, seed)
+}
+
+// HashBytes computes the hash of a given byte slice, based on runtime.memhash.
+func HashBytes(data []byte, seed uint64) uint64 {
+	if len(data) == 0 {
+		return seed
+	}
+	sliceh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+	return runtime_memhash64(unsafe.Pointer(sliceh.Data), seed, uintptr(sliceh.Len))
+}
+
+// HashMemory computes the hash of a given memory location, based on runtime.memhash.
+func HashMemory(data unsafe.Pointer, seed uint64, size uintptr) uint64 {
+	return runtime_memhash64(data, seed, size)
+}
