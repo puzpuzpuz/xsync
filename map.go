@@ -16,6 +16,7 @@ const (
 	mapGrowHint   mapResizeHint = 0
 	mapShrinkHint mapResizeHint = 1
 	mapClearHint  mapResizeHint = 2
+	mapCopyHint   mapResizeHint = 3
 )
 
 const (
@@ -847,8 +848,10 @@ type MapStats struct {
 	MaxEntries int
 	// TotalGrowths is the number of times the hash table grew.
 	TotalGrowths int64
-	// TotalGrowths is the number of times the hash table shrinked.
+	// TotalShrinks is the number of times the hash table shrinked.
 	TotalShrinks int64
+	// TotalCopies is the number of times the hash table copied (only CowMapOf).
+	TotalCopies int64
 }
 
 // ToString returns string representation of map stats.
@@ -866,6 +869,7 @@ func (s *MapStats) ToString() string {
 	sb.WriteString(fmt.Sprintf("MaxEntries:   %d\n", s.MaxEntries))
 	sb.WriteString(fmt.Sprintf("TotalGrowths: %d\n", s.TotalGrowths))
 	sb.WriteString(fmt.Sprintf("TotalShrinks: %d\n", s.TotalShrinks))
+	sb.WriteString(fmt.Sprintf("TotalCopies:  %d\n", s.TotalCopies))
 	sb.WriteString("}\n")
 	return sb.String()
 }
