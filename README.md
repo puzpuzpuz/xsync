@@ -80,14 +80,19 @@ m.Store(Point{42, 42}, 42)
 v, ok := m.Load(point{42, 42})
 ```
 
-Apart from `Range` method available for map iteration, there are also `ToPlainMap`/`ToPlainMapOf` utility functions to convert a `Map`/`MapOf` to a built-in Go's `map`:
+
+`CowMapOf[K, V]` is another map implementation with copy-on-write (CoW) semantics. It is similar to `MapOf[K, V]`, but with the addition of a `Copy` method that creates a copy of the map and marks both the original and copied data as "read only". The `Copy` operation itself is fast, as no actual data copying occurs. Actual copying is deferred until the first write to either the original or copied map, which may slightly slow down first writers after the copy was made.
+
+`CowMapOf` is useful in scenarios where you need to take snapshots of data while ensuring that changes made after the copy process begins are not included in the snapshot. By creating a copy of the map, `CowMapOf` allows you to iterate over the copied data without blocking the original map, enabling other operations to proceed concurrently on the original map. This makes it suitable for applications that require non-blocking, consistent snapshots of data, ensuring both performance and accuracy.
+
+Apart from `Range` method available for map iteration, there are also `ToPlainMap`/`ToPlainMapOf`/`ToPlainCowMapOf` utility functions to convert a `Map`/`MapOf`/`CowMapOf` to a built-in Go's `map`:
 ```go
 m := xsync.NewMapOf[int, int]()
 m.Store(42, 42)
 pm := xsync.ToPlainMapOf(m)
 ```
 
-Both `Map` and `MapOf` use the built-in Golang's hash function which has DDOS protection. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation. However, for smaller keys this hash function has some overhead. So, if you don't need DDOS protection, you may provide a custom hash function when creating a `MapOf`. For instance, Murmur3 finalizer does a decent job when it comes to integers:
+Both `Map`, `MapOf` and `CowMapOf` use the built-in Golang's hash function which has DDOS protection. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation. However, for smaller keys this hash function has some overhead. So, if you don't need DDOS protection, you may provide a custom hash function when creating a `MapOf` or `CowMapOf`. For instance, Murmur3 finalizer does a decent job when it comes to integers:
 
 ```go
 m := NewMapOfWithHasher[int, int](func(i int, _ uint64) uint64 {
