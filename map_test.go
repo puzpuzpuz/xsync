@@ -496,6 +496,114 @@ func TestMapCompute(t *testing.T) {
 	}
 }
 
+func TestMapComputeV2(t *testing.T) {
+	var zeroV interface{}
+	m := NewMap()
+	// Store a new value.
+	v, ok := m.ComputeV2("foobar", func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp) {
+		if oldValue != zeroV {
+			t.Fatalf("oldValue should be empty interface{} when computing a new value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when computing a new value")
+		}
+		newValue = 42
+		op = UpdateOp
+		return
+	})
+	if v.(int) != 42 {
+		t.Fatalf("v should be 42 when computing a new value: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when computing a new value")
+	}
+	// Update an existing value.
+	v, ok = m.ComputeV2("foobar", func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp) {
+		if oldValue.(int) != 42 {
+			t.Fatalf("oldValue should be 42 when updating the value: %d", oldValue)
+		}
+		if !loaded {
+			t.Fatal("loaded should be true when updating the value")
+		}
+		newValue = oldValue.(int) + 42
+		op = UpdateOp
+		return
+	})
+	if v.(int) != 84 {
+		t.Fatalf("v should be 84 when updating the value: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when updating the value")
+	}
+	// Check that Noop doesn't update the value
+	v, ok = m.ComputeV2("foobar", func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp) {
+		return 0, Noop
+	})
+	if v.(int) != 84 {
+		t.Fatalf("v should be 84 after using Noop: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when updating the value")
+	}
+	// Delete an existing value.
+	v, ok = m.ComputeV2("foobar", func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp) {
+		if oldValue != 84 {
+			t.Fatalf("oldValue should be 84 when deleting the value: %d", oldValue)
+		}
+		if !loaded {
+			t.Fatal("loaded should be true when deleting the value")
+		}
+		op = DeleteOp
+		return
+	})
+	if v.(int) != 84 {
+		t.Fatalf("v should be 84 when deleting the value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when deleting the value")
+	}
+	// Try to delete a non-existing value. Notice different key.
+	v, ok = m.ComputeV2("barbaz", func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp) {
+		var zeroV interface{}
+		if oldValue != zeroV {
+			t.Fatalf("oldValue should be empty interface{} when trying to delete a non-existing value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when trying to delete a non-existing value")
+		}
+		// We're returning a non-zero value, but the map should ignore it.
+		newValue = 42
+		op = DeleteOp
+		return
+	})
+	if v != zeroV {
+		t.Fatalf("v should be empty interface{} when trying to delete a non-existing value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when trying to delete a non-existing value")
+	}
+	// Try Noop on a non-existing value
+	v, ok = m.ComputeV2("barbaz", func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp) {
+		var zeroV interface{}
+		if oldValue != zeroV {
+			t.Fatalf("oldValue should be empty interface{} when trying to delete a non-existing value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when trying to delete a non-existing value")
+		}
+		// We're returning a non-zero value, but the map should ignore it.
+		newValue = 42
+		op = Noop
+		return
+	})
+	if v != zeroV {
+		t.Fatalf("v should be empty interface{} when trying to delete a non-existing value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when trying to delete a non-existing value")
+	}
+}
+
 func TestMapStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap()
@@ -996,11 +1104,11 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 func parallelComputer(m *Map, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
-			m.Compute(strconv.Itoa(j), func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool) {
+			m.ComputeV2(strconv.Itoa(j), func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp) {
 				if !loaded {
-					return uint64(1), false
+					return uint64(1), UpdateOp
 				}
-				return uint64(oldValue.(uint64) + 1), false
+				return uint64(oldValue.(uint64) + 1), UpdateOp
 			})
 		}
 	}

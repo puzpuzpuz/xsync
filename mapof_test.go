@@ -506,6 +506,111 @@ func TestMapOfCompute(t *testing.T) {
 	}
 }
 
+func TestMapOfComputeV2(t *testing.T) {
+	m := NewMapOf[string, int]()
+	// Store a new value.
+	v, ok := m.ComputeV2("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+		if oldValue != 0 {
+			t.Fatalf("oldValue should be 0 when computing a new value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when computing a new value")
+		}
+		newValue = 42
+		op = UpdateOp
+		return
+	})
+	if v != 42 {
+		t.Fatalf("v should be 42 when computing a new value: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when computing a new value")
+	}
+	// Update an existing value.
+	v, ok = m.ComputeV2("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+		if oldValue != 42 {
+			t.Fatalf("oldValue should be 42 when updating the value: %d", oldValue)
+		}
+		if !loaded {
+			t.Fatal("loaded should be true when updating the value")
+		}
+		newValue = oldValue + 42
+		op = UpdateOp
+		return
+	})
+	if v != 84 {
+		t.Fatalf("v should be 84 when updating the value: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when updating the value")
+	}
+	// Check that Noop doesn't update the value
+	v, ok = m.ComputeV2("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+		return 0, Noop
+	})
+	if v != 84 {
+		t.Fatalf("v should be 84 after using Noop: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when updating the value")
+	}
+	// Delete an existing value.
+	v, ok = m.ComputeV2("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+		if oldValue != 84 {
+			t.Fatalf("oldValue should be 84 when deleting the value: %d", oldValue)
+		}
+		if !loaded {
+			t.Fatal("loaded should be true when deleting the value")
+		}
+		op = DeleteOp
+		return
+	})
+	if v != 84 {
+		t.Fatalf("v should be 84 when deleting the value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when deleting the value")
+	}
+	// Try to delete a non-existing value. Notice different key.
+	v, ok = m.ComputeV2("barbaz", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+		if oldValue != 0 {
+			t.Fatalf("oldValue should be 0 when trying to delete a non-existing value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when trying to delete a non-existing value")
+		}
+		// We're returning a non-zero value, but the map should ignore it.
+		newValue = 42
+		op = DeleteOp
+		return
+	})
+	if v != 0 {
+		t.Fatalf("v should be 0 when trying to delete a non-existing value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when trying to delete a non-existing value")
+	}
+	// Try Noop on a non-existing value
+	v, ok = m.ComputeV2("barbaz", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+		if oldValue != 0 {
+			t.Fatalf("oldValue should be 0 when trying to delete a non-existing value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when trying to delete a non-existing value")
+		}
+		// We're returning a non-zero value, but the map should ignore it.
+		newValue = 42
+		op = Noop
+		return
+	})
+	if v != 0 {
+		t.Fatalf("v should be 0 when trying to delete a non-existing value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when trying to delete a non-existing value")
+	}
+}
+
 func TestMapOfStringStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMapOf[string, int]()
@@ -1070,8 +1175,8 @@ func TestMapOfParallelStoresAndDeletes(t *testing.T) {
 func parallelTypedComputer(m *MapOf[uint64, uint64], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
-			m.Compute(uint64(j), func(oldValue uint64, loaded bool) (newValue uint64, delete bool) {
-				return oldValue + 1, false
+			m.ComputeV2(uint64(j), func(oldValue uint64, loaded bool) (newValue uint64, op ComputeOp) {
+				return oldValue + 1, UpdateOp
 			})
 		}
 	}
@@ -1495,6 +1600,51 @@ func BenchmarkMapOfRange(b *testing.B) {
 				return true
 			})
 			_ = foo
+		}
+	})
+}
+
+// Tests noop performance of ComputeV2
+//
+//	% go test -benchmem -bench=BenchmarkCompute -run='^$' -count=10 . | benchstat -col /func -
+//	goos: darwin
+//	goarch: amd64
+//	pkg: github.com/puzpuzpuz/xsync/v3
+//	cpu: VirtualApple @ 2.50GHz
+//	          │   Compute   │              ComputeV2              │
+//	          │   sec/op    │   sec/op     vs base                │
+//	Compute-8   42.29n ± 2%   14.20n ± 1%  -66.42% (p=0.000 n=10)
+//
+//	          │  Compute   │           ComputeV2            │
+//	          │    B/op    │    B/op     vs base            │
+//	Compute-8   0.000 ± 0%   0.000 ± 0%  ~ (p=1.000 n=10) ¹
+//	¹ all samples are equal
+//
+//	          │  Compute   │           ComputeV2            │
+//	          │ allocs/op  │ allocs/op   vs base            │
+//	Compute-8   0.000 ± 0%   0.000 ± 0%  ~ (p=1.000 n=10) ¹
+//	¹ all samples are equal
+func BenchmarkCompute(b *testing.B) {
+	b.Run("func=Compute", func(b *testing.B) {
+		m := NewMapOf[struct{}, bool]()
+		for i := 0; i < b.N; i++ {
+			m.Compute(struct{}{}, func(oldValue bool, loaded bool) (newValue bool, delete bool) {
+				if !loaded {
+					return true, false
+				}
+				return oldValue, true
+			})
+		}
+	})
+	b.Run("func=ComputeV2", func(b *testing.B) {
+		m := NewMapOf[struct{}, bool]()
+		for i := 0; i < b.N; i++ {
+			m.ComputeV2(struct{}{}, func(oldValue bool, loaded bool) (newValue bool, op ComputeOp) {
+				if !loaded {
+					return true, UpdateOp
+				}
+				return oldValue, Noop
+			})
 		}
 	})
 }

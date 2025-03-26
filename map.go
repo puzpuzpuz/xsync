@@ -256,8 +256,8 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 func (m *Map) Store(key string, value interface{}) {
 	m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
-			return value, false
+		func(interface{}, bool) (interface{}, ComputeOp) {
+			return value, UpdateOp
 		},
 		false,
 		false,
@@ -270,8 +270,8 @@ func (m *Map) Store(key string, value interface{}) {
 func (m *Map) LoadOrStore(key string, value interface{}) (actual interface{}, loaded bool) {
 	return m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
-			return value, false
+		func(interface{}, bool) (interface{}, ComputeOp) {
+			return value, UpdateOp
 		},
 		true,
 		false,
@@ -286,8 +286,8 @@ func (m *Map) LoadOrStore(key string, value interface{}) (actual interface{}, lo
 func (m *Map) LoadAndStore(key string, value interface{}) (actual interface{}, loaded bool) {
 	return m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
-			return value, false
+		func(interface{}, bool) (interface{}, ComputeOp) {
+			return value, UpdateOp
 		},
 		false,
 		false,
@@ -306,8 +306,8 @@ func (m *Map) LoadAndStore(key string, value interface{}) (actual interface{}, l
 func (m *Map) LoadOrCompute(key string, valueFn func() interface{}) (actual interface{}, loaded bool) {
 	return m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
-			return valueFn(), false
+		func(interface{}, bool) (interface{}, ComputeOp) {
+			return valueFn(), UpdateOp
 		},
 		true,
 		false,
@@ -331,17 +331,30 @@ func (m *Map) LoadOrTryCompute(
 ) (value interface{}, loaded bool) {
 	return m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
+		func(interface{}, bool) (interface{}, ComputeOp) {
 			nv, c := valueFn()
 			if !c {
-				return nv, false
+				return nv, UpdateOp
 			}
-			return nil, true
+			return nil, DeleteOp
 		},
 		true,
 		false,
 	)
 }
+
+type ComputeOp int
+
+const (
+	// Noop signals to ComputeV2 to not do anything as a result of executing the lambda. If the entry was
+	// not present in the map, nothing happens, and if it was present, the returned value is ignored.
+	Noop ComputeOp = iota
+	// UpdateOp signals to ComputeV2 to update the entry to the value returned by the lambda, creating it
+	// if necessary.
+	UpdateOp
+	// DeleteOp signals to ComputeV2 to always delete the entry from the map.
+	DeleteOp
+)
 
 // Compute either sets the computed new value for the key or deletes
 // the value for the key. When the delete result of the valueFn function
@@ -359,6 +372,40 @@ func (m *Map) Compute(
 	key string,
 	valueFn func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool),
 ) (actual interface{}, ok bool) {
+	return m.ComputeV2(key, func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp) {
+		newValue, shouldDelete := valueFn(oldValue, loaded)
+		if shouldDelete {
+			op = DeleteOp
+		} else {
+			op = UpdateOp
+		}
+		return newValue, op
+	})
+}
+
+// ComputeV2 either sets the computed new value for the key,
+// deletes the value for the key, or does nothing, based on the
+// returned [ComputeOp]. When the op returned by valueFn is
+// [UpdateOp], the value is updated to the new value. If it is
+// [DeleteOp], the entry is removed from the map altogether. And
+// finally, if the op is [Noop] then the entry is left as-is. In
+// other words, if it did not already exist, it is not created,
+// and if it did exist, it is not updated. This is useful to
+// synchronously execute some operation on the value without
+// incurring the cost of updating the map every time. The ok
+// result indicates whether the entry is present in the map. The
+// actual result contains the value of the map if a corresponding
+// entry is present, or the zero value otherwise. See the example
+// for a few use cases.
+//
+// This call locks a hash table bucket while the compute function
+// is executed. It means that modifications on other entries in
+// the bucket will be blocked until the valueFn executes. Consider
+// this when the function includes long-running operations.
+func (m *Map) ComputeV2(
+	key string,
+	valueFn func(oldValue interface{}, loaded bool) (newValue interface{}, op ComputeOp),
+) (actual interface{}, ok bool) {
 	return m.doCompute(key, valueFn, false, true)
 }
 
@@ -368,8 +415,8 @@ func (m *Map) Compute(
 func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 	return m.doCompute(
 		key,
-		func(value interface{}, loaded bool) (interface{}, bool) {
-			return value, true
+		func(value interface{}, loaded bool) (interface{}, ComputeOp) {
+			return value, DeleteOp
 		},
 		false,
 		false,
@@ -380,8 +427,8 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 func (m *Map) Delete(key string) {
 	m.doCompute(
 		key,
-		func(value interface{}, loaded bool) (interface{}, bool) {
-			return value, true
+		func(value interface{}, loaded bool) (interface{}, ComputeOp) {
+			return value, DeleteOp
 		},
 		false,
 		false,
@@ -390,7 +437,7 @@ func (m *Map) Delete(key string) {
 
 func (m *Map) doCompute(
 	key string,
-	valueFn func(oldValue interface{}, loaded bool) (interface{}, bool),
+	valueFn func(oldValue interface{}, loaded bool) (interface{}, ComputeOp),
 	loadIfExists, computeOnly bool,
 ) (interface{}, bool) {
 	// Read-only path.
@@ -453,8 +500,9 @@ func (m *Map) doCompute(
 					// snapshot won't be correct in case of multiple Store calls
 					// using the same value.
 					oldValue := derefValue(vp)
-					newValue, del := valueFn(oldValue, true)
-					if del {
+					newValue, op := valueFn(oldValue, true)
+					switch op {
+					case DeleteOp:
 						// Deletion.
 						// First we update the value, then the key.
 						// This is important for atomic snapshot states.
@@ -472,12 +520,15 @@ func (m *Map) doCompute(
 							m.resize(table, mapShrinkHint)
 						}
 						return oldValue, !computeOnly
+					case UpdateOp:
+						nvp := unsafe.Pointer(&newValue)
+						if assertionsEnabled && vp == nvp {
+							panic("non-unique value pointer")
+						}
+						atomic.StorePointer(&b.values[i], nvp)
+					default:
+						newValue = oldValue
 					}
-					nvp := unsafe.Pointer(&newValue)
-					if assertionsEnabled && vp == nvp {
-						panic("non-unique value pointer")
-					}
-					atomic.StorePointer(&b.values[i], nvp)
 					unlockBucket(&rootb.topHashMutex)
 					if computeOnly {
 						// Compute expects the new value to be returned.
@@ -492,20 +543,22 @@ func (m *Map) doCompute(
 				if emptyb != nil {
 					// Insertion into an existing bucket.
 					var zeroV interface{}
-					newValue, del := valueFn(zeroV, false)
-					if del {
+					newValue, op := valueFn(zeroV, false)
+					switch op {
+					case DeleteOp, Noop:
 						unlockBucket(&rootb.topHashMutex)
 						return zeroV, false
+					default:
+						// First we update the value, then the key.
+						// This is important for atomic snapshot states.
+						topHashes = atomic.LoadUint64(&emptyb.topHashMutex)
+						atomic.StoreUint64(&emptyb.topHashMutex, storeTopHash(hash, topHashes, emptyidx))
+						atomic.StorePointer(&emptyb.values[emptyidx], unsafe.Pointer(&newValue))
+						atomic.StorePointer(&emptyb.keys[emptyidx], unsafe.Pointer(&key))
+						unlockBucket(&rootb.topHashMutex)
+						table.addSize(bidx, 1)
+						return newValue, computeOnly
 					}
-					// First we update the value, then the key.
-					// This is important for atomic snapshot states.
-					topHashes = atomic.LoadUint64(&emptyb.topHashMutex)
-					atomic.StoreUint64(&emptyb.topHashMutex, storeTopHash(hash, topHashes, emptyidx))
-					atomic.StorePointer(&emptyb.values[emptyidx], unsafe.Pointer(&newValue))
-					atomic.StorePointer(&emptyb.keys[emptyidx], unsafe.Pointer(&key))
-					unlockBucket(&rootb.topHashMutex)
-					table.addSize(bidx, 1)
-					return newValue, computeOnly
 				}
 				growThreshold := float64(tableLen) * entriesPerMapBucket * mapLoadFactor
 				if table.sumSize() > int64(growThreshold) {
@@ -516,20 +569,22 @@ func (m *Map) doCompute(
 				}
 				// Insertion into a new bucket.
 				var zeroV interface{}
-				newValue, del := valueFn(zeroV, false)
-				if del {
+				newValue, op := valueFn(zeroV, false)
+				switch op {
+				case DeleteOp, Noop:
 					unlockBucket(&rootb.topHashMutex)
 					return newValue, false
+				default:
+					// Create and append a bucket.
+					newb := new(bucketPadded)
+					newb.keys[0] = unsafe.Pointer(&key)
+					newb.values[0] = unsafe.Pointer(&newValue)
+					newb.topHashMutex = storeTopHash(hash, newb.topHashMutex, 0)
+					atomic.StorePointer(&b.next, unsafe.Pointer(newb))
+					unlockBucket(&rootb.topHashMutex)
+					table.addSize(bidx, 1)
+					return newValue, computeOnly
 				}
-				// Create and append a bucket.
-				newb := new(bucketPadded)
-				newb.keys[0] = unsafe.Pointer(&key)
-				newb.values[0] = unsafe.Pointer(&newValue)
-				newb.topHashMutex = storeTopHash(hash, newb.topHashMutex, 0)
-				atomic.StorePointer(&b.next, unsafe.Pointer(newb))
-				unlockBucket(&rootb.topHashMutex)
-				table.addSize(bidx, 1)
-				return newValue, computeOnly
 			}
 			b = (*bucketPadded)(b.next)
 		}
