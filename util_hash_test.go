@@ -190,17 +190,27 @@ func doBenchmarkMakeHashFunc[T comparable](b *testing.B, val T) {
 	hashNativeMap := makeMapHasher[T]()
 	seed := MakeSeed()
 
-	b.Run(fmt.Sprintf("%T normal", val), func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_ = hash(val, seed)
-		}
-	})
+	b.Run(fmt.Sprintf("%T", val), func(b *testing.B) {
+		b.Run("hash=normal", func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = hash(val, seed)
+			}
+		})
 
-	b.Run(fmt.Sprintf("%T map native", val), func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_ = hashNativeMap(val, seed)
-		}
+		b.Run("hash=map native", func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = hashNativeMap(val, seed)
+			}
+		})
+
+		maphashSeed := maphash.MakeSeed()
+		b.Run("hash=maphash.Comparable", func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = maphash.Comparable(maphashSeed, val)
+			}
+		})
 	})
 }

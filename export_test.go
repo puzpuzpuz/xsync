@@ -2,17 +2,17 @@ package xsync
 
 const (
 	EntriesPerMapBucket     = entriesPerMapBucket
-	EntriesPerMapOfBucket   = entriesPerMapOfBucket
+	EntriesPerMapOfBucket   = EntriesPerMapBucket
 	MapLoadFactor           = mapLoadFactor
 	DefaultMinMapTableLen   = defaultMinMapTableLen
 	DefaultMinMapTableCap   = defaultMinMapTableLen * entriesPerMapBucket
-	DefaultMinMapOfTableCap = defaultMinMapTableLen * entriesPerMapOfBucket
+	DefaultMinMapOfTableCap = DefaultMinMapTableCap
 	MaxMapCounterLen        = maxMapCounterLen
 )
 
 type (
 	BucketPadded   = bucketPadded
-	BucketOfPadded = bucketOfPadded
+	BucketOfPadded = bucketPadded
 )
 
 func LockBucket(mu *uint64) {

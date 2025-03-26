@@ -2,6 +2,7 @@ package xsync
 
 import (
 	"fmt"
+	"hash/maphash"
 	"math"
 	"runtime"
 	"strings"
@@ -47,7 +48,9 @@ var (
 	}
 )
 
-// Map is like a Go map[string]interface{} but is safe for concurrent
+type Map = MapOf[string, any]
+
+// MapOf is like a Go map[K]V but is safe for concurrent
 // use by multiple goroutines without additional locking or
 // coordination. It follows the interface of sync.Map with
 // a number of valuable extensions like Compute or Size.
@@ -63,11 +66,7 @@ var (
 // Also, Get operations involve no write to memory, as well as no
 // mutexes or any other sort of locks. Due to this design, in all
 // considered scenarios Map outperforms sync.Map.
-//
-// One important difference with sync.Map is that only string keys
-// are supported. That's because Golang standard library does not
-// expose the built-in hash functions for interface{} values.
-type Map struct {
+type MapOf[K comparable, V any] struct {
 	totalGrowths int64
 	totalShrinks int64
 	resizing     int64          // resize in progress flag; updated atomically
@@ -84,7 +83,7 @@ type mapTable struct {
 	// used to determine if a table shrinking is needed
 	// occupies min(buckets_memory/1024, 64KB) of memory
 	size []counterStripe
-	seed uint64
+	seed maphash.Seed
 }
 
 type counterStripe struct {
@@ -147,9 +146,13 @@ func WithGrowOnly() func(*MapConfig) {
 	}
 }
 
-// NewMap creates a new Map instance configured with the given
-// options.
 func NewMap(options ...func(*MapConfig)) *Map {
+	return NewMapOf[string, any](options...)
+}
+
+// NewMapOf creates a new MapOf instance configured with the given
+// options.
+func NewMapOf[K comparable, V any](options ...func(*MapConfig)) *MapOf[K, V] {
 	c := &MapConfig{
 		sizeHint: defaultMinMapTableLen * entriesPerMapBucket,
 	}
@@ -157,7 +160,7 @@ func NewMap(options ...func(*MapConfig)) *Map {
 		o(c)
 	}
 
-	m := &Map{}
+	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
 	var table *mapTable
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
@@ -172,15 +175,19 @@ func NewMap(options ...func(*MapConfig)) *Map {
 	return m
 }
 
-// NewMapPresized creates a new Map instance with capacity enough to hold
+func NewMapPresized(sizeHint int) *Map {
+	return NewMapOfPresized[string, any](sizeHint)
+}
+
+// NewMapOfPresized creates a new MapOf instance with capacity enough to hold
 // sizeHint entries. The capacity is treated as the minimal capacity
 // meaning that the underlying hash table will never shrink to
 // a smaller capacity. If sizeHint is zero or negative, the value
 // is ignored.
 //
 // Deprecated: use NewMap in combination with WithPresize.
-func NewMapPresized(sizeHint int) *Map {
-	return NewMap(WithPresize(sizeHint))
+func NewMapOfPresized[K comparable, V any](sizeHint int) *MapOf[K, V] {
+	return NewMapOf[K, V](WithPresize(sizeHint))
 }
 
 func newMapTable(minTableLen int) *mapTable {
@@ -195,19 +202,23 @@ func newMapTable(minTableLen int) *mapTable {
 	t := &mapTable{
 		buckets: buckets,
 		size:    counter,
-		seed:    makeSeed(),
+		seed:    maphash.MakeSeed(),
 	}
 	return t
 }
 
-// ToPlainMap returns a native map with a copy of xsync Map's
-// contents. The copied xsync Map should not be modified while
+func ToPlainMap(m *Map) map[string]any {
+	return ToPlainMapOf(m)
+}
+
+// ToPlainMapOf returns a native map with a copy of xsync MapOf's
+// contents. The copied xsync MapOf should not be modified while
 // this call is made. If the copied Map is modified, the copying
 // behavior is the same as in the Range method.
-func ToPlainMap(m *Map) map[string]interface{} {
-	pm := make(map[string]interface{})
+func ToPlainMapOf[K comparable, V any](m *MapOf[K, V]) map[K]V {
+	pm := make(map[K]V)
 	if m != nil {
-		m.Range(func(key string, value interface{}) bool {
+		m.Range(func(key K, value V) bool {
 			pm[key] = value
 			return true
 		})
@@ -218,9 +229,9 @@ func ToPlainMap(m *Map) map[string]interface{} {
 // Load returns the value stored in the map for a key, or nil if no
 // value is present.
 // The ok result indicates whether value was found in the map.
-func (m *Map) Load(key string) (value interface{}, ok bool) {
+func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
-	hash := hashString(key, table.seed)
+	hash := maphash.Comparable(table.seed, key)
 	bidx := uint64(len(table.buckets)-1) & hash
 	b := &table.buckets[bidx]
 	for {
@@ -234,10 +245,10 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 			vp := atomic.LoadPointer(&b.values[i])
 			kp := atomic.LoadPointer(&b.keys[i])
 			if kp != nil && vp != nil {
-				if key == derefKey(kp) {
+				if key == derefKey[K](kp) {
 					if uintptr(vp) == uintptr(atomic.LoadPointer(&b.values[i])) {
 						// Atomic snapshot succeeded.
-						return derefValue(vp), true
+						return derefValue[V](vp), true
 					}
 					// Concurrent update/remove. Go for another spin.
 					goto atomic_snapshot
@@ -253,10 +264,10 @@ func (m *Map) Load(key string) (value interface{}, ok bool) {
 }
 
 // Store sets the value for a key.
-func (m *Map) Store(key string, value interface{}) {
+func (m *MapOf[K, V]) Store(key K, value V) {
 	m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
+		func(V, bool) (V, bool) {
 			return value, false
 		},
 		false,
@@ -267,10 +278,10 @@ func (m *Map) Store(key string, value interface{}) {
 // LoadOrStore returns the existing value for the key if present.
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
-func (m *Map) LoadOrStore(key string, value interface{}) (actual interface{}, loaded bool) {
+func (m *MapOf[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 	return m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
+		func(V, bool) (V, bool) {
 			return value, false
 		},
 		true,
@@ -283,10 +294,10 @@ func (m *Map) LoadOrStore(key string, value interface{}) (actual interface{}, lo
 // It stores the new value and returns the existing one, if present.
 // The loaded result is true if the existing value was loaded,
 // false otherwise.
-func (m *Map) LoadAndStore(key string, value interface{}) (actual interface{}, loaded bool) {
+func (m *MapOf[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 	return m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
+		func(V, bool) (V, bool) {
 			return value, false
 		},
 		false,
@@ -303,10 +314,10 @@ func (m *Map) LoadAndStore(key string, value interface{}) (actual interface{}, l
 // is executed. It means that modifications on other entries in
 // the bucket will be blocked until the valueFn executes. Consider
 // this when the function includes long-running operations.
-func (m *Map) LoadOrCompute(key string, valueFn func() interface{}) (actual interface{}, loaded bool) {
+func (m *MapOf[K, V]) LoadOrCompute(key K, valueFn func() V) (actual V, loaded bool) {
 	return m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
+		func(V, bool) (V, bool) {
 			return valueFn(), false
 		},
 		true,
@@ -325,18 +336,18 @@ func (m *Map) LoadOrCompute(key string, valueFn func() interface{}) (actual inte
 // is executed. It means that modifications on other entries in
 // the bucket will be blocked until the valueFn executes. Consider
 // this when the function includes long-running operations.
-func (m *Map) LoadOrTryCompute(
-	key string,
-	valueFn func() (newValue interface{}, cancel bool),
-) (value interface{}, loaded bool) {
+func (m *MapOf[K, V]) LoadOrTryCompute(
+	key K,
+	valueFn func() (newValue V, cancel bool),
+) (value V, loaded bool) {
 	return m.doCompute(
 		key,
-		func(interface{}, bool) (interface{}, bool) {
+		func(V, bool) (V, bool) {
 			nv, c := valueFn()
 			if !c {
 				return nv, false
 			}
-			return nil, true
+			return nv, true
 		},
 		true,
 		false,
@@ -355,20 +366,20 @@ func (m *Map) LoadOrTryCompute(
 // is executed. It means that modifications on other entries in
 // the bucket will be blocked until the valueFn executes. Consider
 // this when the function includes long-running operations.
-func (m *Map) Compute(
-	key string,
-	valueFn func(oldValue interface{}, loaded bool) (newValue interface{}, delete bool),
-) (actual interface{}, ok bool) {
+func (m *MapOf[K, V]) Compute(
+	key K,
+	valueFn func(oldValue V, loaded bool) (newValue V, delete bool),
+) (actual V, ok bool) {
 	return m.doCompute(key, valueFn, false, true)
 }
 
 // LoadAndDelete deletes the value for a key, returning the previous
 // value if any. The loaded result reports whether the key was
 // present.
-func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
+func (m *MapOf[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 	return m.doCompute(
 		key,
-		func(value interface{}, loaded bool) (interface{}, bool) {
+		func(value V, loaded bool) (V, bool) {
 			return value, true
 		},
 		false,
@@ -377,10 +388,10 @@ func (m *Map) LoadAndDelete(key string) (value interface{}, loaded bool) {
 }
 
 // Delete deletes the value for a key.
-func (m *Map) Delete(key string) {
+func (m *MapOf[K, V]) Delete(key K) {
 	m.doCompute(
 		key,
-		func(value interface{}, loaded bool) (interface{}, bool) {
+		func(value V, loaded bool) (V, bool) {
 			return value, true
 		},
 		false,
@@ -388,11 +399,11 @@ func (m *Map) Delete(key string) {
 	)
 }
 
-func (m *Map) doCompute(
-	key string,
-	valueFn func(oldValue interface{}, loaded bool) (interface{}, bool),
+func (m *MapOf[K, V]) doCompute(
+	key K,
+	valueFn func(oldValue V, loaded bool) (V, bool),
 	loadIfExists, computeOnly bool,
-) (interface{}, bool) {
+) (V, bool) {
 	// Read-only path.
 	if loadIfExists {
 		if v, ok := m.Load(key); ok {
@@ -409,7 +420,7 @@ func (m *Map) doCompute(
 		)
 		table := (*mapTable)(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
-		hash := hashString(key, table.seed)
+		hash := maphash.Comparable(table.seed, key)
 		bidx := uint64(len(table.buckets)-1) & hash
 		rootb := &table.buckets[bidx]
 		lockBucket(&rootb.topHashMutex)
@@ -441,18 +452,18 @@ func (m *Map) doCompute(
 					hintNonEmpty++
 					continue
 				}
-				if key == derefKey(b.keys[i]) {
+				if key == derefKey[K](b.keys[i]) {
 					vp := b.values[i]
 					if loadIfExists {
 						unlockBucket(&rootb.topHashMutex)
-						return derefValue(vp), !computeOnly
+						return derefValue[V](vp), !computeOnly
 					}
 					// In-place update/delete.
 					// We get a copy of the value via an interface{} on each call,
 					// thus the live value pointers are unique. Otherwise atomic
 					// snapshot won't be correct in case of multiple Store calls
 					// using the same value.
-					oldValue := derefValue(vp)
+					oldValue := derefValue[V](vp)
 					newValue, del := valueFn(oldValue, true)
 					if del {
 						// Deletion.
@@ -491,7 +502,7 @@ func (m *Map) doCompute(
 			if b.next == nil {
 				if emptyb != nil {
 					// Insertion into an existing bucket.
-					var zeroV interface{}
+					var zeroV V
 					newValue, del := valueFn(zeroV, false)
 					if del {
 						unlockBucket(&rootb.topHashMutex)
@@ -515,7 +526,7 @@ func (m *Map) doCompute(
 					goto compute_attempt
 				}
 				// Insertion into a new bucket.
-				var zeroV interface{}
+				var zeroV V
 				newValue, del := valueFn(zeroV, false)
 				if del {
 					unlockBucket(&rootb.topHashMutex)
@@ -536,16 +547,16 @@ func (m *Map) doCompute(
 	}
 }
 
-func (m *Map) newerTableExists(table *mapTable) bool {
+func (m *MapOf[K, V]) newerTableExists(table *mapTable) bool {
 	curTablePtr := atomic.LoadPointer(&m.table)
 	return uintptr(curTablePtr) != uintptr(unsafe.Pointer(table))
 }
 
-func (m *Map) resizeInProgress() bool {
+func (m *MapOf[K, V]) resizeInProgress() bool {
 	return atomic.LoadInt64(&m.resizing) == 1
 }
 
-func (m *Map) waitForResize() {
+func (m *MapOf[K, V]) waitForResize() {
 	m.resizeMu.Lock()
 	for m.resizeInProgress() {
 		m.resizeCond.Wait()
@@ -553,7 +564,7 @@ func (m *Map) waitForResize() {
 	m.resizeMu.Unlock()
 }
 
-func (m *Map) resize(knownTable *mapTable, hint mapResizeHint) {
+func (m *MapOf[K, V]) resize(knownTable *mapTable, hint mapResizeHint) {
 	knownTableLen := len(knownTable.buckets)
 	// Fast path for shrink attempts.
 	if hint == mapShrinkHint {
@@ -599,7 +610,7 @@ func (m *Map) resize(knownTable *mapTable, hint mapResizeHint) {
 	// Copy the data only if we're not clearing the map.
 	if hint != mapClearHint {
 		for i := 0; i < tableLen; i++ {
-			copied := copyBucket(&table.buckets[i], newTable)
+			copied := copyBucket[K](&table.buckets[i], newTable)
 			newTable.addSizePlain(uint64(i), copied)
 		}
 	}
@@ -611,14 +622,14 @@ func (m *Map) resize(knownTable *mapTable, hint mapResizeHint) {
 	m.resizeMu.Unlock()
 }
 
-func copyBucket(b *bucketPadded, destTable *mapTable) (copied int) {
+func copyBucket[K comparable](b *bucketPadded, destTable *mapTable) (copied int) {
 	rootb := b
 	lockBucket(&rootb.topHashMutex)
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.keys[i] != nil {
-				k := derefKey(b.keys[i])
-				hash := hashString(k, destTable.seed)
+				k := derefKey[K](b.keys[i])
+				hash := maphash.Comparable(destTable.seed, k)
 				bidx := uint64(len(destTable.buckets)-1) & hash
 				destb := &destTable.buckets[bidx]
 				appendToBucket(hash, b.keys[i], b.values[i], destb)
@@ -683,7 +694,7 @@ func isEmptyBucket(rootb *bucketPadded) bool {
 // creation, modification and deletion. However, the concurrent
 // modification rule apply, i.e. the changes may be not reflected
 // in the subsequently iterated entries.
-func (m *Map) Range(f func(key string, value interface{}) bool) {
+func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 	var zeroEntry rangeEntry
 	// Pre-allocate array big enough to fit entries for most hash tables.
 	bentries := make([]rangeEntry, 0, 16*entriesPerMapBucket)
@@ -712,8 +723,8 @@ func (m *Map) Range(f func(key string, value interface{}) bool) {
 		}
 		// Call the function for all copied entries.
 		for j := range bentries {
-			k := derefKey(bentries[j].key)
-			v := derefValue(bentries[j].value)
+			k := derefKey[K](bentries[j].key)
+			v := derefValue[V](bentries[j].value)
 			if !f(k, v) {
 				return
 			}
@@ -726,23 +737,23 @@ func (m *Map) Range(f func(key string, value interface{}) bool) {
 }
 
 // Clear deletes all keys and values currently stored in the map.
-func (m *Map) Clear() {
+func (m *MapOf[K, V]) Clear() {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	m.resize(table, mapClearHint)
 }
 
 // Size returns current size of the map.
-func (m *Map) Size() int {
+func (m *MapOf[K, V]) Size() int {
 	table := (*mapTable)(atomic.LoadPointer(&m.table))
 	return int(table.sumSize())
 }
 
-func derefKey(keyPtr unsafe.Pointer) string {
-	return *(*string)(keyPtr)
+func derefKey[K comparable](keyPtr unsafe.Pointer) K {
+	return *(*K)(keyPtr)
 }
 
-func derefValue(valuePtr unsafe.Pointer) interface{} {
-	return *(*interface{})(valuePtr)
+func derefValue[V any](valuePtr unsafe.Pointer) V {
+	return *(*V)(valuePtr)
 }
 
 func lockBucket(mu *uint64) {
@@ -873,7 +884,7 @@ func (s *MapStats) ToString() string {
 // Stats returns statistics for the Map. Just like other map
 // methods, this one is thread-safe. Yet it's an O(N) operation,
 // so it should be used only for diagnostics or debugging purposes.
-func (m *Map) Stats() MapStats {
+func (m *MapOf[K, V]) Stats() MapStats {
 	stats := MapStats{
 		TotalGrowths: atomic.LoadInt64(&m.totalGrowths),
 		TotalShrinks: atomic.LoadInt64(&m.totalShrinks),
