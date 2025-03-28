@@ -10,12 +10,46 @@ import (
 	"time"
 	"unsafe"
 
-	. "github.com/puzpuzpuz/xsync/v3"
+	. "github.com/puzpuzpuz/xsync/v4"
+)
+
+const (
+	// number of entries to use in benchmarks
+	benchmarkNumEntries = 1_000
+	// key prefix used in benchmarks
+	benchmarkKeyPrefix = "what_a_looooooooooooooooooooooong_key_prefix_"
 )
 
 type point struct {
 	x int32
 	y int32
+}
+
+var benchmarkCases = []struct {
+	name           string
+	readPercentage int
+}{
+	{"reads=100%", 100}, // 100% loads,    0% stores,    0% deletes
+	{"reads=99%", 99},   //  99% loads,  0.5% stores,  0.5% deletes
+	{"reads=90%", 90},   //  90% loads,    5% stores,    5% deletes
+	{"reads=75%", 75},   //  75% loads, 12.5% stores, 12.5% deletes
+}
+
+var benchmarkKeys []string
+
+func init() {
+	benchmarkKeys = make([]string, benchmarkNumEntries)
+	for i := 0; i < benchmarkNumEntries; i++ {
+		benchmarkKeys[i] = benchmarkKeyPrefix + strconv.Itoa(i)
+	}
+}
+
+func runParallel(b *testing.B, benchFn func(pb *testing.PB)) {
+	b.ResetTimer()
+	start := time.Now()
+	b.RunParallel(benchFn)
+	opsPerSec := float64(b.N) / float64(time.Since(start).Seconds())
+	b.ReportMetric(opsPerSec, "ops/s")
 }
 
 func TestMap_BucketOfStructSize(t *testing.T) {
@@ -268,51 +302,6 @@ func TestMapOfStore_StructKeys_StructValues(t *testing.T) {
 		}
 		if v.y != int32(i) {
 			t.Fatalf("y value does not match for %d: %v", i, v)
-		}
-	}
-}
-
-func TestMapOfWithHasher(t *testing.T) {
-	const numEntries = 10000
-	m := NewMapOfWithHasher[int, int](murmur3Finalizer)
-	for i := 0; i < numEntries; i++ {
-		m.Store(i, i)
-	}
-	for i := 0; i < numEntries; i++ {
-		v, ok := m.Load(i)
-		if !ok {
-			t.Fatalf("value not found for %d", i)
-		}
-		if v != i {
-			t.Fatalf("values do not match for %d: %v", i, v)
-		}
-	}
-}
-
-func murmur3Finalizer(i int, _ uint64) uint64 {
-	h := uint64(i)
-	h = (h ^ (h >> 33)) * 0xff51afd7ed558ccd
-	h = (h ^ (h >> 33)) * 0xc4ceb9fe1a85ec53
-	return h ^ (h >> 33)
-}
-
-func TestMapOfWithHasher_HashCodeCollisions(t *testing.T) {
-	const numEntries = 1000
-	m := NewMapOfWithHasher[int, int](func(i int, _ uint64) uint64 {
-		// We intentionally use an awful hash function here to make sure
-		// that the map copes with key collisions.
-		return 42
-	}, WithPresize(numEntries))
-	for i := 0; i < numEntries; i++ {
-		m.Store(i, i)
-	}
-	for i := 0; i < numEntries; i++ {
-		v, ok := m.Load(i)
-		if !ok {
-			t.Fatalf("value not found for %d", i)
-		}
-		if v != i {
-			t.Fatalf("values do not match for %d: %v", i, v)
 		}
 	}
 }
@@ -1372,25 +1361,6 @@ func BenchmarkMapOfInt_WarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
 		b.Run(bc.name, func(b *testing.B) {
 			m := NewMapOfPresized[int, int](benchmarkNumEntries)
-			for i := 0; i < benchmarkNumEntries; i++ {
-				m.Store(i, i)
-			}
-			b.ResetTimer()
-			benchmarkMapOfIntKeys(b, func(k int) (int, bool) {
-				return m.Load(k)
-			}, func(k int, v int) {
-				m.Store(k, v)
-			}, func(k int) {
-				m.Delete(k)
-			}, bc.readPercentage)
-		})
-	}
-}
-
-func BenchmarkMapOfInt_Murmur3Finalizer_WarmUp(b *testing.B) {
-	for _, bc := range benchmarkCases {
-		b.Run(bc.name, func(b *testing.B) {
-			m := NewMapOfWithHasher[int, int](murmur3Finalizer, WithPresize(benchmarkNumEntries))
 			for i := 0; i < benchmarkNumEntries; i++ {
 				m.Store(i, i)
 			}

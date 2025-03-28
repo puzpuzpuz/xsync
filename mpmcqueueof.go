@@ -1,16 +1,12 @@
-//go:build go1.19
-// +build go1.19
-
 package xsync
 
 import (
-	"runtime"
 	"sync/atomic"
 	"unsafe"
 )
 
 // A MPMCQueueOf is a bounded multi-producer multi-consumer concurrent
-// queue. It's a generic version of MPMCQueue.
+// queue.
 //
 // MPMCQueueOf instances must be created with NewMPMCQueueOf function.
 // A MPMCQueueOf must not be copied after first use.
@@ -57,39 +53,6 @@ func NewMPMCQueueOf[I any](capacity int) *MPMCQueueOf[I] {
 		cap:   uint64(capacity),
 		slots: make([]slotOfPadded[I], capacity),
 	}
-}
-
-// Enqueue inserts the given item into the queue.
-// Blocks, if the queue is full.
-//
-// Deprecated: use TryEnqueue in combination with runtime.Gosched().
-func (q *MPMCQueueOf[I]) Enqueue(item I) {
-	head := atomic.AddUint64(&q.head, 1) - 1
-	slot := &q.slots[q.idx(head)]
-	turn := q.turn(head) * 2
-	for slot.turn.Load() != turn {
-		runtime.Gosched()
-	}
-	slot.item = item
-	slot.turn.Store(turn + 1)
-}
-
-// Dequeue retrieves and removes the item from the head of the queue.
-// Blocks, if the queue is empty.
-//
-// Deprecated: use TryDequeue in combination with runtime.Gosched().
-func (q *MPMCQueueOf[I]) Dequeue() I {
-	var zeroI I
-	tail := atomic.AddUint64(&q.tail, 1) - 1
-	slot := &q.slots[q.idx(tail)]
-	turn := q.turn(tail)*2 + 1
-	for slot.turn.Load() != turn {
-		runtime.Gosched()
-	}
-	item := slot.item
-	slot.item = zeroI
-	slot.turn.Store(turn + 1)
-	return item
 }
 
 // TryEnqueue inserts the given item into the queue. Does not block

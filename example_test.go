@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 func ExampleMapOf_Compute() {

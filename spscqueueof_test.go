@@ -1,6 +1,3 @@
-//go:build go1.19
-// +build go1.19
-
 // Copyright notice. The following tests are partially based on
 // the following file from the Go Programming Language core repo:
 // https://github.com/golang/go/blob/831f9376d8d730b16fb33dfd775618dffe13ce7a/src/runtime/chan_test.go
@@ -14,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	. "github.com/puzpuzpuz/xsync/v3"
+	. "github.com/puzpuzpuz/xsync/v4"
 )
 
 func TestSPSCQueueOf_InvalidSize(t *testing.T) {

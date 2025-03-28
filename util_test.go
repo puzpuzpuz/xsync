@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	. "github.com/puzpuzpuz/xsync/v3"
+	. "github.com/puzpuzpuz/xsync/v4"
 )
 
 func TestNextPowOf2(t *testing.T) {

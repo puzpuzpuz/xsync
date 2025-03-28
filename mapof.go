@@ -2,7 +2,9 @@ package xsync
 
 import (
 	"fmt"
+	"hash/maphash"
 	"math"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -11,11 +13,33 @@ import (
 const (
 	// number of MapOf entries per bucket; 5 entries lead to size of 64B
 	// (one cache line) on 64-bit machines
-	entriesPerMapOfBucket        = 5
-	defaultMeta           uint64 = 0x8080808080808080
-	metaMask              uint64 = 0xffffffffff
-	defaultMetaMasked     uint64 = defaultMeta & metaMask
-	emptyMetaSlot         uint8  = 0x80
+	entriesPerMapOfBucket = 5
+	// threshold fraction of table occupation to start a table shrinking
+	// when deleting the last entry in a bucket chain
+	mapShrinkFraction = 128
+	// map load factor to trigger a table resize during insertion;
+	// a map holds up to mapLoadFactor*entriesPerMapBucket*mapTableLen
+	// key-value pairs (this is a soft limit)
+	mapLoadFactor = 0.75
+	// minimal table size, i.e. number of buckets; thus, minimal map
+	// capacity can be calculated as entriesPerMapBucket*defaultMinMapTableLen
+	defaultMinMapTableLen = 32
+	// minimum counter stripes to use
+	minMapCounterLen = 8
+	// maximum counter stripes to use; stands for around 4KB of memory
+	maxMapCounterLen         = 32
+	defaultMeta       uint64 = 0x8080808080808080
+	metaMask          uint64 = 0xffffffffff
+	defaultMetaMasked uint64 = defaultMeta & metaMask
+	emptyMetaSlot     uint8  = 0x80
+)
+
+type mapResizeHint int
+
+const (
+	mapGrowHint   mapResizeHint = 0
+	mapShrinkHint mapResizeHint = 1
+	mapClearHint  mapResizeHint = 2
 )
 
 // MapOf is like a Go map[K]V but is safe for concurrent
@@ -46,7 +70,6 @@ type MapOf[K comparable, V any] struct {
 	resizeMu     sync.Mutex     // only used along with resizeCond
 	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
 	table        unsafe.Pointer // *mapOfTable
-	hasher       func(K, uint64) uint64
 	minTableLen  int
 	growOnly     bool
 }
@@ -57,7 +80,13 @@ type mapOfTable[K comparable, V any] struct {
 	// used to determine if a table shrinking is needed
 	// occupies min(buckets_memory/1024, 64KB) of memory
 	size []counterStripe
-	seed uint64
+	seed maphash.Seed
+}
+
+type counterStripe struct {
+	c int64
+	//lint:ignore U1000 prevents false sharing
+	pad [cacheLineSize - 8]byte
 }
 
 // bucketOfPadded is a CL-sized map bucket holding up to
@@ -81,20 +110,37 @@ type entryOf[K comparable, V any] struct {
 	value V
 }
 
+// MapConfig defines configurable MapOf options.
+type MapConfig struct {
+	sizeHint int
+	growOnly bool
+}
+
+// WithPresize configures new MapOf instance with capacity enough
+// to hold sizeHint entries. The capacity is treated as the minimal
+// capacity meaning that the underlying hash table will never shrink
+// to a smaller capacity. If sizeHint is zero or negative, the value
+// is ignored.
+func WithPresize(sizeHint int) func(*MapConfig) {
+	return func(c *MapConfig) {
+		c.sizeHint = sizeHint
+	}
+}
+
+// WithGrowOnly configures new MapOf instance to be grow-only.
+// This means that the underlying hash table grows in capacity when
+// new keys are added, but does not shrink when keys are deleted.
+// The only exception to this rule is the Clear method which
+// shrinks the hash table back to the initial capacity.
+func WithGrowOnly() func(*MapConfig) {
+	return func(c *MapConfig) {
+		c.growOnly = true
+	}
+}
+
 // NewMapOf creates a new MapOf instance configured with the given
 // options.
 func NewMapOf[K comparable, V any](options ...func(*MapConfig)) *MapOf[K, V] {
-	return NewMapOfWithHasher[K, V](defaultHasher[K](), options...)
-}
-
-// NewMapOfWithHasher creates a new MapOf instance configured with
-// the given hasher and options. The hash function is used instead
-// of the built-in hash function configured when a map is created
-// with the NewMapOf function.
-func NewMapOfWithHasher[K comparable, V any](
-	hasher func(K, uint64) uint64,
-	options ...func(*MapConfig),
-) *MapOf[K, V] {
 	c := &MapConfig{
 		sizeHint: defaultMinMapTableLen * entriesPerMapOfBucket,
 	}
@@ -104,7 +150,6 @@ func NewMapOfWithHasher[K comparable, V any](
 
 	m := &MapOf[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
-	m.hasher = hasher
 	var table *mapOfTable[K, V]
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapOfBucket {
 		table = newMapOfTable[K, V](defaultMinMapTableLen)
@@ -144,14 +189,14 @@ func newMapOfTable[K comparable, V any](minTableLen int) *mapOfTable[K, V] {
 	t := &mapOfTable[K, V]{
 		buckets: buckets,
 		size:    counter,
-		seed:    makeSeed(),
+		seed:    maphash.MakeSeed(),
 	}
 	return t
 }
 
-// ToPlainMapOf returns a native map with a copy of xsync Map's
-// contents. The copied xsync Map should not be modified while
-// this call is made. If the copied Map is modified, the copying
+// ToPlainMapOf returns a native map with a copy of xsync MapOf's
+// contents. The copied xsync MapOf should not be modified while
+// this call is made. If the copied MapOf is modified, the copying
 // behavior is the same as in the Range method.
 func ToPlainMapOf[K comparable, V any](m *MapOf[K, V]) map[K]V {
 	pm := make(map[K]V)
@@ -169,7 +214,7 @@ func ToPlainMapOf[K comparable, V any](m *MapOf[K, V]) map[K]V {
 // The ok result indicates whether value was found in the map.
 func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 	table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
-	hash := m.hasher(key, table.seed)
+	hash := maphash.Comparable(table.seed, key)
 	h1 := h1(hash)
 	h2w := broadcast(h2(hash))
 	bidx := uint64(len(table.buckets)-1) & h1
@@ -352,7 +397,7 @@ func (m *MapOf[K, V]) doCompute(
 		)
 		table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
-		hash := m.hasher(key, table.seed)
+		hash := maphash.Comparable(table.seed, key)
 		h1 := h1(hash)
 		h2 := h2(hash)
 		h2w := broadcast(h2)
@@ -544,7 +589,7 @@ func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
 	// Copy the data only if we're not clearing the map.
 	if hint != mapClearHint {
 		for i := 0; i < tableLen; i++ {
-			copied := copyBucketOf(&table.buckets[i], newTable, m.hasher)
+			copied := copyBucketOf(&table.buckets[i], newTable)
 			newTable.addSizePlain(uint64(i), copied)
 		}
 	}
@@ -559,7 +604,6 @@ func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
 func copyBucketOf[K comparable, V any](
 	b *bucketOfPadded,
 	destTable *mapOfTable[K, V],
-	hasher func(K, uint64) uint64,
 ) (copied int) {
 	rootb := b
 	rootb.mu.Lock()
@@ -567,7 +611,7 @@ func copyBucketOf[K comparable, V any](
 		for i := 0; i < entriesPerMapOfBucket; i++ {
 			if b.entries[i] != nil {
 				e := (*entryOf[K, V])(b.entries[i])
-				hash := hasher(e.key, destTable.seed)
+				hash := maphash.Comparable(destTable.seed, e.key)
 				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
 				destb := &destTable.buckets[bidx]
 				appendToBucketOf(h2(hash), b.entries[i], destb)
@@ -689,6 +733,66 @@ func h1(h uint64) uint64 {
 
 func h2(h uint64) uint8 {
 	return uint8(h & 0x7f)
+}
+
+// MapStats is MapOf statistics.
+//
+// Warning: map statistics are intented to be used for diagnostic
+// purposes, not for production code. This means that breaking changes
+// may be introduced into this struct even between minor releases.
+type MapStats struct {
+	// RootBuckets is the number of root buckets in the hash table.
+	// Each bucket holds a few entries.
+	RootBuckets int
+	// TotalBuckets is the total number of buckets in the hash table,
+	// including root and their chained buckets. Each bucket holds
+	// a few entries.
+	TotalBuckets int
+	// EmptyBuckets is the number of buckets that hold no entries.
+	EmptyBuckets int
+	// Capacity is the MapOf capacity, i.e. the total number of
+	// entries that all buckets can physically hold. This number
+	// does not consider the load factor.
+	Capacity int
+	// Size is the exact number of entries stored in the map.
+	Size int
+	// Counter is the number of entries stored in the map according
+	// to the internal atomic counter. In case of concurrent map
+	// modifications this number may be different from Size.
+	Counter int
+	// CounterLen is the number of internal atomic counter stripes.
+	// This number may grow with the map capacity to improve
+	// multithreaded scalability.
+	CounterLen int
+	// MinEntries is the minimum number of entries per a chain of
+	// buckets, i.e. a root bucket and its chained buckets.
+	MinEntries int
+	// MinEntries is the maximum number of entries per a chain of
+	// buckets, i.e. a root bucket and its chained buckets.
+	MaxEntries int
+	// TotalGrowths is the number of times the hash table grew.
+	TotalGrowths int64
+	// TotalGrowths is the number of times the hash table shrinked.
+	TotalShrinks int64
+}
+
+// ToString returns string representation of map stats.
+func (s *MapStats) ToString() string {
+	var sb strings.Builder
+	sb.WriteString("MapStats{\n")
+	sb.WriteString(fmt.Sprintf("RootBuckets:  %d\n", s.RootBuckets))
+	sb.WriteString(fmt.Sprintf("TotalBuckets: %d\n", s.TotalBuckets))
+	sb.WriteString(fmt.Sprintf("EmptyBuckets: %d\n", s.EmptyBuckets))
+	sb.WriteString(fmt.Sprintf("Capacity:     %d\n", s.Capacity))
+	sb.WriteString(fmt.Sprintf("Size:         %d\n", s.Size))
+	sb.WriteString(fmt.Sprintf("Counter:      %d\n", s.Counter))
+	sb.WriteString(fmt.Sprintf("CounterLen:   %d\n", s.CounterLen))
+	sb.WriteString(fmt.Sprintf("MinEntries:   %d\n", s.MinEntries))
+	sb.WriteString(fmt.Sprintf("MaxEntries:   %d\n", s.MaxEntries))
+	sb.WriteString(fmt.Sprintf("TotalGrowths: %d\n", s.TotalGrowths))
+	sb.WriteString(fmt.Sprintf("TotalShrinks: %d\n", s.TotalShrinks))
+	sb.WriteString("}\n")
+	return sb.String()
 }
 
 // Stats returns statistics for the MapOf. Just like other map
