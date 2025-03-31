@@ -14,14 +14,14 @@ import (
 	. "github.com/puzpuzpuz/xsync/v4"
 )
 
-func TestMPMCQueueOf_InvalidSize(t *testing.T) {
+func TestMPMCQueue_InvalidSize(t *testing.T) {
 	defer func() { recover() }()
-	NewMPMCQueueOf[int](0)
+	NewMPMCQueue[int](0)
 	t.Fatal("no panic detected")
 }
 
-func TestMPMCQueueOfEnqueueDequeueInt(t *testing.T) {
-	q := NewMPMCQueueOf[int](10)
+func TestMPMCQueueEnqueueDequeueInt(t *testing.T) {
+	q := NewMPMCQueue[int](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(i) {
 			t.Fatalf("failed to enqueue for %d", i)
@@ -34,8 +34,8 @@ func TestMPMCQueueOfEnqueueDequeueInt(t *testing.T) {
 	}
 }
 
-func TestMPMCQueueOfEnqueueDequeueString(t *testing.T) {
-	q := NewMPMCQueueOf[string](10)
+func TestMPMCQueueEnqueueDequeueString(t *testing.T) {
+	q := NewMPMCQueue[string](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(strconv.Itoa(i)) {
 			t.Fatalf("failed to enqueue for %d", i)
@@ -48,12 +48,12 @@ func TestMPMCQueueOfEnqueueDequeueString(t *testing.T) {
 	}
 }
 
-func TestMPMCQueueOfEnqueueDequeueStruct(t *testing.T) {
+func TestMPMCQueueEnqueueDequeueStruct(t *testing.T) {
 	type foo struct {
 		bar int
 		baz int
 	}
-	q := NewMPMCQueueOf[foo](10)
+	q := NewMPMCQueue[foo](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(foo{i, i}) {
 			t.Fatalf("failed to enqueue for %d", i)
@@ -66,12 +66,12 @@ func TestMPMCQueueOfEnqueueDequeueStruct(t *testing.T) {
 	}
 }
 
-func TestMPMCQueueOfEnqueueDequeueStructRef(t *testing.T) {
+func TestMPMCQueueEnqueueDequeueStructRef(t *testing.T) {
 	type foo struct {
 		bar int
 		baz int
 	}
-	q := NewMPMCQueueOf[*foo](11)
+	q := NewMPMCQueue[*foo](11)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(&foo{i, i}) {
 			t.Fatalf("failed to enqueue for %d", i)
@@ -90,8 +90,8 @@ func TestMPMCQueueOfEnqueueDequeueStructRef(t *testing.T) {
 	}
 }
 
-func TestMPMCQueueOfTryEnqueueDequeue(t *testing.T) {
-	q := NewMPMCQueueOf[int](10)
+func TestMPMCQueueTryEnqueueDequeue(t *testing.T) {
+	q := NewMPMCQueue[int](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(i) {
 			t.Fatalf("failed to enqueue for %d", i)
@@ -104,8 +104,8 @@ func TestMPMCQueueOfTryEnqueueDequeue(t *testing.T) {
 	}
 }
 
-func TestMPMCQueueOfTryEnqueueOnFull(t *testing.T) {
-	q := NewMPMCQueueOf[string](1)
+func TestMPMCQueueTryEnqueueOnFull(t *testing.T) {
+	q := NewMPMCQueue[string](1)
 	if !q.TryEnqueue("foo") {
 		t.Error("failed to enqueue initial item")
 	}
@@ -114,16 +114,16 @@ func TestMPMCQueueOfTryEnqueueOnFull(t *testing.T) {
 	}
 }
 
-func TestMPMCQueueOfTryDequeueOnEmpty(t *testing.T) {
-	q := NewMPMCQueueOf[int](2)
+func TestMPMCQueueTryDequeueOnEmpty(t *testing.T) {
+	q := NewMPMCQueue[int](2)
 	if _, ok := q.TryDequeue(); ok {
 		t.Error("got success for enqueue on empty queue")
 	}
 }
 
-func hammerMPMCQueueOfNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
+func hammerMPMCQueueNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
 	runtime.GOMAXPROCS(gomaxprocs)
-	q := NewMPMCQueueOf[int](numThreads)
+	q := NewMPMCQueue[int](numThreads)
 	startwg := sync.WaitGroup{}
 	startwg.Add(1)
 	csum := make(chan int, numThreads)
@@ -174,18 +174,18 @@ func hammerMPMCQueueOfNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThre
 	}
 }
 
-func TestMPMCQueueOfNonBlockingCalls(t *testing.T) {
+func TestMPMCQueueNonBlockingCalls(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
 	n := 10
 	if testing.Short() {
 		n = 1
 	}
-	hammerMPMCQueueOfNonBlockingCalls(t, 1, n, n)
-	hammerMPMCQueueOfNonBlockingCalls(t, 2, 10*n, 2*n)
-	hammerMPMCQueueOfNonBlockingCalls(t, 4, 100*n, 4*n)
+	hammerMPMCQueueNonBlockingCalls(t, 1, n, n)
+	hammerMPMCQueueNonBlockingCalls(t, 2, 10*n, 2*n)
+	hammerMPMCQueueNonBlockingCalls(t, 4, 100*n, 4*n)
 }
 
-func benchmarkMPMCQueueOf(b *testing.B, queueSize, localWork int) {
+func benchmarkMPMCQueue(b *testing.B, queueSize, localWork int) {
 	callsPerSched := queueSize
 	procs := runtime.GOMAXPROCS(-1) / 2
 	if procs == 0 {
@@ -193,7 +193,7 @@ func benchmarkMPMCQueueOf(b *testing.B, queueSize, localWork int) {
 	}
 	N := int32(b.N / callsPerSched)
 	c := make(chan bool, 2*procs)
-	q := NewMPMCQueueOf[int](queueSize)
+	q := NewMPMCQueue[int](queueSize)
 	for p := 0; p < procs; p++ {
 		go func() {
 			foo := 0
@@ -244,10 +244,10 @@ func benchmarkMPMCQueueOf(b *testing.B, queueSize, localWork int) {
 	}
 }
 
-func BenchmarkMPMCQueueOf(b *testing.B) {
-	benchmarkMPMCQueueOf(b, 1000, 0)
+func BenchmarkMPMCQueue(b *testing.B) {
+	benchmarkMPMCQueue(b, 1000, 0)
 }
 
-func BenchmarkMPMCQueueOfWork100(b *testing.B) {
-	benchmarkMPMCQueueOf(b, 1000, 100)
+func BenchmarkMPMCQueueWork100(b *testing.B) {
+	benchmarkMPMCQueue(b, 1000, 100)
 }

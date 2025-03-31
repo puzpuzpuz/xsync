@@ -1,15 +1,15 @@
 package xsync
 
 const (
-	EntriesPerMapOfBucket   = entriesPerMapOfBucket
-	MapLoadFactor           = mapLoadFactor
-	DefaultMinMapTableLen   = defaultMinMapTableLen
-	DefaultMinMapOfTableCap = defaultMinMapTableLen * entriesPerMapOfBucket
-	MaxMapCounterLen        = maxMapCounterLen
+	EntriesPerMapBucket   = entriesPerMapBucket
+	MapLoadFactor         = mapLoadFactor
+	DefaultMinMapTableLen = defaultMinMapTableLen
+	DefaultMinMapTableCap = defaultMinMapTableLen * entriesPerMapBucket
+	MaxMapCounterLen      = maxMapCounterLen
 )
 
 type (
-	BucketOfPadded = bucketOfPadded
+	BucketPadded = bucketPadded
 )
 
 func EnableAssertions() {
