@@ -280,49 +280,29 @@ func (m *Map[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 	)
 }
 
-// LoadOrCompute returns the existing value for the key if present.
-// Otherwise, it computes the value using the provided function, and
-// then stores and returns the computed value. The loaded result is
-// true if the value was loaded, false if computed.
+// LoadOrCompute returns the existing value for the key if
+// present. Otherwise, it tries to compute the value using the
+// provided function. The loaded result is true if the value was
+// loaded, or false if computed. If valueFn returns [NoOp] or
+// [DeleteOp], effectively canceling the computation (due to an
+// error, for example), the zero value for type V will be
+// returned.
 //
 // This call locks a hash table bucket while the compute function
 // is executed. It means that modifications on other entries in
 // the bucket will be blocked until the valueFn executes. Consider
 // this when the function includes long-running operations.
-func (m *Map[K, V]) LoadOrCompute(key K, valueFn func() V) (actual V, loaded bool) {
-	return m.doCompute(
-		key,
-		func(V, bool) (V, ComputeOp) {
-			return valueFn(), UpdateOp
-		},
-		true,
-		false,
-	)
-}
-
-// LoadOrTryCompute returns the existing value for the key if present.
-// Otherwise, it tries to compute the value using the provided function
-// and, if successful, stores and returns the computed value. The loaded
-// result is true if the value was loaded, or false if computed (whether
-// successfully or not). If the compute attempt was cancelled (due to an
-// error, for example), a zero value of type V will be returned.
-//
-// This call locks a hash table bucket while the compute function
-// is executed. It means that modifications on other entries in
-// the bucket will be blocked until the valueFn executes. Consider
-// this when the function includes long-running operations.
-func (m *Map[K, V]) LoadOrTryCompute(
+func (m *Map[K, V]) LoadOrCompute(
 	key K,
-	valueFn func() (newValue V, cancel bool),
+	valueFn func() (newValue V, op ComputeOp),
 ) (value V, loaded bool) {
 	return m.doCompute(
 		key,
-		func(V, bool) (V, ComputeOp) {
-			nv, c := valueFn()
-			if !c {
-				return nv, UpdateOp
+		func(oldValue V, loaded bool) (V, ComputeOp) {
+			if loaded {
+				return oldValue, NoOp
 			}
-			return nv, DeleteOp // nv is ignored
+			return valueFn()
 		},
 		true,
 		false,
@@ -332,13 +312,16 @@ func (m *Map[K, V]) LoadOrTryCompute(
 type ComputeOp int
 
 const (
-	// Noop signals to ComputeV2 to not do anything as a result of executing the lambda. If the entry was
-	// not present in the map, nothing happens, and if it was present, the returned value is ignored.
-	Noop ComputeOp = iota
-	// UpdateOp signals to ComputeV2 to update the entry to the value returned by the lambda, creating it
-	// if necessary.
+	// NoOp signals to Compute to not do anything as a result of
+	// executing the lambda. If the entry was not present in the
+	// map, nothing happens, and if it was present, the returned
+	// value is ignored.
+	NoOp ComputeOp = iota
+	// UpdateOp signals to Compute to update the entry to the
+	// value returned by the lambda, creating it if necessary.
 	UpdateOp
-	// DeleteOp signals to ComputeV2 to always delete the entry from the map.
+	// DeleteOp signals to Compute to always delete the entry
+	// from the map.
 	DeleteOp
 )
 
@@ -347,7 +330,7 @@ const (
 // the returned [ComputeOp]. When the op returned by valueFn
 // is [UpdateOp], the value is updated to the new value. If
 // it is [DeleteOp], the entry is removed from the map
-// altogether. And finally, if the op is [Noop] then the
+// altogether. And finally, if the op is [NoOp] then the
 // entry is left as-is. In other words, if it did not already
 // exist, it is not created, and if it did exist, it is not
 // updated. This is useful to synchronously execute some
@@ -475,7 +458,7 @@ func (m *Map[K, V]) doCompute(
 							newe.key = key
 							newe.value = newv
 							atomic.StorePointer(&b.entries[idx], unsafe.Pointer(newe))
-						case Noop:
+						case NoOp:
 							newv = oldv
 						}
 						rootb.mu.Unlock()
@@ -504,7 +487,7 @@ func (m *Map[K, V]) doCompute(
 					var zeroV V
 					newValue, op := valueFn(zeroV, false)
 					switch op {
-					case DeleteOp, Noop:
+					case DeleteOp, NoOp:
 						rootb.mu.Unlock()
 						return zeroV, false
 					default:
@@ -530,7 +513,7 @@ func (m *Map[K, V]) doCompute(
 				var zeroV V
 				newValue, op := valueFn(zeroV, false)
 				switch op {
-				case DeleteOp, Noop:
+				case DeleteOp, NoOp:
 					rootb.mu.Unlock()
 					return newValue, false
 				default:

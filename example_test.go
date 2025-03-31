@@ -42,7 +42,7 @@ func ExampleMapOf_Compute() {
 		}
 		// Here, the value is already greater than minVal, so instead of
 		// updating the map, do nothing.
-		op = xsync.Noop
+		op = xsync.NoOp
 		return
 	})
 	// v: 84, ok: true, oldVal: 84
@@ -62,7 +62,7 @@ func ExampleMapOf_Compute() {
 	v, ok = counts.Compute(42, func(oldValue int, loaded bool) (newValue int, op xsync.ComputeOp) {
 		if oldValue == 42 {
 			err = errors.New("something went wrong")
-			return 0, xsync.Noop // no need to create a key/value pair
+			return 0, xsync.NoOp // no need to create a key/value pair
 		}
 		newValue = 0
 		op = xsync.UpdateOp
