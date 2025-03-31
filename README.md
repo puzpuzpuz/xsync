@@ -12,7 +12,7 @@ Covered with tests following the approach described [here](https://puzpuzpuz.dev
 
 Benchmark results may be found [here](BENCHMARKS.md). I'd like to thank [@felixge](https://github.com/felixge) who kindly ran the benchmarks on a beefy multicore machine.
 
-Also, a non-scientific, unfair benchmark comparing Java's [j.u.c.ConcurrentHashMap](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ConcurrentHashMap.html) and `xsync.MapOf` is available [here](https://puzpuzpuz.dev/concurrent-map-in-go-vs-java-yet-another-meaningless-benchmark).
+Also, a non-scientific, unfair benchmark comparing Java's [j.u.c.ConcurrentHashMap](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ConcurrentHashMap.html) and `xsync.Map` is available [here](https://puzpuzpuz.dev/concurrent-map-in-go-vs-java-yet-another-meaningless-benchmark).
 
 ## Usage
 
@@ -24,7 +24,7 @@ import (
 )
 ```
 
-*Note for pre-v4 users*: the main change between v3 and v4 is removal of non-generic data structures and some improvements in `MapOf` API. While the API has some breaking changes, the migration should be trivial.
+*Note for pre-v4 users*: the main change between v3 and v4 is removal of non-generic data structures and some improvements in `Map` API. While the API has some breaking changes, the migration should be trivial.
 
 ### Counter
 
@@ -41,38 +41,38 @@ v := c.Value()
 
 Works better in comparison with a single atomically updated `int64` counter in high contention scenarios.
 
-### MapOf
+### Map
 
-A `MapOf` is like a concurrent hash table-based map. It follows the interface of `sync.Map` with a number of valuable extensions like `Compute` or `Size`.
+A `Map` is like a concurrent hash table-based map. It follows the interface of `sync.Map` with a number of valuable extensions like `Compute` or `Size`.
 
 ```go
-m := xsync.NewMapOf[string, string]()
+m := xsync.NewMap[string, string]()
 m.Store("foo", "bar")
 v, ok := m.Load("foo")
 s := m.Size()
 ```
 
-`MapOf` uses a modified version of Cache-Line Hash Table (CLHT) data structure: https://github.com/LPD-EPFL/CLHT
+`Map` uses a modified version of Cache-Line Hash Table (CLHT) data structure: https://github.com/LPD-EPFL/CLHT
 
-CLHT is built around the idea of organizing the hash table in cache-line-sized buckets, so that on all modern CPUs update operations complete with minimal cache-line transfer. Also, `Get` operations are obstruction-free and involve no writes to shared memory, hence no mutexes or any other sort of locks. Due to this design, in all considered scenarios `MapOf` outperforms `sync.Map`.
+CLHT is built around the idea of organizing the hash table in cache-line-sized buckets, so that on all modern CPUs update operations complete with minimal cache-line transfer. Also, `Get` operations are obstruction-free and involve no writes to shared memory, hence no mutexes or any other sort of locks. Due to this design, in all considered scenarios `Map` outperforms `sync.Map`.
 
-Apart from CLHT, `MapOf` borrows ideas from Java's `j.u.c.ConcurrentHashMap` (immutable K/V pair structs instead of atomic snapshots) and C++'s `absl::flat_hash_map` (meta memory and SWAR-based lookups).
+Apart from CLHT, `Map` borrows ideas from Java's `j.u.c.ConcurrentHashMap` (immutable K/V pair structs instead of atomic snapshots) and C++'s `absl::flat_hash_map` (meta memory and SWAR-based lookups).
 
-Besides the `Range` method available for map iteration, there is also `ToPlainMapOf` utility function to convert a `MapOf` to a built-in Go's `map`:
+Besides the `Range` method available for map iteration, there is also `ToPlainMap` utility function to convert a `Map` to a built-in Go's `map`:
 ```go
-m := xsync.NewMapOf[int, int]()
+m := xsync.NewMap[int, int]()
 m.Store(42, 42)
-pm := xsync.ToPlainMapOf(m)
+pm := xsync.ToPlainMap(m)
 ```
 
-Finally, `MapOf` uses the built-in Golang's hash function which has DDOS protection. It uses `maphash.Comparable` as the default hash function. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation.
+Finally, `Map` uses the built-in Golang's hash function which has DDOS protection. It uses `maphash.Comparable` as the default hash function. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation.
 
-### SPSCQueueOf
+### SPSCQueue
 
-A `SPSCQueueOf` is a bounded single-producer single-consumer concurrent queue. This means that not more than a single goroutine must be publishing items to the queue while not more than a single goroutine must be consuming those items.
+A `SPSCQueue` is a bounded single-producer single-consumer concurrent queue. This means that not more than a single goroutine must be publishing items to the queue while not more than a single goroutine must be consuming those items.
 
 ```go
-q := xsync.NewSPSCQueueOf[string](1024)
+q := xsync.NewSPSCQueue[string](1024)
 // producer inserts an item into the queue
 // optimistic insertion attempt; doesn't block
 inserted := q.TryEnqueue("bar")
@@ -85,12 +85,12 @@ The queue is based on the data structure from this [article](https://rigtorp.se/
 
 Make sure to implement proper back-off strategy to handle failed optimistic operation attempts. The most basic back-off would be calling `runtime.Gosched()`.
 
-### MPMCQueueOf
+### MPMCQueue
 
-A `MPMCQueueOf` is a bounded multi-producer multi-consumer concurrent queue.
+A `MPMCQueue` is a bounded multi-producer multi-consumer concurrent queue.
 
 ```go
-q := xsync.NewMPMCQueueOf[string](1024)
+q := xsync.NewMPMCQueue[string](1024)
 // producer optimistically inserts an item into the queue
 // optimistic insertion attempt; doesn't block
 inserted := q.TryEnqueue("bar")
@@ -103,7 +103,7 @@ The queue is based on the algorithm from the [MPMCQueue](https://github.com/rigt
 
 The idea of the algorithm is to allow parallelism for concurrent producers and consumers by introducing the notion of tickets, i.e. values of two counters, one per producers/consumers. An atomic increment of one of those counters is the only noticeable contention point in queue operations. The rest of the operation avoids contention on writes thanks to the turn-based read/write access for each of the queue items.
 
-In essence, `MPMCQueueOf` is a specialized queue for scenarios where there are multiple concurrent producers and consumers of a single queue running on a large multicore machine.
+In essence, `MPMCQueue` is a specialized queue for scenarios where there are multiple concurrent producers and consumers of a single queue running on a large multicore machine.
 
 To get the optimal performance, you may want to set the queue size to be large enough, say, an order of magnitude greater than the number of producers/consumers, to allow producers and consumers to progress with their queue operations in parallel most of the time.
 

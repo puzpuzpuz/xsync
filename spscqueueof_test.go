@@ -16,12 +16,12 @@ import (
 
 func TestSPSCQueueOf_InvalidSize(t *testing.T) {
 	defer func() { recover() }()
-	NewSPSCQueueOf[int](0)
+	NewSPSCQueue[int](0)
 	t.Fatal("no panic detected")
 }
 
 func TestSPSCQueueOfTryEnqueueDequeueInt(t *testing.T) {
-	q := NewSPSCQueueOf[int](10)
+	q := NewSPSCQueue[int](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(i) {
 			t.Fatal("TryEnqueue failed")
@@ -35,7 +35,7 @@ func TestSPSCQueueOfTryEnqueueDequeueInt(t *testing.T) {
 }
 
 func TestSPSCQueueOfTryEnqueueDequeueString(t *testing.T) {
-	q := NewSPSCQueueOf[string](10)
+	q := NewSPSCQueue[string](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(strconv.Itoa(i)) {
 			t.Fatal("TryEnqueue failed")
@@ -53,7 +53,7 @@ func TestSPSCQueueOfTryEnqueueDequeueStruct(t *testing.T) {
 		bar int
 		baz int
 	}
-	q := NewSPSCQueueOf[foo](10)
+	q := NewSPSCQueue[foo](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(foo{i, i}) {
 			t.Fatal("TryEnqueue failed")
@@ -71,7 +71,7 @@ func TestSPSCQueueOfTryEnqueueDequeueStructRef(t *testing.T) {
 		bar int
 		baz int
 	}
-	q := NewSPSCQueueOf[*foo](11)
+	q := NewSPSCQueue[*foo](11)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(&foo{i, i}) {
 			t.Fatal("TryEnqueue failed")
@@ -91,7 +91,7 @@ func TestSPSCQueueOfTryEnqueueDequeueStructRef(t *testing.T) {
 }
 
 func TestSPSCQueueOfTryEnqueueDequeue(t *testing.T) {
-	q := NewSPSCQueueOf[int](10)
+	q := NewSPSCQueue[int](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(i) {
 			t.Fatalf("failed to enqueue for %d", i)
@@ -105,7 +105,7 @@ func TestSPSCQueueOfTryEnqueueDequeue(t *testing.T) {
 }
 
 func TestSPSCQueueOfTryEnqueueOnFull(t *testing.T) {
-	q := NewSPSCQueueOf[string](1)
+	q := NewSPSCQueue[string](1)
 	if !q.TryEnqueue("foo") {
 		t.Error("failed to enqueue initial item")
 	}
@@ -115,14 +115,14 @@ func TestSPSCQueueOfTryEnqueueOnFull(t *testing.T) {
 }
 
 func TestSPSCQueueOfTryDequeueOnEmpty(t *testing.T) {
-	q := NewSPSCQueueOf[int](2)
+	q := NewSPSCQueue[int](2)
 	if _, ok := q.TryDequeue(); ok {
 		t.Error("got success for enqueue on empty queue")
 	}
 }
 
 func hammerSPSCQueueOfNonBlockingCalls(t *testing.T, cap, numOps int) {
-	q := NewSPSCQueueOf[int](cap)
+	q := NewSPSCQueue[int](cap)
 	startwg := sync.WaitGroup{}
 	startwg.Add(1)
 	csum := make(chan int, 2)
@@ -179,7 +179,7 @@ func benchmarkSPSCQueueOfProdCons(b *testing.B, queueSize, localWork int) {
 	callsPerSched := queueSize
 	N := int32(b.N / callsPerSched)
 	c := make(chan bool, 2)
-	q := NewSPSCQueueOf[int](queueSize)
+	q := NewSPSCQueue[int](queueSize)
 
 	go func() {
 		foo := 0
