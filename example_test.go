@@ -8,7 +8,7 @@ import (
 )
 
 func ExampleMapOf_Compute() {
-	counts := xsync.NewMapOf[int, int]()
+	counts := xsync.NewMap[int, int]()
 
 	// Store a new value.
 	v, ok := counts.Compute(42, func(oldValue int, loaded bool) (newValue int, delete bool) {

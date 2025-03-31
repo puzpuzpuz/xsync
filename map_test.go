@@ -60,7 +60,7 @@ func TestMap_BucketOfStructSize(t *testing.T) {
 }
 
 func TestMapOf_MissingEntry(t *testing.T) {
-	m := NewMapOf[string, string]()
+	m := NewMap[string, string]()
 	v, ok := m.Load("foo")
 	if ok {
 		t.Fatalf("value was not expected: %v", v)
@@ -74,7 +74,7 @@ func TestMapOf_MissingEntry(t *testing.T) {
 }
 
 func TestMapOf_EmptyStringKey(t *testing.T) {
-	m := NewMapOf[string, string]()
+	m := NewMap[string, string]()
 	m.Store("", "foobar")
 	v, ok := m.Load("")
 	if !ok {
@@ -86,7 +86,7 @@ func TestMapOf_EmptyStringKey(t *testing.T) {
 }
 
 func TestMapOfStore_NilValue(t *testing.T) {
-	m := NewMapOf[string, *struct{}]()
+	m := NewMap[string, *struct{}]()
 	m.Store("foo", nil)
 	v, ok := m.Load("foo")
 	if !ok {
@@ -98,7 +98,7 @@ func TestMapOfStore_NilValue(t *testing.T) {
 }
 
 func TestMapOfLoadOrStore_NilValue(t *testing.T) {
-	m := NewMapOf[string, *struct{}]()
+	m := NewMap[string, *struct{}]()
 	m.LoadOrStore("foo", nil)
 	v, loaded := m.LoadOrStore("foo", nil)
 	if !loaded {
@@ -111,7 +111,7 @@ func TestMapOfLoadOrStore_NilValue(t *testing.T) {
 
 func TestMapOfLoadOrStore_NonNilValue(t *testing.T) {
 	type foo struct{}
-	m := NewMapOf[string, *foo]()
+	m := NewMap[string, *foo]()
 	newv := &foo{}
 	v, loaded := m.LoadOrStore("foo", newv)
 	if loaded {
@@ -131,7 +131,7 @@ func TestMapOfLoadOrStore_NonNilValue(t *testing.T) {
 }
 
 func TestMapOfLoadAndStore_NilValue(t *testing.T) {
-	m := NewMapOf[string, *struct{}]()
+	m := NewMap[string, *struct{}]()
 	m.LoadAndStore("foo", nil)
 	v, loaded := m.LoadAndStore("foo", nil)
 	if !loaded {
@@ -150,7 +150,7 @@ func TestMapOfLoadAndStore_NilValue(t *testing.T) {
 }
 
 func TestMapOfLoadAndStore_NonNilValue(t *testing.T) {
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	v1 := 1
 	v, loaded := m.LoadAndStore("foo", v1)
 	if loaded {
@@ -178,7 +178,7 @@ func TestMapOfLoadAndStore_NonNilValue(t *testing.T) {
 
 func TestMapOfRange(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -204,7 +204,7 @@ func TestMapOfRange(t *testing.T) {
 }
 
 func TestMapOfRange_FalseReturned(t *testing.T) {
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < 100; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -220,7 +220,7 @@ func TestMapOfRange_FalseReturned(t *testing.T) {
 
 func TestMapOfRange_NestedDelete(t *testing.T) {
 	const numEntries = 256
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -237,7 +237,7 @@ func TestMapOfRange_NestedDelete(t *testing.T) {
 
 func TestMapOfStringStore(t *testing.T) {
 	const numEntries = 128
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -254,7 +254,7 @@ func TestMapOfStringStore(t *testing.T) {
 
 func TestMapOfIntStore(t *testing.T) {
 	const numEntries = 128
-	m := NewMapOf[int, int]()
+	m := NewMap[int, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(i, i)
 	}
@@ -271,7 +271,7 @@ func TestMapOfIntStore(t *testing.T) {
 
 func TestMapOfStore_StructKeys_IntValues(t *testing.T) {
 	const numEntries = 128
-	m := NewMapOf[point, int]()
+	m := NewMap[point, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(point{int32(i), -int32(i)}, i)
 	}
@@ -288,7 +288,7 @@ func TestMapOfStore_StructKeys_IntValues(t *testing.T) {
 
 func TestMapOfStore_StructKeys_StructValues(t *testing.T) {
 	const numEntries = 128
-	m := NewMapOf[point, point]()
+	m := NewMap[point, point]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(point{int32(i), -int32(i)}, point{-int32(i), int32(i)})
 	}
@@ -308,7 +308,7 @@ func TestMapOfStore_StructKeys_StructValues(t *testing.T) {
 
 func TestMapOfLoadOrStore(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -321,7 +321,7 @@ func TestMapOfLoadOrStore(t *testing.T) {
 
 func TestMapOfLoadOrCompute(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() int {
 			return i
@@ -347,7 +347,7 @@ func TestMapOfLoadOrCompute(t *testing.T) {
 }
 
 func TestMapOfLoadOrCompute_FunctionCalledOnce(t *testing.T) {
-	m := NewMapOf[int, int]()
+	m := NewMap[int, int]()
 	for i := 0; i < 100; {
 		m.LoadOrCompute(i, func() (v int) {
 			v, i = i, i+1
@@ -364,7 +364,7 @@ func TestMapOfLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 
 func TestMapOfLoadOrTryCompute(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		v, loaded := m.LoadOrTryCompute(strconv.Itoa(i), func() (newValue int, cancel bool) {
 			return i, true
@@ -404,7 +404,7 @@ func TestMapOfLoadOrTryCompute(t *testing.T) {
 }
 
 func TestMapOfLoadOrTryCompute_FunctionCalledOnce(t *testing.T) {
-	m := NewMapOf[int, int]()
+	m := NewMap[int, int]()
 	for i := 0; i < 100; {
 		m.LoadOrTryCompute(i, func() (newValue int, cancel bool) {
 			newValue, i = i, i+1
@@ -420,7 +420,7 @@ func TestMapOfLoadOrTryCompute_FunctionCalledOnce(t *testing.T) {
 }
 
 func TestMapOfCompute(t *testing.T) {
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	// Store a new value.
 	v, ok := m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, delete bool) {
 		if oldValue != 0 {
@@ -497,7 +497,7 @@ func TestMapOfCompute(t *testing.T) {
 
 func TestMapOfStringStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -511,7 +511,7 @@ func TestMapOfStringStoreThenDelete(t *testing.T) {
 
 func TestMapOfIntStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[int32, int32]()
+	m := NewMap[int32, int32]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(int32(i), int32(i))
 	}
@@ -525,7 +525,7 @@ func TestMapOfIntStoreThenDelete(t *testing.T) {
 
 func TestMapOfStructStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[point, string]()
+	m := NewMap[point, string]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(point{int32(i), 42}, strconv.Itoa(i))
 	}
@@ -539,7 +539,7 @@ func TestMapOfStructStoreThenDelete(t *testing.T) {
 
 func TestMapOfStringStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -555,7 +555,7 @@ func TestMapOfStringStoreThenLoadAndDelete(t *testing.T) {
 
 func TestMapOfIntStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[int, int]()
+	m := NewMap[int, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(i, i)
 	}
@@ -571,7 +571,7 @@ func TestMapOfIntStoreThenLoadAndDelete(t *testing.T) {
 
 func TestMapOfStructStoreThenLoadAndDelete(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[point, int]()
+	m := NewMap[point, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(point{42, int32(i)}, i)
 	}
@@ -587,7 +587,7 @@ func TestMapOfStructStoreThenLoadAndDelete(t *testing.T) {
 
 func TestMapOfStoreThenParallelDelete_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[int, int]()
+	m := NewMap[int, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(i, i)
 	}
@@ -616,7 +616,7 @@ func TestMapOfStoreThenParallelDelete_DoesNotShrinkBelowMinTableLen(t *testing.T
 	}
 }
 
-func sizeBasedOnTypedRange(m *MapOf[string, int]) int {
+func sizeBasedOnTypedRange(m *Map[string, int]) int {
 	size := 0
 	m.Range(func(key string, value int) bool {
 		size++
@@ -627,7 +627,7 @@ func sizeBasedOnTypedRange(m *MapOf[string, int]) int {
 
 func TestMapOfSize(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	size := m.Size()
 	if size != 0 {
 		t.Fatalf("zero size expected: %d", size)
@@ -661,7 +661,7 @@ func TestMapOfSize(t *testing.T) {
 
 func TestMapOfClear(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
 	}
@@ -680,7 +680,7 @@ func TestMapOfClear(t *testing.T) {
 	}
 }
 
-func assertMapOfCapacity[K comparable, V any](t *testing.T, m *MapOf[K, V], expectedCap int) {
+func assertMapOfCapacity[K comparable, V any](t *testing.T, m *Map[K, V], expectedCap int) {
 	stats := m.Stats()
 	if stats.Capacity != expectedCap {
 		t.Fatalf("capacity was different from %d: %d", expectedCap, stats.Capacity)
@@ -688,23 +688,23 @@ func assertMapOfCapacity[K comparable, V any](t *testing.T, m *MapOf[K, V], expe
 }
 
 func TestNewMapOfPresized(t *testing.T) {
-	assertMapOfCapacity(t, NewMapOf[string, string](), DefaultMinMapOfTableCap)
+	assertMapOfCapacity(t, NewMap[string, string](), DefaultMinMapOfTableCap)
 	assertMapOfCapacity(t, NewMapOfPresized[string, string](0), DefaultMinMapOfTableCap)
-	assertMapOfCapacity(t, NewMapOf[string, string](WithPresize(0)), DefaultMinMapOfTableCap)
+	assertMapOfCapacity(t, NewMap[string, string](WithPresize(0)), DefaultMinMapOfTableCap)
 	assertMapOfCapacity(t, NewMapOfPresized[string, string](-100), DefaultMinMapOfTableCap)
-	assertMapOfCapacity(t, NewMapOf[string, string](WithPresize(-100)), DefaultMinMapOfTableCap)
+	assertMapOfCapacity(t, NewMap[string, string](WithPresize(-100)), DefaultMinMapOfTableCap)
 	assertMapOfCapacity(t, NewMapOfPresized[string, string](500), 1280)
-	assertMapOfCapacity(t, NewMapOf[string, string](WithPresize(500)), 1280)
+	assertMapOfCapacity(t, NewMap[string, string](WithPresize(500)), 1280)
 	assertMapOfCapacity(t, NewMapOfPresized[int, int](1_000_000), 2621440)
-	assertMapOfCapacity(t, NewMapOf[int, int](WithPresize(1_000_000)), 2621440)
+	assertMapOfCapacity(t, NewMap[int, int](WithPresize(1_000_000)), 2621440)
 	assertMapOfCapacity(t, NewMapOfPresized[point, point](100), 160)
-	assertMapOfCapacity(t, NewMapOf[point, point](WithPresize(100)), 160)
+	assertMapOfCapacity(t, NewMap[point, point](WithPresize(100)), 160)
 }
 
 func TestNewMapOfPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 	const minTableLen = 1024
 	const numEntries = int(minTableLen * EntriesPerMapOfBucket * MapLoadFactor)
-	m := NewMapOf[int, int](WithPresize(numEntries))
+	m := NewMap[int, int](WithPresize(numEntries))
 	for i := 0; i < 2*numEntries; i++ {
 		m.Store(i, i)
 	}
@@ -727,7 +727,7 @@ func TestNewMapOfPresized_DoesNotShrinkBelowMinTableLen(t *testing.T) {
 func TestNewMapOfGrowOnly_OnlyShrinksOnClear(t *testing.T) {
 	const minTableLen = 128
 	const numEntries = minTableLen * EntriesPerMapOfBucket
-	m := NewMapOf[int, int](WithPresize(numEntries), WithGrowOnly())
+	m := NewMap[int, int](WithPresize(numEntries), WithGrowOnly())
 
 	stats := m.Stats()
 	initialTableLen := stats.RootBuckets
@@ -758,7 +758,7 @@ func TestNewMapOfGrowOnly_OnlyShrinksOnClear(t *testing.T) {
 
 func TestMapOfResize(t *testing.T) {
 	const numEntries = 100_000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
@@ -806,7 +806,7 @@ func TestMapOfResize(t *testing.T) {
 
 func TestMapOfResize_CounterLenLimit(t *testing.T) {
 	const numEntries = 1_000_000
-	m := NewMapOf[string, string]()
+	m := NewMap[string, string]()
 
 	for i := 0; i < numEntries; i++ {
 		m.Store("foo"+strconv.Itoa(i), "bar"+strconv.Itoa(i))
@@ -821,7 +821,7 @@ func TestMapOfResize_CounterLenLimit(t *testing.T) {
 	}
 }
 
-func parallelSeqTypedResizer(m *MapOf[int, int], numEntries int, positive bool, cdone chan bool) {
+func parallelSeqTypedResizer(m *Map[int, int], numEntries int, positive bool, cdone chan bool) {
 	for i := 0; i < numEntries; i++ {
 		if positive {
 			m.Store(i, i)
@@ -834,7 +834,7 @@ func parallelSeqTypedResizer(m *MapOf[int, int], numEntries int, positive bool, 
 
 func TestMapOfParallelResize_GrowOnly(t *testing.T) {
 	const numEntries = 100_000
-	m := NewMapOf[int, int]()
+	m := NewMap[int, int]()
 	cdone := make(chan bool)
 	go parallelSeqTypedResizer(m, numEntries, true, cdone)
 	go parallelSeqTypedResizer(m, numEntries, false, cdone)
@@ -856,7 +856,7 @@ func TestMapOfParallelResize_GrowOnly(t *testing.T) {
 	}
 }
 
-func parallelRandTypedResizer(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedResizer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		coin := r.Int63n(2)
@@ -874,7 +874,7 @@ func parallelRandTypedResizer(t *testing.T, m *MapOf[string, int], numIters, num
 func TestMapOfParallelResize(t *testing.T) {
 	const numIters = 1_000
 	const numEntries = 2 * EntriesPerMapOfBucket * DefaultMinMapTableLen
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	cdone := make(chan bool)
 	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
 	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
@@ -902,7 +902,7 @@ func TestMapOfParallelResize(t *testing.T) {
 	}
 }
 
-func parallelRandTypedClearer(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedClearer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		coin := r.Int63n(2)
@@ -920,7 +920,7 @@ func parallelRandTypedClearer(t *testing.T, m *MapOf[string, int], numIters, num
 func TestMapOfParallelClear(t *testing.T) {
 	const numIters = 100
 	const numEntries = 1_000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	cdone := make(chan bool)
 	go parallelRandTypedClearer(t, m, numIters, numEntries, cdone)
 	go parallelRandTypedClearer(t, m, numIters, numEntries, cdone)
@@ -938,7 +938,7 @@ func TestMapOfParallelClear(t *testing.T) {
 	}
 }
 
-func parallelSeqTypedStorer(t *testing.T, m *MapOf[string, int], storeEach, numIters, numEntries int, cdone chan bool) {
+func parallelSeqTypedStorer(t *testing.T, m *Map[string, int], storeEach, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			if storeEach == 0 || j%storeEach == 0 {
@@ -963,7 +963,7 @@ func TestMapOfParallelStores(t *testing.T) {
 	const numStorers = 4
 	const numIters = 10_000
 	const numEntries = 100
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	cdone := make(chan bool)
 	for i := 0; i < numStorers; i++ {
 		go parallelSeqTypedStorer(t, m, i, numIters, numEntries, cdone)
@@ -984,7 +984,7 @@ func TestMapOfParallelStores(t *testing.T) {
 	}
 }
 
-func parallelRandTypedStorer(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedStorer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
@@ -997,7 +997,7 @@ func parallelRandTypedStorer(t *testing.T, m *MapOf[string, int], numIters, numE
 	cdone <- true
 }
 
-func parallelRandTypedDeleter(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandTypedDeleter(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
@@ -1010,7 +1010,7 @@ func parallelRandTypedDeleter(t *testing.T, m *MapOf[string, int], numIters, num
 	cdone <- true
 }
 
-func parallelTypedLoader(t *testing.T, m *MapOf[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelTypedLoader(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			// Due to atomic snapshots we must either see no entry, or a "<j>"/j pair.
@@ -1027,7 +1027,7 @@ func parallelTypedLoader(t *testing.T, m *MapOf[string, int], numIters, numEntri
 func TestMapOfAtomicSnapshot(t *testing.T) {
 	const numIters = 100_000
 	const numEntries = 100
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	cdone := make(chan bool)
 	// Update or delete random entry in parallel with loads.
 	go parallelRandTypedStorer(t, m, numIters, numEntries, cdone)
@@ -1043,7 +1043,7 @@ func TestMapOfParallelStoresAndDeletes(t *testing.T) {
 	const numWorkers = 2
 	const numIters = 100_000
 	const numEntries = 1000
-	m := NewMapOf[string, int]()
+	m := NewMap[string, int]()
 	cdone := make(chan bool)
 	// Update random entry in parallel with deletes.
 	for i := 0; i < numWorkers; i++ {
@@ -1056,7 +1056,7 @@ func TestMapOfParallelStoresAndDeletes(t *testing.T) {
 	}
 }
 
-func parallelTypedComputer(m *MapOf[uint64, uint64], numIters, numEntries int, cdone chan bool) {
+func parallelTypedComputer(m *Map[uint64, uint64], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			m.Compute(uint64(j), func(oldValue uint64, loaded bool) (newValue uint64, delete bool) {
@@ -1070,7 +1070,7 @@ func parallelTypedComputer(m *MapOf[uint64, uint64], numIters, numEntries int, c
 func TestMapOfParallelComputes(t *testing.T) {
 	const numWorkers = 4 // Also stands for numEntries.
 	const numIters = 10_000
-	m := NewMapOf[uint64, uint64]()
+	m := NewMap[uint64, uint64]()
 	cdone := make(chan bool)
 	for i := 0; i < numWorkers; i++ {
 		go parallelTypedComputer(m, numIters, numWorkers, cdone)
@@ -1091,7 +1091,7 @@ func TestMapOfParallelComputes(t *testing.T) {
 	}
 }
 
-func parallelTypedRangeStorer(m *MapOf[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
+func parallelTypedRangeStorer(m *Map[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
 	for {
 		for i := 0; i < numEntries; i++ {
 			m.Store(i, i)
@@ -1103,7 +1103,7 @@ func parallelTypedRangeStorer(m *MapOf[int, int], numEntries int, stopFlag *int6
 	cdone <- true
 }
 
-func parallelTypedRangeDeleter(m *MapOf[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
+func parallelTypedRangeDeleter(m *Map[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
 	for {
 		for i := 0; i < numEntries; i++ {
 			m.Delete(i)
@@ -1150,7 +1150,7 @@ func TestMapOfParallelRange(t *testing.T) {
 	<-cdone
 }
 
-func parallelTypedShrinker(t *testing.T, m *MapOf[uint64, *point], numIters, numEntries int, stopFlag *int64, cdone chan bool) {
+func parallelTypedShrinker(t *testing.T, m *Map[uint64, *point], numIters, numEntries int, stopFlag *int64, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			if p, loaded := m.LoadOrStore(uint64(j), &point{int32(j), int32(j)}); loaded {
@@ -1165,7 +1165,7 @@ func parallelTypedShrinker(t *testing.T, m *MapOf[uint64, *point], numIters, num
 	cdone <- true
 }
 
-func parallelTypedUpdater(t *testing.T, m *MapOf[uint64, *point], idx int, stopFlag *int64, cdone chan bool) {
+func parallelTypedUpdater(t *testing.T, m *Map[uint64, *point], idx int, stopFlag *int64, cdone chan bool) {
 	for atomic.LoadInt64(stopFlag) != 1 {
 		sleepUs := int(Fastrand() % 10)
 		if p, loaded := m.LoadOrStore(uint64(idx), &point{int32(idx), int32(idx)}); loaded {
@@ -1183,7 +1183,7 @@ func parallelTypedUpdater(t *testing.T, m *MapOf[uint64, *point], idx int, stopF
 func TestMapOfDoesNotLoseEntriesOnResize(t *testing.T) {
 	const numIters = 10_000
 	const numEntries = 128
-	m := NewMapOf[uint64, *point]()
+	m := NewMap[uint64, *point]()
 	cdone := make(chan bool)
 	stopFlag := int64(0)
 	go parallelTypedShrinker(t, m, numIters, numEntries, &stopFlag, cdone)
@@ -1198,7 +1198,7 @@ func TestMapOfDoesNotLoseEntriesOnResize(t *testing.T) {
 }
 
 func TestMapOfStats(t *testing.T) {
-	m := NewMapOf[int, int]()
+	m := NewMap[int, int]()
 
 	stats := m.Stats()
 	if stats.RootBuckets != DefaultMinMapTableLen {
@@ -1252,7 +1252,7 @@ func TestMapOfStats(t *testing.T) {
 }
 
 func TestToPlainMapOf_NilPointer(t *testing.T) {
-	pm := ToPlainMapOf[int, int](nil)
+	pm := ToPlainMap[int, int](nil)
 	if len(pm) != 0 {
 		t.Fatalf("got unexpected size of nil map copy: %d", len(pm))
 	}
@@ -1260,11 +1260,11 @@ func TestToPlainMapOf_NilPointer(t *testing.T) {
 
 func TestToPlainMapOf(t *testing.T) {
 	const numEntries = 1000
-	m := NewMapOf[int, int]()
+	m := NewMap[int, int]()
 	for i := 0; i < numEntries; i++ {
 		m.Store(i, i)
 	}
-	pm := ToPlainMapOf[int, int](m)
+	pm := ToPlainMap[int, int](m)
 	if len(pm) != numEntries {
 		t.Fatalf("got unexpected size of nil map copy: %d", len(pm))
 	}
@@ -1282,7 +1282,7 @@ func BenchmarkMapOf_NoWarmUp(b *testing.B) {
 			continue
 		}
 		b.Run(bc.name, func(b *testing.B) {
-			m := NewMapOf[string, int]()
+			m := NewMap[string, int]()
 			benchmarkMapOfStringKeys(b, func(k string) (int, bool) {
 				return m.Load(k)
 			}, func(k string, v int) {
@@ -1345,7 +1345,7 @@ func BenchmarkMapOfInt_NoWarmUp(b *testing.B) {
 			continue
 		}
 		b.Run(bc.name, func(b *testing.B) {
-			m := NewMapOf[int, int]()
+			m := NewMap[int, int]()
 			benchmarkMapOfIntKeys(b, func(k int) (int, bool) {
 				return m.Load(k)
 			}, func(k int, v int) {

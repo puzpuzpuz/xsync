@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	// number of MapOf entries per bucket; 5 entries lead to size of 64B
+	// number of Map entries per bucket; 5 entries lead to size of 64B
 	// (one cache line) on 64-bit machines
-	entriesPerMapOfBucket = 5
+	entriesPerMapBucket = 5
 	// threshold fraction of table occupation to start a table shrinking
 	// when deleting the last entry in a bucket chain
 	mapShrinkFraction = 128
@@ -42,14 +42,17 @@ const (
 	mapClearHint  mapResizeHint = 2
 )
 
-// MapOf is like a Go map[K]V but is safe for concurrent
+// Deprecated: use [Map]
+type MapOf[K comparable, V any] = Map[K, V]
+
+// Map is like a Go map[K]V but is safe for concurrent
 // use by multiple goroutines without additional locking or
 // coordination. It follows the interface of sync.Map with
 // a number of valuable extensions like Compute or Size.
 //
-// A MapOf must not be copied after first use.
+// A Map must not be copied after first use.
 //
-// MapOf uses a modified version of Cache-Line Hash Table (CLHT)
+// Map uses a modified version of Cache-Line Hash Table (CLHT)
 // data structure: https://github.com/LPD-EPFL/CLHT
 //
 // CLHT is built around idea to organize the hash table in
@@ -57,25 +60,25 @@ const (
 // operations complete with at most one cache-line transfer.
 // Also, Get operations involve no write to memory, as well as no
 // mutexes or any other sort of locks. Due to this design, in all
-// considered scenarios MapOf outperforms sync.Map.
+// considered scenarios Map outperforms sync.Map.
 //
-// MapOf also borrows ideas from Java's j.u.c.ConcurrentHashMap
+// Map also borrows ideas from Java's j.u.c.ConcurrentHashMap
 // (immutable K/V pair structs instead of atomic snapshots)
 // and C++'s absl::flat_hash_map (meta memory and SWAR-based
 // lookups).
-type MapOf[K comparable, V any] struct {
+type Map[K comparable, V any] struct {
 	totalGrowths int64
 	totalShrinks int64
 	resizing     int64          // resize in progress flag; updated atomically
 	resizeMu     sync.Mutex     // only used along with resizeCond
 	resizeCond   sync.Cond      // used to wake up resize waiters (concurrent modifications)
-	table        unsafe.Pointer // *mapOfTable
+	table        unsafe.Pointer // *mapTable
 	minTableLen  int
 	growOnly     bool
 }
 
-type mapOfTable[K comparable, V any] struct {
-	buckets []bucketOfPadded
+type mapTable[K comparable, V any] struct {
+	buckets []bucketPadded
 	// striped counter for number of table entries;
 	// used to determine if a table shrinking is needed
 	// occupies min(buckets_memory/1024, 64KB) of memory
@@ -89,34 +92,34 @@ type counterStripe struct {
 	pad [cacheLineSize - 8]byte
 }
 
-// bucketOfPadded is a CL-sized map bucket holding up to
-// entriesPerMapOfBucket entries.
-type bucketOfPadded struct {
+// bucketPadded is a CL-sized map bucket holding up to
+// entriesPerMapBucket entries.
+type bucketPadded struct {
 	//lint:ignore U1000 ensure each bucket takes two cache lines on both 32 and 64-bit archs
-	pad [cacheLineSize - unsafe.Sizeof(bucketOf{})]byte
-	bucketOf
+	pad [cacheLineSize - unsafe.Sizeof(bucket{})]byte
+	bucket
 }
 
-type bucketOf struct {
+type bucket struct {
 	meta    uint64
-	entries [entriesPerMapOfBucket]unsafe.Pointer // *entryOf
-	next    unsafe.Pointer                        // *bucketOfPadded
+	entries [entriesPerMapBucket]unsafe.Pointer // *entry
+	next    unsafe.Pointer                      // *bucketPadded
 	mu      sync.Mutex
 }
 
-// entryOf is an immutable map entry.
-type entryOf[K comparable, V any] struct {
+// entry is an immutable map entry.
+type entry[K comparable, V any] struct {
 	key   K
 	value V
 }
 
-// MapConfig defines configurable MapOf options.
+// MapConfig defines configurable Map options.
 type MapConfig struct {
 	sizeHint int
 	growOnly bool
 }
 
-// WithPresize configures new MapOf instance with capacity enough
+// WithPresize configures new Map instance with capacity enough
 // to hold sizeHint entries. The capacity is treated as the minimal
 // capacity meaning that the underlying hash table will never shrink
 // to a smaller capacity. If sizeHint is zero or negative, the value
@@ -127,7 +130,7 @@ func WithPresize(sizeHint int) func(*MapConfig) {
 	}
 }
 
-// WithGrowOnly configures new MapOf instance to be grow-only.
+// WithGrowOnly configures new Map instance to be grow-only.
 // This means that the underlying hash table grows in capacity when
 // new keys are added, but does not shrink when keys are deleted.
 // The only exception to this rule is the Clear method which
@@ -138,24 +141,29 @@ func WithGrowOnly() func(*MapConfig) {
 	}
 }
 
-// NewMapOf creates a new MapOf instance configured with the given
+// Deprecated: use [NewMap].
+func NewMapOf[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
+	return NewMap[K, V](options...)
+}
+
+// NewMap creates a new Map instance configured with the given
 // options.
-func NewMapOf[K comparable, V any](options ...func(*MapConfig)) *MapOf[K, V] {
+func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 	c := &MapConfig{
-		sizeHint: defaultMinMapTableLen * entriesPerMapOfBucket,
+		sizeHint: defaultMinMapTableLen * entriesPerMapBucket,
 	}
 	for _, o := range options {
 		o(c)
 	}
 
-	m := &MapOf[K, V]{}
+	m := &Map[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
-	var table *mapOfTable[K, V]
-	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapOfBucket {
-		table = newMapOfTable[K, V](defaultMinMapTableLen)
+	var table *mapTable[K, V]
+	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
+		table = newMapTable[K, V](defaultMinMapTableLen)
 	} else {
-		tableLen := nextPowOf2(uint32((float64(c.sizeHint) / entriesPerMapOfBucket) / mapLoadFactor))
-		table = newMapOfTable[K, V](int(tableLen))
+		tableLen := nextPowOf2(uint32((float64(c.sizeHint) / entriesPerMapBucket) / mapLoadFactor))
+		table = newMapTable[K, V](int(tableLen))
 	}
 	m.minTableLen = len(table.buckets)
 	m.growOnly = c.growOnly
@@ -163,19 +171,8 @@ func NewMapOf[K comparable, V any](options ...func(*MapConfig)) *MapOf[K, V] {
 	return m
 }
 
-// NewMapOfPresized creates a new MapOf instance with capacity enough
-// to hold sizeHint entries. The capacity is treated as the minimal capacity
-// meaning that the underlying hash table will never shrink to
-// a smaller capacity. If sizeHint is zero or negative, the value
-// is ignored.
-//
-// Deprecated: use NewMapOf in combination with WithPresize.
-func NewMapOfPresized[K comparable, V any](sizeHint int) *MapOf[K, V] {
-	return NewMapOf[K, V](WithPresize(sizeHint))
-}
-
-func newMapOfTable[K comparable, V any](minTableLen int) *mapOfTable[K, V] {
-	buckets := make([]bucketOfPadded, minTableLen)
+func newMapTable[K comparable, V any](minTableLen int) *mapTable[K, V] {
+	buckets := make([]bucketPadded, minTableLen)
 	for i := range buckets {
 		buckets[i].meta = defaultMeta
 	}
@@ -186,7 +183,7 @@ func newMapOfTable[K comparable, V any](minTableLen int) *mapOfTable[K, V] {
 		counterLen = maxMapCounterLen
 	}
 	counter := make([]counterStripe, counterLen)
-	t := &mapOfTable[K, V]{
+	t := &mapTable[K, V]{
 		buckets: buckets,
 		size:    counter,
 		seed:    maphash.MakeSeed(),
@@ -194,11 +191,11 @@ func newMapOfTable[K comparable, V any](minTableLen int) *mapOfTable[K, V] {
 	return t
 }
 
-// ToPlainMapOf returns a native map with a copy of xsync MapOf's
-// contents. The copied xsync MapOf should not be modified while
-// this call is made. If the copied MapOf is modified, the copying
+// ToPlainMap returns a native map with a copy of xsync Map's
+// contents. The copied xsync Map should not be modified while
+// this call is made. If the copied Map is modified, the copying
 // behavior is the same as in the Range method.
-func ToPlainMapOf[K comparable, V any](m *MapOf[K, V]) map[K]V {
+func ToPlainMap[K comparable, V any](m *Map[K, V]) map[K]V {
 	pm := make(map[K]V)
 	if m != nil {
 		m.Range(func(key K, value V) bool {
@@ -212,8 +209,8 @@ func ToPlainMapOf[K comparable, V any](m *MapOf[K, V]) map[K]V {
 // Load returns the value stored in the map for a key, or zero value
 // of type V if no value is present.
 // The ok result indicates whether value was found in the map.
-func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
-	table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
+func (m *Map[K, V]) Load(key K) (value V, ok bool) {
+	table := (*mapTable[K, V])(atomic.LoadPointer(&m.table))
 	hash := maphash.Comparable(table.seed, key)
 	h1 := h1(hash)
 	h2w := broadcast(h2(hash))
@@ -226,7 +223,7 @@ func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 			idx := firstMarkedByteIndex(markedw)
 			eptr := atomic.LoadPointer(&b.entries[idx])
 			if eptr != nil {
-				e := (*entryOf[K, V])(eptr)
+				e := (*entry[K, V])(eptr)
 				if e.key == key {
 					return e.value, true
 				}
@@ -237,12 +234,12 @@ func (m *MapOf[K, V]) Load(key K) (value V, ok bool) {
 		if bptr == nil {
 			return
 		}
-		b = (*bucketOfPadded)(bptr)
+		b = (*bucketPadded)(bptr)
 	}
 }
 
 // Store sets the value for a key.
-func (m *MapOf[K, V]) Store(key K, value V) {
+func (m *Map[K, V]) Store(key K, value V) {
 	m.doCompute(
 		key,
 		func(V, bool) (V, bool) {
@@ -256,7 +253,7 @@ func (m *MapOf[K, V]) Store(key K, value V) {
 // LoadOrStore returns the existing value for the key if present.
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
-func (m *MapOf[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
+func (m *Map[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 	return m.doCompute(
 		key,
 		func(V, bool) (V, bool) {
@@ -272,7 +269,7 @@ func (m *MapOf[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 // It stores the new value and returns the existing one, if present.
 // The loaded result is true if the existing value was loaded,
 // false otherwise.
-func (m *MapOf[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
+func (m *Map[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 	return m.doCompute(
 		key,
 		func(V, bool) (V, bool) {
@@ -292,7 +289,7 @@ func (m *MapOf[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 // is executed. It means that modifications on other entries in
 // the bucket will be blocked until the valueFn executes. Consider
 // this when the function includes long-running operations.
-func (m *MapOf[K, V]) LoadOrCompute(key K, valueFn func() V) (actual V, loaded bool) {
+func (m *Map[K, V]) LoadOrCompute(key K, valueFn func() V) (actual V, loaded bool) {
 	return m.doCompute(
 		key,
 		func(V, bool) (V, bool) {
@@ -314,7 +311,7 @@ func (m *MapOf[K, V]) LoadOrCompute(key K, valueFn func() V) (actual V, loaded b
 // is executed. It means that modifications on other entries in
 // the bucket will be blocked until the valueFn executes. Consider
 // this when the function includes long-running operations.
-func (m *MapOf[K, V]) LoadOrTryCompute(
+func (m *Map[K, V]) LoadOrTryCompute(
 	key K,
 	valueFn func() (newValue V, cancel bool),
 ) (value V, loaded bool) {
@@ -344,7 +341,7 @@ func (m *MapOf[K, V]) LoadOrTryCompute(
 // is executed. It means that modifications on other entries in
 // the bucket will be blocked until the valueFn executes. Consider
 // this when the function includes long-running operations.
-func (m *MapOf[K, V]) Compute(
+func (m *Map[K, V]) Compute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (newValue V, delete bool),
 ) (actual V, ok bool) {
@@ -354,7 +351,7 @@ func (m *MapOf[K, V]) Compute(
 // LoadAndDelete deletes the value for a key, returning the previous
 // value if any. The loaded result reports whether the key was
 // present.
-func (m *MapOf[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
+func (m *Map[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 	return m.doCompute(
 		key,
 		func(value V, loaded bool) (V, bool) {
@@ -366,7 +363,7 @@ func (m *MapOf[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 }
 
 // Delete deletes the value for a key.
-func (m *MapOf[K, V]) Delete(key K) {
+func (m *Map[K, V]) Delete(key K) {
 	m.doCompute(
 		key,
 		func(value V, loaded bool) (V, bool) {
@@ -377,7 +374,7 @@ func (m *MapOf[K, V]) Delete(key K) {
 	)
 }
 
-func (m *MapOf[K, V]) doCompute(
+func (m *Map[K, V]) doCompute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (V, bool),
 	loadIfExists, computeOnly bool,
@@ -392,10 +389,10 @@ func (m *MapOf[K, V]) doCompute(
 	for {
 	compute_attempt:
 		var (
-			emptyb   *bucketOfPadded
+			emptyb   *bucketPadded
 			emptyidx int
 		)
-		table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
+		table := (*mapTable[K, V])(atomic.LoadPointer(&m.table))
 		tableLen := len(table.buckets)
 		hash := maphash.Comparable(table.seed, key)
 		h1 := h1(hash)
@@ -425,7 +422,7 @@ func (m *MapOf[K, V]) doCompute(
 				idx := firstMarkedByteIndex(markedw)
 				eptr := b.entries[idx]
 				if eptr != nil {
-					e := (*entryOf[K, V])(eptr)
+					e := (*entry[K, V])(eptr)
 					if e.key == key {
 						if loadIfExists {
 							rootb.mu.Unlock()
@@ -452,7 +449,7 @@ func (m *MapOf[K, V]) doCompute(
 							}
 							return oldv, !computeOnly
 						}
-						newe := new(entryOf[K, V])
+						newe := new(entry[K, V])
 						newe.key = key
 						newe.value = newv
 						atomic.StorePointer(&b.entries[idx], unsafe.Pointer(newe))
@@ -485,7 +482,7 @@ func (m *MapOf[K, V]) doCompute(
 						rootb.mu.Unlock()
 						return zeroV, false
 					}
-					newe := new(entryOf[K, V])
+					newe := new(entry[K, V])
 					newe.key = key
 					newe.value = newValue
 					// First we update meta, then the entry.
@@ -495,7 +492,7 @@ func (m *MapOf[K, V]) doCompute(
 					table.addSize(bidx, 1)
 					return newValue, computeOnly
 				}
-				growThreshold := float64(tableLen) * entriesPerMapOfBucket * mapLoadFactor
+				growThreshold := float64(tableLen) * entriesPerMapBucket * mapLoadFactor
 				if table.sumSize() > int64(growThreshold) {
 					// Need to grow the table. Then go for another attempt.
 					rootb.mu.Unlock()
@@ -510,9 +507,9 @@ func (m *MapOf[K, V]) doCompute(
 					return newValue, false
 				}
 				// Create and append a bucket.
-				newb := new(bucketOfPadded)
+				newb := new(bucketPadded)
 				newb.meta = setByte(defaultMeta, h2, 0)
-				newe := new(entryOf[K, V])
+				newe := new(entry[K, V])
 				newe.key = key
 				newe.value = newValue
 				newb.entries[0] = unsafe.Pointer(newe)
@@ -521,21 +518,21 @@ func (m *MapOf[K, V]) doCompute(
 				table.addSize(bidx, 1)
 				return newValue, computeOnly
 			}
-			b = (*bucketOfPadded)(b.next)
+			b = (*bucketPadded)(b.next)
 		}
 	}
 }
 
-func (m *MapOf[K, V]) newerTableExists(table *mapOfTable[K, V]) bool {
+func (m *Map[K, V]) newerTableExists(table *mapTable[K, V]) bool {
 	curTablePtr := atomic.LoadPointer(&m.table)
 	return uintptr(curTablePtr) != uintptr(unsafe.Pointer(table))
 }
 
-func (m *MapOf[K, V]) resizeInProgress() bool {
+func (m *Map[K, V]) resizeInProgress() bool {
 	return atomic.LoadInt64(&m.resizing) == 1
 }
 
-func (m *MapOf[K, V]) waitForResize() {
+func (m *Map[K, V]) waitForResize() {
 	m.resizeMu.Lock()
 	for m.resizeInProgress() {
 		m.resizeCond.Wait()
@@ -543,13 +540,13 @@ func (m *MapOf[K, V]) waitForResize() {
 	m.resizeMu.Unlock()
 }
 
-func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
+func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	knownTableLen := len(knownTable.buckets)
 	// Fast path for shrink attempts.
 	if hint == mapShrinkHint {
 		if m.growOnly ||
 			m.minTableLen == knownTableLen ||
-			knownTable.sumSize() > int64((knownTableLen*entriesPerMapOfBucket)/mapShrinkFraction) {
+			knownTable.sumSize() > int64((knownTableLen*entriesPerMapBucket)/mapShrinkFraction) {
 			return
 		}
 	}
@@ -559,20 +556,20 @@ func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
 		m.waitForResize()
 		return
 	}
-	var newTable *mapOfTable[K, V]
-	table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
+	var newTable *mapTable[K, V]
+	table := (*mapTable[K, V])(atomic.LoadPointer(&m.table))
 	tableLen := len(table.buckets)
 	switch hint {
 	case mapGrowHint:
 		// Grow the table with factor of 2.
 		atomic.AddInt64(&m.totalGrowths, 1)
-		newTable = newMapOfTable[K, V](tableLen << 1)
+		newTable = newMapTable[K, V](tableLen << 1)
 	case mapShrinkHint:
-		shrinkThreshold := int64((tableLen * entriesPerMapOfBucket) / mapShrinkFraction)
+		shrinkThreshold := int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
 		if tableLen > m.minTableLen && table.sumSize() <= shrinkThreshold {
 			// Shrink the table with factor of 2.
 			atomic.AddInt64(&m.totalShrinks, 1)
-			newTable = newMapOfTable[K, V](tableLen >> 1)
+			newTable = newMapTable[K, V](tableLen >> 1)
 		} else {
 			// No need to shrink. Wake up all waiters and give up.
 			m.resizeMu.Lock()
@@ -582,14 +579,14 @@ func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
 			return
 		}
 	case mapClearHint:
-		newTable = newMapOfTable[K, V](m.minTableLen)
+		newTable = newMapTable[K, V](m.minTableLen)
 	default:
 		panic(fmt.Sprintf("unexpected resize hint: %d", hint))
 	}
 	// Copy the data only if we're not clearing the map.
 	if hint != mapClearHint {
 		for i := 0; i < tableLen; i++ {
-			copied := copyBucketOf(&table.buckets[i], newTable)
+			copied := copyBucket(&table.buckets[i], newTable)
 			newTable.addSizePlain(uint64(i), copied)
 		}
 	}
@@ -601,20 +598,20 @@ func (m *MapOf[K, V]) resize(knownTable *mapOfTable[K, V], hint mapResizeHint) {
 	m.resizeMu.Unlock()
 }
 
-func copyBucketOf[K comparable, V any](
-	b *bucketOfPadded,
-	destTable *mapOfTable[K, V],
+func copyBucket[K comparable, V any](
+	b *bucketPadded,
+	destTable *mapTable[K, V],
 ) (copied int) {
 	rootb := b
 	rootb.mu.Lock()
 	for {
-		for i := 0; i < entriesPerMapOfBucket; i++ {
+		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.entries[i] != nil {
-				e := (*entryOf[K, V])(b.entries[i])
+				e := (*entry[K, V])(b.entries[i])
 				hash := maphash.Comparable(destTable.seed, e.key)
 				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
 				destb := &destTable.buckets[bidx]
-				appendToBucketOf(h2(hash), b.entries[i], destb)
+				appendToBucket(h2(hash), b.entries[i], destb)
 				copied++
 			}
 		}
@@ -622,7 +619,7 @@ func copyBucketOf[K comparable, V any](
 			rootb.mu.Unlock()
 			return
 		}
-		b = (*bucketOfPadded)(b.next)
+		b = (*bucketPadded)(b.next)
 	}
 }
 
@@ -639,12 +636,12 @@ func copyBucketOf[K comparable, V any](
 // creation, modification and deletion. However, the concurrent
 // modification rule apply, i.e. the changes may be not reflected
 // in the subsequently iterated entries.
-func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
+func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 	var zeroPtr unsafe.Pointer
 	// Pre-allocate array big enough to fit entries for most hash tables.
-	bentries := make([]unsafe.Pointer, 0, 16*entriesPerMapOfBucket)
+	bentries := make([]unsafe.Pointer, 0, 16*entriesPerMapBucket)
 	tablep := atomic.LoadPointer(&m.table)
-	table := *(*mapOfTable[K, V])(tablep)
+	table := *(*mapTable[K, V])(tablep)
 	for i := range table.buckets {
 		rootb := &table.buckets[i]
 		b := rootb
@@ -652,7 +649,7 @@ func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 		// the intermediate slice.
 		rootb.mu.Lock()
 		for {
-			for i := 0; i < entriesPerMapOfBucket; i++ {
+			for i := 0; i < entriesPerMapBucket; i++ {
 				if b.entries[i] != nil {
 					bentries = append(bentries, b.entries[i])
 				}
@@ -661,11 +658,11 @@ func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 				rootb.mu.Unlock()
 				break
 			}
-			b = (*bucketOfPadded)(b.next)
+			b = (*bucketPadded)(b.next)
 		}
 		// Call the function for all copied entries.
 		for j := range bentries {
-			entry := (*entryOf[K, V])(bentries[j])
+			entry := (*entry[K, V])(bentries[j])
 			if !f(entry.key, entry.value) {
 				return
 			}
@@ -678,20 +675,20 @@ func (m *MapOf[K, V]) Range(f func(key K, value V) bool) {
 }
 
 // Clear deletes all keys and values currently stored in the map.
-func (m *MapOf[K, V]) Clear() {
-	table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
+func (m *Map[K, V]) Clear() {
+	table := (*mapTable[K, V])(atomic.LoadPointer(&m.table))
 	m.resize(table, mapClearHint)
 }
 
 // Size returns current size of the map.
-func (m *MapOf[K, V]) Size() int {
-	table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
+func (m *Map[K, V]) Size() int {
+	table := (*mapTable[K, V])(atomic.LoadPointer(&m.table))
 	return int(table.sumSize())
 }
 
-func appendToBucketOf(h2 uint8, entryPtr unsafe.Pointer, b *bucketOfPadded) {
+func appendToBucket(h2 uint8, entryPtr unsafe.Pointer, b *bucketPadded) {
 	for {
-		for i := 0; i < entriesPerMapOfBucket; i++ {
+		for i := 0; i < entriesPerMapBucket; i++ {
 			if b.entries[i] == nil {
 				b.meta = setByte(b.meta, h2, i)
 				b.entries[i] = entryPtr
@@ -699,27 +696,27 @@ func appendToBucketOf(h2 uint8, entryPtr unsafe.Pointer, b *bucketOfPadded) {
 			}
 		}
 		if b.next == nil {
-			newb := new(bucketOfPadded)
+			newb := new(bucketPadded)
 			newb.meta = setByte(defaultMeta, h2, 0)
 			newb.entries[0] = entryPtr
 			b.next = unsafe.Pointer(newb)
 			return
 		}
-		b = (*bucketOfPadded)(b.next)
+		b = (*bucketPadded)(b.next)
 	}
 }
 
-func (table *mapOfTable[K, V]) addSize(bucketIdx uint64, delta int) {
+func (table *mapTable[K, V]) addSize(bucketIdx uint64, delta int) {
 	cidx := uint64(len(table.size)-1) & bucketIdx
 	atomic.AddInt64(&table.size[cidx].c, int64(delta))
 }
 
-func (table *mapOfTable[K, V]) addSizePlain(bucketIdx uint64, delta int) {
+func (table *mapTable[K, V]) addSizePlain(bucketIdx uint64, delta int) {
 	cidx := uint64(len(table.size)-1) & bucketIdx
 	table.size[cidx].c += int64(delta)
 }
 
-func (table *mapOfTable[K, V]) sumSize() int64 {
+func (table *mapTable[K, V]) sumSize() int64 {
 	sum := int64(0)
 	for i := range table.size {
 		sum += atomic.LoadInt64(&table.size[i].c)
@@ -735,7 +732,7 @@ func h2(h uint64) uint8 {
 	return uint8(h & 0x7f)
 }
 
-// MapStats is MapOf statistics.
+// MapStats is Map statistics.
 //
 // Warning: map statistics are intented to be used for diagnostic
 // purposes, not for production code. This means that breaking changes
@@ -750,7 +747,7 @@ type MapStats struct {
 	TotalBuckets int
 	// EmptyBuckets is the number of buckets that hold no entries.
 	EmptyBuckets int
-	// Capacity is the MapOf capacity, i.e. the total number of
+	// Capacity is the Map capacity, i.e. the total number of
 	// entries that all buckets can physically hold. This number
 	// does not consider the load factor.
 	Capacity int
@@ -795,16 +792,16 @@ func (s *MapStats) ToString() string {
 	return sb.String()
 }
 
-// Stats returns statistics for the MapOf. Just like other map
+// Stats returns statistics for the Map. Just like other map
 // methods, this one is thread-safe. Yet it's an O(N) operation,
 // so it should be used only for diagnostics or debugging purposes.
-func (m *MapOf[K, V]) Stats() MapStats {
+func (m *Map[K, V]) Stats() MapStats {
 	stats := MapStats{
 		TotalGrowths: atomic.LoadInt64(&m.totalGrowths),
 		TotalShrinks: atomic.LoadInt64(&m.totalShrinks),
 		MinEntries:   math.MaxInt32,
 	}
-	table := (*mapOfTable[K, V])(atomic.LoadPointer(&m.table))
+	table := (*mapTable[K, V])(atomic.LoadPointer(&m.table))
 	stats.RootBuckets = len(table.buckets)
 	stats.Counter = int(table.sumSize())
 	stats.CounterLen = len(table.size)
@@ -814,8 +811,8 @@ func (m *MapOf[K, V]) Stats() MapStats {
 		stats.TotalBuckets++
 		for {
 			nentriesLocal := 0
-			stats.Capacity += entriesPerMapOfBucket
-			for i := 0; i < entriesPerMapOfBucket; i++ {
+			stats.Capacity += entriesPerMapBucket
+			for i := 0; i < entriesPerMapBucket; i++ {
 				if atomic.LoadPointer(&b.entries[i]) != nil {
 					stats.Size++
 					nentriesLocal++
@@ -828,7 +825,7 @@ func (m *MapOf[K, V]) Stats() MapStats {
 			if b.next == nil {
 				break
 			}
-			b = (*bucketOfPadded)(atomic.LoadPointer(&b.next))
+			b = (*bucketPadded)(atomic.LoadPointer(&b.next))
 			stats.TotalBuckets++
 		}
 		if nentries < stats.MinEntries {
