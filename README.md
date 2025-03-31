@@ -24,6 +24,8 @@ import (
 )
 ```
 
+Minimal required Golang version is 1.24.
+
 *Note for pre-v4 users*: the main change between v3 and v4 is removal of non-generic data structures and some improvements in `Map` API. The old `*Of` types are kept as type aliases for the renamed data structures to simplify the migration, e.g. `MapOf` is an alias for `Map`. While the API has some breaking changes, the migration should be trivial.
 
 ### Counter
