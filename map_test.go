@@ -327,8 +327,8 @@ func TestMapLoadOrCompute(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
-		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, op ComputeOp) {
-			return i, NoOp
+		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, cancel bool) {
+			return i, true
 		})
 		if loaded {
 			t.Fatalf("value not computed for %d", i)
@@ -341,8 +341,8 @@ func TestMapLoadOrCompute(t *testing.T) {
 		t.Fatalf("zero map size expected: %d", m.Size())
 	}
 	for i := 0; i < numEntries; i++ {
-		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, op ComputeOp) {
-			return i, UpdateOp
+		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, cancel bool) {
+			return i, false
 		})
 		if loaded {
 			t.Fatalf("value not computed for %d", i)
@@ -352,9 +352,9 @@ func TestMapLoadOrCompute(t *testing.T) {
 		}
 	}
 	for i := 0; i < numEntries; i++ {
-		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, op ComputeOp) {
+		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, cancel bool) {
 			t.Fatalf("value func invoked")
-			return newValue, op
+			return newValue, false
 		})
 		if !loaded {
 			t.Fatalf("value not loaded for %d", i)
@@ -368,9 +368,9 @@ func TestMapLoadOrCompute(t *testing.T) {
 func TestMapLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 	m := NewMap[int, int]()
 	for i := 0; i < 100; {
-		m.LoadOrCompute(i, func() (newValue int, op ComputeOp) {
+		m.LoadOrCompute(i, func() (newValue int, cancel bool) {
 			newValue, i = i, i+1
-			return newValue, UpdateOp
+			return newValue, false
 		})
 	}
 	m.Range(func(k, v int) bool {
@@ -421,7 +421,7 @@ func TestMapOfCompute(t *testing.T) {
 	}
 	// Check that NoOp doesn't update the value
 	v, ok = m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
-		return 0, NoOp
+		return 0, CancelOp
 	})
 	if v != 84 {
 		t.Fatalf("v should be 84 after using NoOp: %d", v)
@@ -475,7 +475,7 @@ func TestMapOfCompute(t *testing.T) {
 		}
 		// We're returning a non-zero value, but the map should ignore it.
 		newValue = 42
-		op = NoOp
+		op = CancelOp
 		return
 	})
 	if v != 0 {
@@ -1456,23 +1456,6 @@ func BenchmarkMapRange(b *testing.B) {
 }
 
 // Benchmarks noop performance of Compute
-//
-//	% go test -benchmem -bench=BenchmarkCompute -run='^$' -count=10 . | benchstat -col /op -
-//	goos: darwin
-//	goarch: amd64
-//	pkg: github.com/puzpuzpuz/xsync/v4
-//	cpu: VirtualApple @ 2.50GHz
-//	│  UpdateOp   │                NoOp                 │
-//	│   sec/op    │   sec/op     vs base                │
-//	Compute-8   24.53n ± 0%   15.28n ± 0%  -37.72% (p=0.000 n=10)
-//
-//	│  UpdateOp  │                NoOp                 │
-//	│    B/op    │    B/op     vs base                 │
-//	Compute-8   1.000 ± 0%   0.000 ± 0%  -100.00% (p=0.000 n=10)
-//
-//	│  UpdateOp  │                NoOp                 │
-//	│ allocs/op  │ allocs/op   vs base                 │
-//	Compute-8   1.000 ± 0%   0.000 ± 0%  -100.00% (p=0.000 n=10)
 func BenchmarkCompute(b *testing.B) {
 	tests := []struct {
 		Name string
@@ -1483,8 +1466,8 @@ func BenchmarkCompute(b *testing.B) {
 			Op:   UpdateOp,
 		},
 		{
-			Name: "NoOp",
-			Op:   NoOp,
+			Name: "CancelOp",
+			Op:   CancelOp,
 		},
 	}
 	for _, test := range tests {

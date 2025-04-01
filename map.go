@@ -244,7 +244,6 @@ func (m *Map[K, V]) Store(key K, value V) {
 			return value, UpdateOp
 		},
 		false,
-		false,
 	)
 }
 
@@ -252,13 +251,11 @@ func (m *Map[K, V]) Store(key K, value V) {
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
 func (m *Map[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
-	return m.doCompute(
+	return m.doLoadOrCompute(
 		key,
 		func(V, bool) (V, ComputeOp) {
 			return value, UpdateOp
 		},
-		true,
-		false,
 	)
 }
 
@@ -274,17 +271,16 @@ func (m *Map[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 			return value, UpdateOp
 		},
 		false,
-		false,
 	)
 }
 
 // LoadOrCompute returns the existing value for the key if
 // present. Otherwise, it tries to compute the value using the
-// provided function. The loaded result is true if the value was
-// loaded, or false if computed. If valueFn returns [NoOp] or
-// [DeleteOp], effectively canceling the computation (due to an
-// error, for example), the zero value for type V will be
-// returned.
+// provided function and, if successful, stores and returns
+// the computed value. The loaded result is true if the value was
+// loaded, or false if computed. If valueFn returns true as the
+// cancel value, the computation is cancelled and the zero value
+// for type V is returned.
 //
 // This call locks a hash table bucket while the compute function
 // is executed. It means that modifications on other entries in
@@ -292,29 +288,31 @@ func (m *Map[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 // this when the function includes long-running operations.
 func (m *Map[K, V]) LoadOrCompute(
 	key K,
-	valueFn func() (newValue V, op ComputeOp),
+	valueFn func() (newValue V, cancel bool),
 ) (value V, loaded bool) {
-	return m.doCompute(
+	return m.doLoadOrCompute(
 		key,
 		func(oldValue V, loaded bool) (V, ComputeOp) {
 			if loaded {
-				return oldValue, NoOp
+				return oldValue, CancelOp
 			}
-			return valueFn()
+			newValue, c := valueFn()
+			if !c {
+				return newValue, UpdateOp
+			}
+			return oldValue, CancelOp
 		},
-		true,
-		false,
 	)
 }
 
 type ComputeOp int
 
 const (
-	// NoOp signals to Compute to not do anything as a result of
-	// executing the lambda. If the entry was not present in the
-	// map, nothing happens, and if it was present, the returned
-	// value is ignored.
-	NoOp ComputeOp = iota
+	// CancelOp signals to Compute to not do anything as a result
+	// of executing the lambda. If the entry was not present in
+	// the map, nothing happens, and if it was present, the
+	// returned value is ignored.
+	CancelOp ComputeOp = iota
 	// UpdateOp signals to Compute to update the entry to the
 	// value returned by the lambda, creating it if necessary.
 	UpdateOp
@@ -328,16 +326,16 @@ const (
 // the returned [ComputeOp]. When the op returned by valueFn
 // is [UpdateOp], the value is updated to the new value. If
 // it is [DeleteOp], the entry is removed from the map
-// altogether. And finally, if the op is [NoOp] then the
+// altogether. And finally, if the op is [CancelOp] then the
 // entry is left as-is. In other words, if it did not already
 // exist, it is not created, and if it did exist, it is not
 // updated. This is useful to synchronously execute some
 // operation on the value without incurring the cost of
 // updating the map every time. The ok result indicates
-// whether the entry is present in the map. The actual result
-// contains the value of the map if a corresponding entry is
-// present, or the zero value otherwise. See the example for
-// a few use cases.
+// whether the entry is present in the map after the compute
+// operation. The actual result contains the value of the map
+// if a corresponding entry is present, or the zero value
+// otherwise. See the example for a few use cases.
 //
 // This call locks a hash table bucket while the compute function
 // is executed. It means that modifications on other entries in
@@ -347,7 +345,7 @@ func (m *Map[K, V]) Compute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (newValue V, op ComputeOp),
 ) (actual V, ok bool) {
-	return m.doCompute(key, valueFn, false, true)
+	return m.doCompute(key, valueFn, true)
 }
 
 // LoadAndDelete deletes the value for a key, returning the previous
@@ -360,7 +358,6 @@ func (m *Map[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 			return value, DeleteOp
 		},
 		false,
-		false,
 	)
 }
 
@@ -372,20 +369,161 @@ func (m *Map[K, V]) Delete(key K) {
 			return value, DeleteOp
 		},
 		false,
-		false,
 	)
 }
 
 func (m *Map[K, V]) doCompute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (V, ComputeOp),
-	loadIfExists, computeOnly bool,
+	computeOnly bool,
+) (V, bool) {
+	for {
+	compute_attempt:
+		var (
+			emptyb   *bucketPadded[K, V]
+			emptyidx int
+		)
+		table := m.table.Load()
+		tableLen := len(table.buckets)
+		hash := maphash.Comparable(table.seed, key)
+		h1 := h1(hash)
+		h2 := h2(hash)
+		h2w := broadcast(h2)
+		bidx := uint64(len(table.buckets)-1) & h1
+		rootb := &table.buckets[bidx]
+		rootb.mu.Lock()
+		// The following two checks must go in reverse to what's
+		// in the resize method.
+		if m.resizeInProgress() {
+			// Resize is in progress. Wait, then go for another attempt.
+			rootb.mu.Unlock()
+			m.waitForResize()
+			goto compute_attempt
+		}
+		if m.newerTableExists(table) {
+			// Someone resized the table. Go for another attempt.
+			rootb.mu.Unlock()
+			goto compute_attempt
+		}
+		b := rootb
+		for {
+			metaw := b.meta.Load()
+			markedw := markZeroBytes(metaw^h2w) & metaMask
+			for markedw != 0 {
+				idx := firstMarkedByteIndex(markedw)
+				e := b.entries[idx].Load()
+				if e != nil {
+					if e.key == key {
+						// In-place update/delete.
+						// We get a copy of the value via an interface{} on each call,
+						// thus the live value pointers are unique. Otherwise atomic
+						// snapshot won't be correct in case of multiple Store calls
+						// using the same value.
+						oldv := e.value
+						newv, op := valueFn(oldv, true)
+						switch op {
+						case DeleteOp:
+							// Deletion.
+							// First we update the hash, then the entry.
+							newmetaw := setByte(metaw, emptyMetaSlot, idx)
+							b.meta.Store(newmetaw)
+							b.entries[idx].Store(nil)
+							rootb.mu.Unlock()
+							table.addSize(bidx, -1)
+							// Might need to shrink the table if we left bucket empty.
+							if newmetaw == defaultMeta {
+								m.resize(table, mapShrinkHint)
+							}
+							return oldv, !computeOnly
+						case UpdateOp:
+							newe := new(entry[K, V])
+							newe.key = key
+							newe.value = newv
+							b.entries[idx].Store(newe)
+						case CancelOp:
+							newv = oldv
+						}
+						rootb.mu.Unlock()
+						if computeOnly {
+							// Compute expects the new value to be returned.
+							return newv, true
+						}
+						// LoadAndStore expects the old value to be returned.
+						return oldv, true
+					}
+				}
+				markedw &= markedw - 1
+			}
+			if emptyb == nil {
+				// Search for empty entries (up to 5 per bucket).
+				emptyw := metaw & defaultMetaMasked
+				if emptyw != 0 {
+					idx := firstMarkedByteIndex(emptyw)
+					emptyb = b
+					emptyidx = idx
+				}
+			}
+			if b.next.Load() == nil {
+				if emptyb != nil {
+					// Insertion into an existing bucket.
+					var zeroV V
+					newValue, op := valueFn(zeroV, false)
+					switch op {
+					case DeleteOp, CancelOp:
+						rootb.mu.Unlock()
+						return zeroV, false
+					default:
+						newe := new(entry[K, V])
+						newe.key = key
+						newe.value = newValue
+						// First we update meta, then the entry.
+						emptyb.meta.Store(setByte(emptyb.meta.Load(), h2, emptyidx))
+						emptyb.entries[emptyidx].Store(newe)
+						rootb.mu.Unlock()
+						table.addSize(bidx, 1)
+						return newValue, computeOnly
+					}
+				}
+				growThreshold := float64(tableLen) * entriesPerMapBucket * mapLoadFactor
+				if table.sumSize() > int64(growThreshold) {
+					// Need to grow the table. Then go for another attempt.
+					rootb.mu.Unlock()
+					m.resize(table, mapGrowHint)
+					goto compute_attempt
+				}
+				// Insertion into a new bucket.
+				var zeroV V
+				newValue, op := valueFn(zeroV, false)
+				switch op {
+				case DeleteOp, CancelOp:
+					rootb.mu.Unlock()
+					return newValue, false
+				default:
+					// Create and append a bucket.
+					newb := new(bucketPadded[K, V])
+					newb.meta.Store(setByte(defaultMeta, h2, 0))
+					newe := new(entry[K, V])
+					newe.key = key
+					newe.value = newValue
+					newb.entries[0].Store(newe)
+					b.next.Store(newb)
+					rootb.mu.Unlock()
+					table.addSize(bidx, 1)
+					return newValue, computeOnly
+				}
+			}
+			b = b.next.Load()
+		}
+	}
+}
+
+func (m *Map[K, V]) doLoadOrCompute(
+	key K,
+	valueFn func(oldValue V, loaded bool) (V, ComputeOp),
 ) (V, bool) {
 	// Read-only path.
-	if loadIfExists {
-		if v, ok := m.Load(key); ok {
-			return v, !computeOnly
-		}
+	if v, ok := m.Load(key); ok {
+		return v, true
 	}
 	// Write path.
 	for {
@@ -425,46 +563,8 @@ func (m *Map[K, V]) doCompute(
 				e := b.entries[idx].Load()
 				if e != nil {
 					if e.key == key {
-						if loadIfExists {
-							rootb.mu.Unlock()
-							return e.value, !computeOnly
-						}
-						// In-place update/delete.
-						// We get a copy of the value via an interface{} on each call,
-						// thus the live value pointers are unique. Otherwise atomic
-						// snapshot won't be correct in case of multiple Store calls
-						// using the same value.
-						oldv := e.value
-						newv, op := valueFn(oldv, true)
-						switch op {
-						case DeleteOp:
-							// Deletion.
-							// First we update the hash, then the entry.
-							newmetaw := setByte(metaw, emptyMetaSlot, idx)
-							b.meta.Store(newmetaw)
-							b.entries[idx].Store(nil)
-							rootb.mu.Unlock()
-							table.addSize(bidx, -1)
-							// Might need to shrink the table if we left bucket empty.
-							if newmetaw == defaultMeta {
-								m.resize(table, mapShrinkHint)
-							}
-							return oldv, !computeOnly
-						case UpdateOp:
-							newe := new(entry[K, V])
-							newe.key = key
-							newe.value = newv
-							b.entries[idx].Store(newe)
-						case NoOp:
-							newv = oldv
-						}
 						rootb.mu.Unlock()
-						if computeOnly {
-							// Compute expects the new value to be returned.
-							return newv, true
-						}
-						// LoadAndStore expects the old value to be returned.
-						return oldv, true
+						return e.value, true
 					}
 				}
 				markedw &= markedw - 1
@@ -484,7 +584,7 @@ func (m *Map[K, V]) doCompute(
 					var zeroV V
 					newValue, op := valueFn(zeroV, false)
 					switch op {
-					case DeleteOp, NoOp:
+					case DeleteOp, CancelOp:
 						rootb.mu.Unlock()
 						return zeroV, false
 					default:
@@ -496,7 +596,7 @@ func (m *Map[K, V]) doCompute(
 						emptyb.entries[emptyidx].Store(newe)
 						rootb.mu.Unlock()
 						table.addSize(bidx, 1)
-						return newValue, computeOnly
+						return newValue, false
 					}
 				}
 				growThreshold := float64(tableLen) * entriesPerMapBucket * mapLoadFactor
@@ -510,7 +610,7 @@ func (m *Map[K, V]) doCompute(
 				var zeroV V
 				newValue, op := valueFn(zeroV, false)
 				switch op {
-				case DeleteOp, NoOp:
+				case DeleteOp, CancelOp:
 					rootb.mu.Unlock()
 					return newValue, false
 				default:
@@ -524,7 +624,7 @@ func (m *Map[K, V]) doCompute(
 					b.next.Store(newb)
 					rootb.mu.Unlock()
 					table.addSize(bidx, 1)
-					return newValue, computeOnly
+					return newValue, false
 				}
 			}
 			b = b.next.Load()
