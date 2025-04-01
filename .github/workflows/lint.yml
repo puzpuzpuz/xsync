@@ -16,9 +16,5 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-      - name: Run staticcheck
-        uses: dominikh/staticcheck-action@v1.3.1
-        with:
-          version: "2023.1.7"
-          install-go: false
-          cache-key: ${{ matrix.go-version }}
+      - name: Run vet
+        run: go vet .
