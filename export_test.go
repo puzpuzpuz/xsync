@@ -9,7 +9,7 @@ const (
 )
 
 type (
-	BucketPadded = bucketPadded
+	BucketPadded[K comparable, V any] = bucketPadded[K, V]
 )
 
 func EnableAssertions() {
