@@ -1,23 +1,23 @@
-//go:build go1.19
-// +build go1.19
-
 package xsync
 
 import (
 	"sync/atomic"
 )
 
-// A SPSCQueueOf is a bounded single-producer single-consumer concurrent
+// Deprecated: use [SPSCQueue].
+type SPSCQueueOf[I any] = SPSCQueue[I]
+
+// A SPSCQueue is a bounded single-producer single-consumer concurrent
 // queue. This means that not more than a single goroutine must be
 // publishing items to the queue while not more than a single goroutine
 // must be consuming those items.
 //
-// SPSCQueueOf instances must be created with NewSPSCQueueOf function.
-// A SPSCQueueOf must not be copied after first use.
+// SPSCQueue instances must be created with NewSPSCQueue function.
+// A SPSCQueue must not be copied after first use.
 //
 // Based on the data structure from the following article:
 // https://rigtorp.se/ringbuffer/
-type SPSCQueueOf[I any] struct {
+type SPSCQueue[I any] struct {
 	cap  uint64
 	pidx uint64
 	//lint:ignore U1000 prevents false sharing
@@ -34,13 +34,18 @@ type SPSCQueueOf[I any] struct {
 	items []I
 }
 
-// NewSPSCQueueOf creates a new SPSCQueueOf instance with the given
+// Deprecated: use [NewSPSCQueue].
+func NewSPSCQueueOf[I any](capacity int) *SPSCQueue[I] {
+	return NewSPSCQueue[I](capacity)
+}
+
+// NewSPSCQueue creates a new SPSCQueue instance with the given
 // capacity.
-func NewSPSCQueueOf[I any](capacity int) *SPSCQueueOf[I] {
+func NewSPSCQueue[I any](capacity int) *SPSCQueue[I] {
 	if capacity < 1 {
 		panic("capacity must be positive number")
 	}
-	return &SPSCQueueOf[I]{
+	return &SPSCQueue[I]{
 		cap:   uint64(capacity + 1),
 		items: make([]I, capacity+1),
 	}
@@ -49,7 +54,7 @@ func NewSPSCQueueOf[I any](capacity int) *SPSCQueueOf[I] {
 // TryEnqueue inserts the given item into the queue. Does not block
 // and returns immediately. The result indicates that the queue isn't
 // full and the item was inserted.
-func (q *SPSCQueueOf[I]) TryEnqueue(item I) bool {
+func (q *SPSCQueue[I]) TryEnqueue(item I) bool {
 	// relaxed memory order would be enough here
 	idx := atomic.LoadUint64(&q.pidx)
 	next_idx := idx + 1
@@ -72,7 +77,7 @@ func (q *SPSCQueueOf[I]) TryEnqueue(item I) bool {
 // TryDequeue retrieves and removes the item from the head of the
 // queue. Does not block and returns immediately. The ok result
 // indicates that the queue isn't empty and an item was retrieved.
-func (q *SPSCQueueOf[I]) TryDequeue() (item I, ok bool) {
+func (q *SPSCQueue[I]) TryDequeue() (item I, ok bool) {
 	// relaxed memory order would be enough here
 	idx := atomic.LoadUint64(&q.cidx)
 	cached_idx := q.pcachedIdx

@@ -1,6 +1,3 @@
-//go:build go1.19
-// +build go1.19
-
 // Copyright notice. The following tests are partially based on
 // the following file from the Go Programming Language core repo:
 // https://github.com/golang/go/blob/831f9376d8d730b16fb33dfd775618dffe13ce7a/src/runtime/chan_test.go
@@ -13,116 +10,88 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
-	. "github.com/puzpuzpuz/xsync/v3"
+	. "github.com/puzpuzpuz/xsync/v4"
 )
 
-func TestMPMCQueueOf_InvalidSize(t *testing.T) {
+func TestMPMCQueue_InvalidSize(t *testing.T) {
 	defer func() { recover() }()
-	NewMPMCQueueOf[int](0)
+	NewMPMCQueue[int](0)
 	t.Fatal("no panic detected")
 }
 
-func TestMPMCQueueOfEnqueueDequeueInt(t *testing.T) {
-	q := NewMPMCQueueOf[int](10)
+func TestMPMCQueueEnqueueDequeueInt(t *testing.T) {
+	q := NewMPMCQueue[int](10)
 	for i := 0; i < 10; i++ {
-		q.Enqueue(i)
+		if !q.TryEnqueue(i) {
+			t.Fatalf("failed to enqueue for %d", i)
+		}
 	}
 	for i := 0; i < 10; i++ {
-		if got := q.Dequeue(); got != i {
-			t.Fatalf("got %v, want %d", got, i)
+		if got, ok := q.TryDequeue(); !ok || got != i {
+			t.Fatalf("%v got %v, want %d", ok, got, i)
 		}
 	}
 }
 
-func TestMPMCQueueOfEnqueueDequeueString(t *testing.T) {
-	q := NewMPMCQueueOf[string](10)
+func TestMPMCQueueEnqueueDequeueString(t *testing.T) {
+	q := NewMPMCQueue[string](10)
 	for i := 0; i < 10; i++ {
-		q.Enqueue(strconv.Itoa(i))
+		if !q.TryEnqueue(strconv.Itoa(i)) {
+			t.Fatalf("failed to enqueue for %d", i)
+		}
 	}
 	for i := 0; i < 10; i++ {
-		if got := q.Dequeue(); got != strconv.Itoa(i) {
-			t.Fatalf("got %v, want %d", got, i)
+		if got, ok := q.TryDequeue(); !ok || got != strconv.Itoa(i) {
+			t.Fatalf("%v got %v, want %d", ok, got, i)
 		}
 	}
 }
 
-func TestMPMCQueueOfEnqueueDequeueStruct(t *testing.T) {
+func TestMPMCQueueEnqueueDequeueStruct(t *testing.T) {
 	type foo struct {
 		bar int
 		baz int
 	}
-	q := NewMPMCQueueOf[foo](10)
+	q := NewMPMCQueue[foo](10)
 	for i := 0; i < 10; i++ {
-		q.Enqueue(foo{i, i})
+		if !q.TryEnqueue(foo{i, i}) {
+			t.Fatalf("failed to enqueue for %d", i)
+		}
 	}
 	for i := 0; i < 10; i++ {
-		if got := q.Dequeue(); got.bar != i || got.baz != i {
-			t.Fatalf("got %v, want %d", got, i)
+		if got, ok := q.TryDequeue(); !ok || got.bar != i || got.baz != i {
+			t.Fatalf("%v got %v, want %d", ok, got, i)
 		}
 	}
 }
 
-func TestMPMCQueueOfEnqueueDequeueStructRef(t *testing.T) {
+func TestMPMCQueueEnqueueDequeueStructRef(t *testing.T) {
 	type foo struct {
 		bar int
 		baz int
 	}
-	q := NewMPMCQueueOf[*foo](11)
+	q := NewMPMCQueue[*foo](11)
 	for i := 0; i < 10; i++ {
-		q.Enqueue(&foo{i, i})
+		if !q.TryEnqueue(&foo{i, i}) {
+			t.Fatalf("failed to enqueue for %d", i)
+		}
 	}
-	q.Enqueue(nil)
+	if !q.TryEnqueue(nil) {
+		t.Fatal("failed to enqueue for nil")
+	}
 	for i := 0; i < 10; i++ {
-		if got := q.Dequeue(); got.bar != i || got.baz != i {
-			t.Fatalf("got %v, want %d", got, i)
+		if got, ok := q.TryDequeue(); !ok || got.bar != i || got.baz != i {
+			t.Fatalf("%v got %v, want %d", ok, got, i)
 		}
 	}
-	if last := q.Dequeue(); last != nil {
-		t.Fatalf("got %v, want nil", last)
+	if last, ok := q.TryDequeue(); !ok || last != nil {
+		t.Fatalf("%v got %v, want nil", ok, last)
 	}
 }
 
-func TestMPMCQueueOfEnqueueBlocksOnFull(t *testing.T) {
-	q := NewMPMCQueueOf[string](1)
-	q.Enqueue("foo")
-	cdone := make(chan bool)
-	flag := int32(0)
-	go func() {
-		q.Enqueue("bar")
-		if atomic.LoadInt32(&flag) == 0 {
-			t.Error("enqueue on full queue didn't wait for dequeue")
-		}
-		cdone <- true
-	}()
-	time.Sleep(50 * time.Millisecond)
-	atomic.StoreInt32(&flag, 1)
-	if got := q.Dequeue(); got != "foo" {
-		t.Fatalf("got %v, want foo", got)
-	}
-	<-cdone
-}
-
-func TestMPMCQueueOfDequeueBlocksOnEmpty(t *testing.T) {
-	q := NewMPMCQueueOf[string](2)
-	cdone := make(chan bool)
-	flag := int32(0)
-	go func() {
-		q.Dequeue()
-		if atomic.LoadInt32(&flag) == 0 {
-			t.Error("dequeue on empty queue didn't wait for enqueue")
-		}
-		cdone <- true
-	}()
-	time.Sleep(50 * time.Millisecond)
-	atomic.StoreInt32(&flag, 1)
-	q.Enqueue("foobar")
-	<-cdone
-}
-
-func TestMPMCQueueOfTryEnqueueDequeue(t *testing.T) {
-	q := NewMPMCQueueOf[int](10)
+func TestMPMCQueueTryEnqueueDequeue(t *testing.T) {
+	q := NewMPMCQueue[int](10)
 	for i := 0; i < 10; i++ {
 		if !q.TryEnqueue(i) {
 			t.Fatalf("failed to enqueue for %d", i)
@@ -135,8 +104,8 @@ func TestMPMCQueueOfTryEnqueueDequeue(t *testing.T) {
 	}
 }
 
-func TestMPMCQueueOfTryEnqueueOnFull(t *testing.T) {
-	q := NewMPMCQueueOf[string](1)
+func TestMPMCQueueTryEnqueueOnFull(t *testing.T) {
+	q := NewMPMCQueue[string](1)
 	if !q.TryEnqueue("foo") {
 		t.Error("failed to enqueue initial item")
 	}
@@ -145,72 +114,16 @@ func TestMPMCQueueOfTryEnqueueOnFull(t *testing.T) {
 	}
 }
 
-func TestMPMCQueueOfTryDequeueOnEmpty(t *testing.T) {
-	q := NewMPMCQueueOf[int](2)
+func TestMPMCQueueTryDequeueOnEmpty(t *testing.T) {
+	q := NewMPMCQueue[int](2)
 	if _, ok := q.TryDequeue(); ok {
 		t.Error("got success for enqueue on empty queue")
 	}
 }
 
-func hammerMPMCQueueOfBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
+func hammerMPMCQueueNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
 	runtime.GOMAXPROCS(gomaxprocs)
-	q := NewMPMCQueueOf[int](numThreads)
-	startwg := sync.WaitGroup{}
-	startwg.Add(1)
-	csum := make(chan int, numThreads)
-	// Start producers.
-	for i := 0; i < numThreads; i++ {
-		go func(n int) {
-			startwg.Wait()
-			for j := n; j < numOps; j += numThreads {
-				q.Enqueue(j)
-			}
-		}(i)
-	}
-	// Start consumers.
-	for i := 0; i < numThreads; i++ {
-		go func(n int) {
-			startwg.Wait()
-			sum := 0
-			for j := n; j < numOps; j += numThreads {
-				item := q.Dequeue()
-				sum += item
-			}
-			csum <- sum
-		}(i)
-	}
-	startwg.Done()
-	// Wait for all the sums from producers.
-	sum := 0
-	for i := 0; i < numThreads; i++ {
-		s := <-csum
-		sum += s
-	}
-	// Assert the total sum.
-	expectedSum := numOps * (numOps - 1) / 2
-	if sum != expectedSum {
-		t.Fatalf("sums don't match for %d num ops, %d num threads: got %d, want %d",
-			numOps, numThreads, sum, expectedSum)
-	}
-}
-
-func TestMPMCQueueOfBlockingCalls(t *testing.T) {
-	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
-	n := 100
-	if testing.Short() {
-		n = 10
-	}
-	hammerMPMCQueueOfBlockingCalls(t, 1, 100*n, n)
-	hammerMPMCQueueOfBlockingCalls(t, 1, 1000*n, 10*n)
-	hammerMPMCQueueOfBlockingCalls(t, 4, 100*n, n)
-	hammerMPMCQueueOfBlockingCalls(t, 4, 1000*n, 10*n)
-	hammerMPMCQueueOfBlockingCalls(t, 8, 100*n, n)
-	hammerMPMCQueueOfBlockingCalls(t, 8, 1000*n, 10*n)
-}
-
-func hammerMPMCQueueOfNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
-	runtime.GOMAXPROCS(gomaxprocs)
-	q := NewMPMCQueueOf[int](numThreads)
+	q := NewMPMCQueue[int](numThreads)
 	startwg := sync.WaitGroup{}
 	startwg.Add(1)
 	csum := make(chan int, numThreads)
@@ -261,18 +174,18 @@ func hammerMPMCQueueOfNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThre
 	}
 }
 
-func TestMPMCQueueOfNonBlockingCalls(t *testing.T) {
+func TestMPMCQueueNonBlockingCalls(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
 	n := 10
 	if testing.Short() {
 		n = 1
 	}
-	hammerMPMCQueueOfNonBlockingCalls(t, 1, n, n)
-	hammerMPMCQueueOfNonBlockingCalls(t, 2, 10*n, 2*n)
-	hammerMPMCQueueOfNonBlockingCalls(t, 4, 100*n, 4*n)
+	hammerMPMCQueueNonBlockingCalls(t, 1, n, n)
+	hammerMPMCQueueNonBlockingCalls(t, 2, 10*n, 2*n)
+	hammerMPMCQueueNonBlockingCalls(t, 4, 100*n, 4*n)
 }
 
-func benchmarkMPMCQueueOf(b *testing.B, queueSize, localWork int) {
+func benchmarkMPMCQueue(b *testing.B, queueSize, localWork int) {
 	callsPerSched := queueSize
 	procs := runtime.GOMAXPROCS(-1) / 2
 	if procs == 0 {
@@ -280,7 +193,7 @@ func benchmarkMPMCQueueOf(b *testing.B, queueSize, localWork int) {
 	}
 	N := int32(b.N / callsPerSched)
 	c := make(chan bool, 2*procs)
-	q := NewMPMCQueueOf[int](queueSize)
+	q := NewMPMCQueue[int](queueSize)
 	for p := 0; p < procs; p++ {
 		go func() {
 			foo := 0
@@ -290,16 +203,30 @@ func benchmarkMPMCQueueOf(b *testing.B, queueSize, localWork int) {
 						foo *= 2
 						foo /= 2
 					}
-					q.Enqueue(1)
+					for !q.TryEnqueue(1) {
+						runtime.Gosched()
+					}
 				}
 			}
-			q.Enqueue(0)
+			for !q.TryEnqueue(0) {
+				runtime.Gosched()
+			}
 			c <- foo == 42
 		}()
 		go func() {
 			foo := 0
 			for {
-				v := q.Dequeue()
+				var (
+					v  int
+					ok bool
+				)
+				for {
+					if v, ok = q.TryDequeue(); !ok {
+						runtime.Gosched()
+					} else {
+						break
+					}
+				}
 				if v == 0 {
 					break
 				}
@@ -317,10 +244,10 @@ func benchmarkMPMCQueueOf(b *testing.B, queueSize, localWork int) {
 	}
 }
 
-func BenchmarkMPMCQueueOf(b *testing.B) {
-	benchmarkMPMCQueueOf(b, 1000, 0)
+func BenchmarkMPMCQueue(b *testing.B) {
+	benchmarkMPMCQueue(b, 1000, 0)
 }
 
-func BenchmarkMPMCQueueOfWork100(b *testing.B) {
-	benchmarkMPMCQueueOf(b, 1000, 100)
+func BenchmarkMPMCQueueWork100(b *testing.B) {
+	benchmarkMPMCQueue(b, 1000, 100)
 }
