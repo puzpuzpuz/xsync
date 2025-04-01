@@ -323,8 +323,22 @@ func TestMapLoadOrCompute(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap[string, int]()
 	for i := 0; i < numEntries; i++ {
-		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() int {
-			return i
+		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, op ComputeOp) {
+			return i, NoOp
+		})
+		if loaded {
+			t.Fatalf("value not computed for %d", i)
+		}
+		if v != 0 {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+	if m.Size() != 0 {
+		t.Fatalf("zero map size expected: %d", m.Size())
+	}
+	for i := 0; i < numEntries; i++ {
+		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, op ComputeOp) {
+			return i, UpdateOp
 		})
 		if loaded {
 			t.Fatalf("value not computed for %d", i)
@@ -334,8 +348,9 @@ func TestMapLoadOrCompute(t *testing.T) {
 		}
 	}
 	for i := 0; i < numEntries; i++ {
-		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() int {
-			return i
+		v, loaded := m.LoadOrCompute(strconv.Itoa(i), func() (newValue int, op ComputeOp) {
+			t.Fatalf("value func invoked")
+			return newValue, op
 		})
 		if !loaded {
 			t.Fatalf("value not loaded for %d", i)
@@ -349,66 +364,9 @@ func TestMapLoadOrCompute(t *testing.T) {
 func TestMapLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 	m := NewMap[int, int]()
 	for i := 0; i < 100; {
-		m.LoadOrCompute(i, func() (v int) {
-			v, i = i, i+1
-			return v
-		})
-	}
-	m.Range(func(k, v int) bool {
-		if k != v {
-			t.Fatalf("%dth key is not equal to value %d", k, v)
-		}
-		return true
-	})
-}
-
-func TestMapLoadOrTryCompute(t *testing.T) {
-	const numEntries = 1000
-	m := NewMap[string, int]()
-	for i := 0; i < numEntries; i++ {
-		v, loaded := m.LoadOrTryCompute(strconv.Itoa(i), func() (newValue int, cancel bool) {
-			return i, true
-		})
-		if loaded {
-			t.Fatalf("value not computed for %d", i)
-		}
-		if v != 0 {
-			t.Fatalf("values do not match for %d: %v", i, v)
-		}
-	}
-	if m.Size() != 0 {
-		t.Fatalf("zero map size expected: %d", m.Size())
-	}
-	for i := 0; i < numEntries; i++ {
-		v, loaded := m.LoadOrTryCompute(strconv.Itoa(i), func() (newValue int, cancel bool) {
-			return i, false
-		})
-		if loaded {
-			t.Fatalf("value not computed for %d", i)
-		}
-		if v != i {
-			t.Fatalf("values do not match for %d: %v", i, v)
-		}
-	}
-	for i := 0; i < numEntries; i++ {
-		v, loaded := m.LoadOrTryCompute(strconv.Itoa(i), func() (newValue int, cancel bool) {
-			return i, false
-		})
-		if !loaded {
-			t.Fatalf("value not loaded for %d", i)
-		}
-		if v != i {
-			t.Fatalf("values do not match for %d: %v", i, v)
-		}
-	}
-}
-
-func TestMapLoadOrTryCompute_FunctionCalledOnce(t *testing.T) {
-	m := NewMap[int, int]()
-	for i := 0; i < 100; {
-		m.LoadOrTryCompute(i, func() (newValue int, cancel bool) {
+		m.LoadOrCompute(i, func() (newValue int, op ComputeOp) {
 			newValue, i = i, i+1
-			return newValue, false
+			return newValue, UpdateOp
 		})
 	}
 	m.Range(func(k, v int) bool {
@@ -419,10 +377,10 @@ func TestMapLoadOrTryCompute_FunctionCalledOnce(t *testing.T) {
 	})
 }
 
-func TestMapCompute(t *testing.T) {
+func TestMapOfCompute(t *testing.T) {
 	m := NewMap[string, int]()
 	// Store a new value.
-	v, ok := m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, delete bool) {
+	v, ok := m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
 		if oldValue != 0 {
 			t.Fatalf("oldValue should be 0 when computing a new value: %d", oldValue)
 		}
@@ -430,7 +388,7 @@ func TestMapCompute(t *testing.T) {
 			t.Fatal("loaded should be false when computing a new value")
 		}
 		newValue = 42
-		delete = false
+		op = UpdateOp
 		return
 	})
 	if v != 42 {
@@ -440,7 +398,7 @@ func TestMapCompute(t *testing.T) {
 		t.Fatal("ok should be true when computing a new value")
 	}
 	// Update an existing value.
-	v, ok = m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, delete bool) {
+	v, ok = m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
 		if oldValue != 42 {
 			t.Fatalf("oldValue should be 42 when updating the value: %d", oldValue)
 		}
@@ -448,7 +406,7 @@ func TestMapCompute(t *testing.T) {
 			t.Fatal("loaded should be true when updating the value")
 		}
 		newValue = oldValue + 42
-		delete = false
+		op = UpdateOp
 		return
 	})
 	if v != 84 {
@@ -457,15 +415,25 @@ func TestMapCompute(t *testing.T) {
 	if !ok {
 		t.Fatal("ok should be true when updating the value")
 	}
+	// Check that NoOp doesn't update the value
+	v, ok = m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+		return 0, NoOp
+	})
+	if v != 84 {
+		t.Fatalf("v should be 84 after using NoOp: %d", v)
+	}
+	if !ok {
+		t.Fatal("ok should be true when updating the value")
+	}
 	// Delete an existing value.
-	v, ok = m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, delete bool) {
+	v, ok = m.Compute("foobar", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
 		if oldValue != 84 {
 			t.Fatalf("oldValue should be 84 when deleting the value: %d", oldValue)
 		}
 		if !loaded {
 			t.Fatal("loaded should be true when deleting the value")
 		}
-		delete = true
+		op = DeleteOp
 		return
 	})
 	if v != 84 {
@@ -475,7 +443,7 @@ func TestMapCompute(t *testing.T) {
 		t.Fatal("ok should be false when deleting the value")
 	}
 	// Try to delete a non-existing value. Notice different key.
-	v, ok = m.Compute("barbaz", func(oldValue int, loaded bool) (newValue int, delete bool) {
+	v, ok = m.Compute("barbaz", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
 		if oldValue != 0 {
 			t.Fatalf("oldValue should be 0 when trying to delete a non-existing value: %d", oldValue)
 		}
@@ -484,7 +452,26 @@ func TestMapCompute(t *testing.T) {
 		}
 		// We're returning a non-zero value, but the map should ignore it.
 		newValue = 42
-		delete = true
+		op = DeleteOp
+		return
+	})
+	if v != 0 {
+		t.Fatalf("v should be 0 when trying to delete a non-existing value: %d", v)
+	}
+	if ok {
+		t.Fatal("ok should be false when trying to delete a non-existing value")
+	}
+	// Try NoOp on a non-existing value
+	v, ok = m.Compute("barbaz", func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+		if oldValue != 0 {
+			t.Fatalf("oldValue should be 0 when trying to delete a non-existing value: %d", oldValue)
+		}
+		if loaded {
+			t.Fatal("loaded should be false when trying to delete a non-existing value")
+		}
+		// We're returning a non-zero value, but the map should ignore it.
+		newValue = 42
+		op = NoOp
 		return
 	})
 	if v != 0 {
@@ -1054,8 +1041,8 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 func parallelTypedComputer(m *Map[uint64, uint64], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
-			m.Compute(uint64(j), func(oldValue uint64, loaded bool) (newValue uint64, delete bool) {
-				return oldValue + 1, false
+			m.Compute(uint64(j), func(oldValue uint64, loaded bool) (newValue uint64, op ComputeOp) {
+				return oldValue + 1, UpdateOp
 			})
 		}
 	}
@@ -1462,4 +1449,49 @@ func BenchmarkMapRange(b *testing.B) {
 			_ = foo
 		}
 	})
+}
+
+// Benchmarks noop performance of Compute
+//
+//	% go test -benchmem -bench=BenchmarkCompute -run='^$' -count=10 . | benchstat -col /op -
+//	goos: darwin
+//	goarch: amd64
+//	pkg: github.com/puzpuzpuz/xsync/v4
+//	cpu: VirtualApple @ 2.50GHz
+//	│  UpdateOp   │                NoOp                 │
+//	│   sec/op    │   sec/op     vs base                │
+//	Compute-8   24.53n ± 0%   15.28n ± 0%  -37.72% (p=0.000 n=10)
+//
+//	│  UpdateOp  │                NoOp                 │
+//	│    B/op    │    B/op     vs base                 │
+//	Compute-8   1.000 ± 0%   0.000 ± 0%  -100.00% (p=0.000 n=10)
+//
+//	│  UpdateOp  │                NoOp                 │
+//	│ allocs/op  │ allocs/op   vs base                 │
+//	Compute-8   1.000 ± 0%   0.000 ± 0%  -100.00% (p=0.000 n=10)
+func BenchmarkCompute(b *testing.B) {
+	tests := []struct {
+		Name string
+		Op   ComputeOp
+	}{
+		{
+			Name: "UpdateOp",
+			Op:   UpdateOp,
+		},
+		{
+			Name: "NoOp",
+			Op:   NoOp,
+		},
+	}
+	for _, test := range tests {
+		b.Run("op="+test.Name, func(b *testing.B) {
+			m := NewMap[struct{}, bool]()
+			m.Store(struct{}{}, true)
+			for b.Loop() {
+				m.Compute(struct{}{}, func(oldValue bool, loaded bool) (newValue bool, op ComputeOp) {
+					return oldValue, test.Op
+				})
+			}
+		})
+	}
 }
