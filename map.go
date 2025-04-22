@@ -254,7 +254,10 @@ func (m *Map[K, V]) Store(key K, value V) {
 func (m *Map[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 	return m.doCompute(
 		key,
-		func(V, bool) (V, ComputeOp) {
+		func(oldValue V, loaded bool) (V, ComputeOp) {
+			if loaded {
+				return oldValue, CancelOp
+			}
 			return value, UpdateOp
 		},
 		false,
