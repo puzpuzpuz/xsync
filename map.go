@@ -42,6 +42,30 @@ const (
 	mapClearHint  mapResizeHint = 2
 )
 
+type ComputeOp int
+
+const (
+	// CancelOp signals to Compute to not do anything as a result
+	// of executing the lambda. If the entry was not present in
+	// the map, nothing happens, and if it was present, the
+	// returned value is ignored.
+	CancelOp ComputeOp = iota
+	// UpdateOp signals to Compute to update the entry to the
+	// value returned by the lambda, creating it if necessary.
+	UpdateOp
+	// DeleteOp signals to Compute to always delete the entry
+	// from the map.
+	DeleteOp
+)
+
+type loadOp int
+
+const (
+	noLoadOp loadOp = iota
+	loadOrComputeOp
+	loadAndDeleteOp
+)
+
 // Deprecated: use [Map]
 type MapOf[K comparable, V any] = Map[K, V]
 
@@ -243,8 +267,8 @@ func (m *Map[K, V]) Store(key K, value V) {
 		func(V, bool) (V, ComputeOp) {
 			return value, UpdateOp
 		},
+		noLoadOp,
 		false,
-		0,
 	)
 }
 
@@ -260,8 +284,8 @@ func (m *Map[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 			}
 			return value, UpdateOp
 		},
+		loadOrComputeOp,
 		false,
-		1,
 	)
 }
 
@@ -276,8 +300,8 @@ func (m *Map[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 		func(V, bool) (V, ComputeOp) {
 			return value, UpdateOp
 		},
+		noLoadOp,
 		false,
-		0,
 	)
 }
 
@@ -309,26 +333,10 @@ func (m *Map[K, V]) LoadOrCompute(
 			}
 			return oldValue, CancelOp
 		},
+		loadOrComputeOp,
 		false,
-		1,
 	)
 }
-
-type ComputeOp int
-
-const (
-	// CancelOp signals to Compute to not do anything as a result
-	// of executing the lambda. If the entry was not present in
-	// the map, nothing happens, and if it was present, the
-	// returned value is ignored.
-	CancelOp ComputeOp = iota
-	// UpdateOp signals to Compute to update the entry to the
-	// value returned by the lambda, creating it if necessary.
-	UpdateOp
-	// DeleteOp signals to Compute to always delete the entry
-	// from the map.
-	DeleteOp
-)
 
 // Compute either sets the computed new value for the key,
 // deletes the value for the key, or does nothing, based on
@@ -354,7 +362,7 @@ func (m *Map[K, V]) Compute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (newValue V, op ComputeOp),
 ) (actual V, ok bool) {
-	return m.doCompute(key, valueFn, true, 0)
+	return m.doCompute(key, valueFn, noLoadOp, true)
 }
 
 // LoadAndDelete deletes the value for a key, returning the previous
@@ -366,30 +374,22 @@ func (m *Map[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 		func(value V, loaded bool) (V, ComputeOp) {
 			return value, DeleteOp
 		},
+		loadAndDeleteOp,
 		false,
-		-1,
 	)
 }
 
 // Delete deletes the value for a key.
 func (m *Map[K, V]) Delete(key K) {
-	m.doCompute(
-		key,
-		func(value V, loaded bool) (V, ComputeOp) {
-			return value, DeleteOp
-		},
-		false,
-		-1,
-	)
+	m.LoadAndDelete(key)
 }
 
 func (m *Map[K, V]) doCompute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (V, ComputeOp),
+	loadOp loadOp,
 	computeOnly bool,
-	loadExitFlag int8,
 ) (V, bool) {
-
 	for {
 	compute_attempt:
 		var (
@@ -405,7 +405,7 @@ func (m *Map[K, V]) doCompute(
 		bidx := uint64(len(table.buckets)-1) & h1
 		rootb := &table.buckets[bidx]
 
-		if loadExitFlag != 0 {
+		if loadOp != noLoadOp {
 			b := rootb
 		load:
 			for {
@@ -416,7 +416,7 @@ func (m *Map[K, V]) doCompute(
 					e := b.entries[idx].Load()
 					if e != nil {
 						if e.key == key {
-							if loadExitFlag == 1 {
+							if loadOp == loadOrComputeOp {
 								return e.value, true
 							}
 							break load
@@ -426,7 +426,7 @@ func (m *Map[K, V]) doCompute(
 				}
 				b = b.next.Load()
 				if b == nil {
-					if loadExitFlag == -1 {
+					if loadOp == loadAndDeleteOp {
 						return *new(V), false
 					}
 					break load
