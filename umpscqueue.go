@@ -7,19 +7,20 @@ import (
 	"unsafe"
 )
 
-func NewInfiniteQueue[T any]() *InfiniteQueue[T] {
-	q := &InfiniteQueue[T]{}
+func NewUMPSCQueue[T any]() *UMPSCQueue[T] {
+	q := &UMPSCQueue[T]{}
 	q.readHead = q.newSegment()
 	q.writeHead.Store(q.readHead)
 	return q
 }
 
-// The InfiniteQueue is a replacement for a channel. However, crucially, it has infinite capacity.
-// This is a very bad idea in many cases as it means that it never exhibits backpressure. In other
-// words, if nothing is consuming elements from the queue, it will eventually consume all available
-// memory and crash the process. However, there are also cases where this is desired behavior as it
-// means the queue will dynamically allocate more memory to store temporary bursts, allowing
-// producers to never block while the consumer catches up.
+// A UMPSCQueue is multi-producer single-consumer queue with an infinite/unbounded capacity. It is
+// meant to serve as a replacement for a channel. However, crucially, it has infinite capacity. This
+// is a very bad idea in many cases as it means that it never exhibits backpressure. In other words,
+// if nothing is consuming elements from the queue, it will eventually consume all available memory
+// and crash the process. However, there are also cases where this is desired behavior as it means
+// the queue will dynamically allocate more memory to store temporary bursts, allowing producers to
+// never block while the consumer catches up.
 //
 // The backing data structure is represented as a singly linked list of large segments. The size of
 // the segments is determined empirically. Each segment is a slice of T along with a corresponding
@@ -32,7 +33,7 @@ func NewInfiniteQueue[T any]() *InfiniteQueue[T] {
 // Note however that because no locks are acquired, it is unsafe for multiple goroutines to consume
 // from the queue. Consumers must explicitly synchronize between themselves. This allows setups with
 // a single consumer to never acquire a lock, significantly speeding up consumption.
-type InfiniteQueue[T any] struct {
+type UMPSCQueue[T any] struct {
 	// Represents the current head of the queue. This is updated by writers as they materialize the
 	// segments of the queue.
 	writeHead atomic.Pointer[queueSegment[T]]
@@ -92,7 +93,7 @@ type queueSegment[T any] struct {
 
 // newSegment creates a new queueSegment and pre-allocates the value slice by either reusing one
 // from the pool or creating a fresh one.
-func (q *InfiniteQueue[T]) newSegment() *queueSegment[T] {
+func (q *UMPSCQueue[T]) newSegment() *queueSegment[T] {
 	values, ok := q.segmentPool.Get().([]queueValue[T])
 	if !ok {
 		values = make([]queueValue[T], segmentSize)
@@ -111,7 +112,7 @@ func (q *InfiniteQueue[T]) newSegment() *queueSegment[T] {
 	return s
 }
 
-func (q *InfiniteQueue[T]) loadNext(s *queueSegment[T]) *queueSegment[T] {
+func (q *UMPSCQueue[T]) loadNext(s *queueSegment[T]) *queueSegment[T] {
 	s.nextOnce.Do(func() {
 		s.next = q.newSegment()
 	})
@@ -125,7 +126,7 @@ func (q *InfiniteQueue[T]) loadNext(s *queueSegment[T]) *queueSegment[T] {
 // queueSegment itself cannot be reused as it contains the pointer to the next segment, which cannot
 // safely be updated as it cannot be determined whether all writers have released all references to
 // it.
-func (q *InfiniteQueue[T]) Take() T {
+func (q *UMPSCQueue[T]) Take() T {
 	t := q.readHead.values[q.readIdx].get()
 	q.readIdx++
 	if q.readIdx == segmentSize {
@@ -138,7 +139,7 @@ func (q *InfiniteQueue[T]) Take() T {
 
 // Add writes the given value to the queue. It never blocks and is safe to be called by multiple
 // goroutines concurrently.
-func (q *InfiniteQueue[T]) Add(value T) {
+func (q *UMPSCQueue[T]) Add(value T) {
 	var segment *queueSegment[T]
 	for {
 		segment = q.writeHead.Load()
