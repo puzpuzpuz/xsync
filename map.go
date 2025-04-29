@@ -267,8 +267,8 @@ func (m *Map[K, V]) Store(key K, value V) {
 		func(V, bool) (V, ComputeOp) {
 			return value, UpdateOp
 		},
-		false,
 		noLoadOp,
+		false,
 	)
 }
 
@@ -284,8 +284,8 @@ func (m *Map[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 			}
 			return value, UpdateOp
 		},
-		false,
 		loadOrComputeOp,
+		false,
 	)
 }
 
@@ -300,8 +300,8 @@ func (m *Map[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 		func(V, bool) (V, ComputeOp) {
 			return value, UpdateOp
 		},
-		false,
 		noLoadOp,
+		false,
 	)
 }
 
@@ -333,8 +333,8 @@ func (m *Map[K, V]) LoadOrCompute(
 			}
 			return oldValue, CancelOp
 		},
-		false,
 		loadOrComputeOp,
+		false,
 	)
 }
 
@@ -362,7 +362,7 @@ func (m *Map[K, V]) Compute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (newValue V, op ComputeOp),
 ) (actual V, ok bool) {
-	return m.doCompute(key, valueFn, true, noLoadOp)
+	return m.doCompute(key, valueFn, noLoadOp, true)
 }
 
 // LoadAndDelete deletes the value for a key, returning the previous
@@ -374,8 +374,8 @@ func (m *Map[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 		func(value V, loaded bool) (V, ComputeOp) {
 			return value, DeleteOp
 		},
-		false,
 		loadAndDeleteOp,
+		false,
 	)
 }
 
@@ -387,8 +387,8 @@ func (m *Map[K, V]) Delete(key K) {
 func (m *Map[K, V]) doCompute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (V, ComputeOp),
-	computeOnly bool,
 	loadOp loadOp,
+	computeOnly bool,
 ) (V, bool) {
 	for {
 	compute_attempt:
