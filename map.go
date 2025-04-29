@@ -244,6 +244,7 @@ func (m *Map[K, V]) Store(key K, value V) {
 			return value, UpdateOp
 		},
 		false,
+		0,
 	)
 }
 
@@ -251,11 +252,16 @@ func (m *Map[K, V]) Store(key K, value V) {
 // Otherwise, it stores and returns the given value.
 // The loaded result is true if the value was loaded, false if stored.
 func (m *Map[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
-	return m.doLoadOrCompute(
+	return m.doCompute(
 		key,
-		func(V, bool) (V, ComputeOp) {
+		func(oldValue V, loaded bool) (V, ComputeOp) {
+			if loaded {
+				return oldValue, CancelOp
+			}
 			return value, UpdateOp
 		},
+		false,
+		1,
 	)
 }
 
@@ -271,6 +277,7 @@ func (m *Map[K, V]) LoadAndStore(key K, value V) (actual V, loaded bool) {
 			return value, UpdateOp
 		},
 		false,
+		0,
 	)
 }
 
@@ -290,7 +297,7 @@ func (m *Map[K, V]) LoadOrCompute(
 	key K,
 	valueFn func() (newValue V, cancel bool),
 ) (value V, loaded bool) {
-	return m.doLoadOrCompute(
+	return m.doCompute(
 		key,
 		func(oldValue V, loaded bool) (V, ComputeOp) {
 			if loaded {
@@ -302,6 +309,8 @@ func (m *Map[K, V]) LoadOrCompute(
 			}
 			return oldValue, CancelOp
 		},
+		false,
+		1,
 	)
 }
 
@@ -345,7 +354,7 @@ func (m *Map[K, V]) Compute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (newValue V, op ComputeOp),
 ) (actual V, ok bool) {
-	return m.doCompute(key, valueFn, true)
+	return m.doCompute(key, valueFn, true, 0)
 }
 
 // LoadAndDelete deletes the value for a key, returning the previous
@@ -358,6 +367,7 @@ func (m *Map[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 			return value, DeleteOp
 		},
 		false,
+		-1,
 	)
 }
 
@@ -369,6 +379,7 @@ func (m *Map[K, V]) Delete(key K) {
 			return value, DeleteOp
 		},
 		false,
+		-1,
 	)
 }
 
@@ -376,7 +387,9 @@ func (m *Map[K, V]) doCompute(
 	key K,
 	valueFn func(oldValue V, loaded bool) (V, ComputeOp),
 	computeOnly bool,
+	loadExitFlag int8,
 ) (V, bool) {
+
 	for {
 	compute_attempt:
 		var (
@@ -391,6 +404,36 @@ func (m *Map[K, V]) doCompute(
 		h2w := broadcast(h2)
 		bidx := uint64(len(table.buckets)-1) & h1
 		rootb := &table.buckets[bidx]
+
+		if loadExitFlag != 0 {
+			b := rootb
+		load:
+			for {
+				metaw := b.meta.Load()
+				markedw := markZeroBytes(metaw^h2w) & metaMask
+				for markedw != 0 {
+					idx := firstMarkedByteIndex(markedw)
+					e := b.entries[idx].Load()
+					if e != nil {
+						if e.key == key {
+							if loadExitFlag == 1 {
+								return e.value, true
+							}
+							break load
+						}
+					}
+					markedw &= markedw - 1
+				}
+				b = b.next.Load()
+				if b == nil {
+					if loadExitFlag == -1 {
+						return *new(V), false
+					}
+					break load
+				}
+			}
+		}
+
 		rootb.mu.Lock()
 		// The following two checks must go in reverse to what's
 		// in the resize method.
@@ -510,121 +553,6 @@ func (m *Map[K, V]) doCompute(
 					rootb.mu.Unlock()
 					table.addSize(bidx, 1)
 					return newValue, computeOnly
-				}
-			}
-			b = b.next.Load()
-		}
-	}
-}
-
-func (m *Map[K, V]) doLoadOrCompute(
-	key K,
-	valueFn func(oldValue V, loaded bool) (V, ComputeOp),
-) (V, bool) {
-	// Read-only path.
-	if v, ok := m.Load(key); ok {
-		return v, true
-	}
-	// Write path.
-	for {
-	compute_attempt:
-		var (
-			emptyb   *bucketPadded[K, V]
-			emptyidx int
-		)
-		table := m.table.Load()
-		tableLen := len(table.buckets)
-		hash := maphash.Comparable(table.seed, key)
-		h1 := h1(hash)
-		h2 := h2(hash)
-		h2w := broadcast(h2)
-		bidx := uint64(len(table.buckets)-1) & h1
-		rootb := &table.buckets[bidx]
-		rootb.mu.Lock()
-		// The following two checks must go in reverse to what's
-		// in the resize method.
-		if m.resizeInProgress() {
-			// Resize is in progress. Wait, then go for another attempt.
-			rootb.mu.Unlock()
-			m.waitForResize()
-			goto compute_attempt
-		}
-		if m.newerTableExists(table) {
-			// Someone resized the table. Go for another attempt.
-			rootb.mu.Unlock()
-			goto compute_attempt
-		}
-		b := rootb
-		for {
-			metaw := b.meta.Load()
-			markedw := markZeroBytes(metaw^h2w) & metaMask
-			for markedw != 0 {
-				idx := firstMarkedByteIndex(markedw)
-				e := b.entries[idx].Load()
-				if e != nil {
-					if e.key == key {
-						rootb.mu.Unlock()
-						return e.value, true
-					}
-				}
-				markedw &= markedw - 1
-			}
-			if emptyb == nil {
-				// Search for empty entries (up to 5 per bucket).
-				emptyw := metaw & defaultMetaMasked
-				if emptyw != 0 {
-					idx := firstMarkedByteIndex(emptyw)
-					emptyb = b
-					emptyidx = idx
-				}
-			}
-			if b.next.Load() == nil {
-				if emptyb != nil {
-					// Insertion into an existing bucket.
-					var zeroV V
-					newValue, op := valueFn(zeroV, false)
-					switch op {
-					case DeleteOp, CancelOp:
-						rootb.mu.Unlock()
-						return zeroV, false
-					default:
-						newe := new(entry[K, V])
-						newe.key = key
-						newe.value = newValue
-						// First we update meta, then the entry.
-						emptyb.meta.Store(setByte(emptyb.meta.Load(), h2, emptyidx))
-						emptyb.entries[emptyidx].Store(newe)
-						rootb.mu.Unlock()
-						table.addSize(bidx, 1)
-						return newValue, false
-					}
-				}
-				growThreshold := float64(tableLen) * entriesPerMapBucket * mapLoadFactor
-				if table.sumSize() > int64(growThreshold) {
-					// Need to grow the table. Then go for another attempt.
-					rootb.mu.Unlock()
-					m.resize(table, mapGrowHint)
-					goto compute_attempt
-				}
-				// Insertion into a new bucket.
-				var zeroV V
-				newValue, op := valueFn(zeroV, false)
-				switch op {
-				case DeleteOp, CancelOp:
-					rootb.mu.Unlock()
-					return newValue, false
-				default:
-					// Create and append a bucket.
-					newb := new(bucketPadded[K, V])
-					newb.meta.Store(setByte(defaultMeta, h2, 0))
-					newe := new(entry[K, V])
-					newe.key = key
-					newe.value = newValue
-					newb.entries[0].Store(newe)
-					b.next.Store(newb)
-					rootb.mu.Unlock()
-					table.addSize(bidx, 1)
-					return newValue, false
 				}
 			}
 			b = b.next.Load()
