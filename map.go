@@ -636,7 +636,7 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 			for c := 0; c < chunks; c++ {
 				copyWg.Add(1)
 				go func(start, end int) {
-					for i := start; i < end && i < tableLen; i++ {
+					for i := start; i < end; i++ {
 						copied := copyBucketWithDestLock[K, V](&table.buckets[i], newTable)
 						if copied > 0 {
 							newTable.addSize(uint64(i), copied)
