@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/maphash"
 	"math"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,8 @@ const (
 	metaMask          uint64 = 0xffffffffff
 	defaultMetaMasked uint64 = defaultMeta & metaMask
 	emptyMetaSlot     uint8  = 0x80
+	// minimum buckets per goroutine during parallel resize
+	minBucketsPerGoroutine = 64
 )
 
 type mapResizeHint int
@@ -621,9 +624,33 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	}
 	// Copy the data only if we're not clearing the map.
 	if hint != mapClearHint {
-		for i := 0; i < tableLen; i++ {
-			copied := copyBucket(&table.buckets[i], newTable)
-			newTable.addSizePlain(uint64(i), copied)
+		chunks := 1
+		// Adjusts the parallel resize trigger threshold using a scaling factor.
+		if tableLen >= minBucketsPerGoroutine*2 {
+			chunks = min(tableLen/minBucketsPerGoroutine, runtime.GOMAXPROCS(0))
+			chunks = max(chunks, 1)
+		}
+		if chunks > 1 {
+			var copyWg sync.WaitGroup
+			chunkSize := (tableLen + chunks - 1) / chunks
+			for c := 0; c < chunks; c++ {
+				copyWg.Add(1)
+				go func(start, end int) {
+					for i := start; i < end && i < tableLen; i++ {
+						copied := copyBucketWithDestLock[K, V](&table.buckets[i], newTable)
+						if copied > 0 {
+							newTable.addSize(uint64(i), copied)
+						}
+					}
+					copyWg.Done()
+				}(c*chunkSize, min((c+1)*chunkSize, tableLen))
+			}
+			copyWg.Wait()
+		} else {
+			for i := 0; i < tableLen; i++ {
+				copied := copyBucket(&table.buckets[i], newTable)
+				newTable.addSizePlain(uint64(i), copied)
+			}
 		}
 	}
 	// Publish the new table and wake up all waiters.
@@ -632,6 +659,33 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	m.resizing.Store(false)
 	m.resizeCond.Broadcast()
 	m.resizeMu.Unlock()
+}
+
+func copyBucketWithDestLock[K comparable, V any](
+	b *bucketPadded[K, V],
+	destTable *mapTable[K, V],
+) (copied int) {
+	rootb := b
+	rootb.mu.Lock()
+	for {
+		for i := 0; i < entriesPerMapBucket; i++ {
+			if e := b.entries[i].Load(); e != nil {
+				hash := maphash.Comparable(destTable.seed, e.key)
+				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
+				destb := &destTable.buckets[bidx]
+				destb.mu.Lock()
+				appendToBucket(h2(hash), b.entries[i].Load(), destb)
+				destb.mu.Unlock()
+				copied++
+			}
+		}
+		if next := b.next.Load(); next == nil {
+			rootb.mu.Unlock()
+			return
+		} else {
+			b = next
+		}
+	}
 }
 
 func copyBucket[K comparable, V any](
