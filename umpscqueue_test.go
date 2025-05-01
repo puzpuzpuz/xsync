@@ -2,9 +2,72 @@ package xsync
 
 import (
 	"fmt"
+	"runtime"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestUMPSCQueueEnqueueDequeueInt(t *testing.T) {
+	q := NewUMPSCQueue[int]()
+	for i := 0; i < 10000; i++ {
+		q.Enqueue(i)
+	}
+	for i := 0; i < 10000; i++ {
+		if got := q.Dequeue(); got != i {
+			t.Fatalf("got %v, want %d", got, i)
+		}
+	}
+}
+
+func TestUMPSCQueueEnqueueDequeueString(t *testing.T) {
+	q := NewUMPSCQueue[string]()
+	for i := 0; i < 100; i++ {
+		q.Enqueue(strconv.Itoa(i))
+	}
+	for i := 0; i < 100; i++ {
+		if got := q.Dequeue(); got != strconv.Itoa(i) {
+			t.Fatalf("got %v, want %d", got, i)
+		}
+	}
+}
+
+func TestUMPSCQueueEnqueueDequeueStruct(t *testing.T) {
+	type foo struct {
+		bar int
+		baz int
+	}
+	q := NewUMPSCQueue[foo]()
+	for i := 0; i < 100; i++ {
+		q.Enqueue(foo{i, i})
+	}
+	for i := 0; i < 100; i++ {
+		if got := q.Dequeue(); got.bar != i || got.baz != i {
+			t.Fatalf("got %v, want %d", got, i)
+		}
+	}
+}
+
+func TestUMPSCQueueEnqueueDequeueStructRef(t *testing.T) {
+	type foo struct {
+		bar int
+		baz int
+	}
+	q := NewUMPSCQueue[*foo]()
+	for i := 0; i < 100; i++ {
+		q.Enqueue(&foo{i, i})
+	}
+	q.Enqueue(nil)
+	for i := 0; i < 100; i++ {
+		if got := q.Dequeue(); got.bar != i || got.baz != i {
+			t.Fatalf("got %v, want %d", got, i)
+		}
+	}
+	if last := q.Dequeue(); last != nil {
+		t.Fatalf("got %v, want nil", last)
+	}
+}
 
 func TestUMPSCQueue(t *testing.T) {
 	for _, goroutines := range []int{1, 4, 16} {
@@ -16,7 +79,7 @@ func TestUMPSCQueue(t *testing.T) {
 				go func() {
 					for i := range count {
 						if i%goroutines == mod {
-							q.Add(i)
+							q.Enqueue(i)
 						}
 					}
 				}()
@@ -24,7 +87,7 @@ func TestUMPSCQueue(t *testing.T) {
 
 			values := make(map[int]struct{}, count)
 			for range count {
-				actual := q.Take()
+				actual := q.Dequeue()
 				if _, ok := values[actual]; !ok {
 					values[actual] = struct{}{}
 				} else {
@@ -38,55 +101,60 @@ func TestUMPSCQueue(t *testing.T) {
 	}
 }
 
-// This benchmarks the performance of the [UMPSCQueue] vs using a normal channel. As we can see from
-// the results, channels get slower as the parallelism goes up due to contention on the lock which is
-// acquired every time an element is added. By contrast, the queue actually gets faster. This is
-// expected, as [testing.B.RunParallel] executes N operations with G goroutines, so it should take
-// less time overall. The overall memory cost is negligible, especially since the allocation is not
+func hammerUMPSCQueueBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads int) {
+	runtime.GOMAXPROCS(gomaxprocs)
+	q := NewUMPSCQueue[int]()
+	startwg := sync.WaitGroup{}
+	startwg.Add(1)
+	csum := make(chan int, 1)
+	// Start producers.
+	for i := 0; i < numThreads; i++ {
+		go func(n int) {
+			startwg.Wait()
+			for j := n; j < numOps; j += numThreads {
+				q.Enqueue(j)
+			}
+		}(i)
+	}
+	// Start consumer.
+	go func() {
+		startwg.Wait()
+		sum := 0
+		for i := 0; i < numOps; i++ {
+			item := q.Dequeue()
+			sum += item
+		}
+		csum <- sum
+	}()
+	startwg.Done()
+	// Wait for the sum from the consumer.
+	sum := <-csum
+	// Assert the sum.
+	expectedSum := numOps * (numOps - 1) / 2
+	if sum != expectedSum {
+		t.Fatalf("sums don't match for %d num ops, %d num threads: got %d, want %d",
+			numOps, numThreads, sum, expectedSum)
+	}
+}
+
+func TestUMPSCQueueBlockingCalls(t *testing.T) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(-1))
+	n := 10
+	if testing.Short() {
+		n = 1
+	}
+	hammerUMPSCQueueBlockingCalls(t, 1, n, n)
+	hammerUMPSCQueueBlockingCalls(t, 2, 10*n, 2*n)
+	hammerUMPSCQueueBlockingCalls(t, 4, 100*n, 4*n)
+}
+
+// This benchmarks the performance of the [UMPSCQueue] vs using a normal channel. In the results,
+// channels should get slower as the parallelism goes up due to contention on the lock which is
+// acquired every time an element is added. By contrast, the queue actually should get faster. This
+// is expected, as [testing.B.RunParallel] executes N operations with G goroutines, so it should
+// take less time overall. The overall memory cost is negligible, especially since the allocation is not
 // per-operation, it's per-segment, meaning it is amortized by the size of the segment. Additionally,
 // segments are reused when possible, further decreasing the cost.
-//
-//	goos: linux
-//	goarch: amd64
-//	pkg: github.com/puzpuzpuz/xsync/v4
-//	cpu: AMD EPYC 7V13 64-Core Processor
-//	                        │    queue     │                  chan                   │
-//	                        │    sec/op    │    sec/op      vs base                  │
-//	ChanVsUMPSCQueue       15.91n ±  1%    39.00n ±  3%   +145.02% (p=0.000 n=10)
-//	ChanVsUMPSCQueue-8     92.45n ± 13%   101.17n ±  4%          ~ (p=0.052 n=10)
-//	ChanVsUMPSCQueue-16    58.84n ±  3%   118.85n ±  5%   +102.01% (p=0.000 n=10)
-//	ChanVsUMPSCQueue-64    32.63n ±  2%   191.35n ±  7%   +486.33% (p=0.000 n=10)
-//	ChanVsUMPSCQueue-128   30.58n ±  2%   329.95n ±  6%   +979.15% (p=0.000 n=10)
-//	ChanVsUMPSCQueue-256   29.52n ±  4%   702.15n ± 14%  +2278.15% (p=0.000 n=10)
-//	ChanVsUMPSCQueue-512   28.49n ±  2%   826.25n ±  8%  +2800.65% (p=0.000 n=10)
-//	geomean                   35.61n          208.6n         +485.69%
-//
-//	                        │     queue     │                   chan                   │
-//	                        │     B/op      │    B/op      vs base                     │
-//	ChanVsUMPSCQueue        0.000 ±  ?      0.000 ± 0%         ~ (p=0.474 n=10)
-//	ChanVsUMPSCQueue-8      0.000 ± 0%      0.000 ± 0%         ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-16     0.000 ± 0%      0.000 ± 0%         ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-64     0.000 ± 0%      0.000 ± 0%         ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-128    0.000 ± 0%      0.000 ± 0%         ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-256    0.000 ± 0%      0.000 ± 0%         ~ (p=1.000 n=10)
-//	ChanVsUMPSCQueue-512   0.5000 ±  ?     0.0000 ± 0%  -100.00% (p=0.033 n=10)
-//	geomean                               ²                ?                       ² ³
-//	¹ all samples are equal
-//	² summaries must be >0 to compute geomean
-//	³ ratios must be >0 to compute geomean
-//
-//	                        │    queue     │                chan                 │
-//	                        │  allocs/op   │ allocs/op   vs base                 │
-//	ChanVsUMPSCQueue       0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-8     0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-16    0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-64    0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-128   0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-256   0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹
-//	ChanVsUMPSCQueue-512   0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹
-//	geomean                              ²               +0.00%                ²
-//	¹ all samples are equal
-//	² summaries must be >0 to compute geomean
 func BenchmarkChanVsUMPSCQueue(b *testing.B) {
 	b.Run("method=queue", func(b *testing.B) {
 		q := NewUMPSCQueue[int]()
@@ -94,12 +162,12 @@ func BenchmarkChanVsUMPSCQueue(b *testing.B) {
 		go func() {
 			defer close(done)
 			for range b.N {
-				q.Take()
+				q.Dequeue()
 			}
 		}()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				q.Add(0)
+				q.Enqueue(0)
 			}
 		})
 		<-done

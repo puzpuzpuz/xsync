@@ -112,8 +112,8 @@ type mapTable[K comparable, V any] struct {
 
 type counterStripe struct {
 	c int64
-	//lint:ignore U1000 prevents false sharing
-	pad [cacheLineSize - 8]byte
+	// Padding to prevent false sharing.
+	_ [cacheLineSize - 8]byte
 }
 
 // bucketPadded is a CL-sized map bucket holding up to
