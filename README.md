@@ -71,7 +71,7 @@ Finally, `Map` uses the built-in Golang's hash function which has DDOS protectio
 
 ### UMPSCQueue
 
-A `UMPSCQueue` is an unbounded multi-producer single-consumer concurrent queue.
+A `UMPSCQueue` is an unbounded multi-producer single-consumer concurrent queue. This means that multiple goroutines can publish items to the queue while not more than a single goroutine must be consuming those items. Unlike bounded queues, this one puts no limit to the queue capacity.
 
 ```go
 q := xsync.NewUMPSCQueue[string]()
