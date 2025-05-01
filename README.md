@@ -69,6 +69,26 @@ pm := xsync.ToPlainMap(m)
 
 Finally, `Map` uses the built-in Golang's hash function which has DDOS protection. It uses `maphash.Comparable` as the default hash function. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation.
 
+### UMPSCQueue
+
+A `UMPSCQueue` is an unbounded multi-producer single-consumer concurrent queue.
+
+```go
+q := xsync.NewUMPSCQueue[string]()
+// producer inserts an item into the queue; doesn't block
+// safe to invoke from multiple goroutines
+inserted := q.Enqueue("bar")
+// consumer obtains an item from the queue
+// must be called from a single goroutine
+item := q.Dequeue() // string
+```
+
+`UMPSCQueue` is meant to serve as a replacement for a channel. However, crucially, it has infinite capacity. This is a very bad idea in many cases as it means that it never exhibits backpressure. In other words, if nothing is consuming elements from the queue, it will eventually consume all available memory and crash the process. However, there are also cases where this is desired behavior as it means the queue will dynamically allocate more memory to store temporary bursts, allowing producers to never block while the consumer catches up.
+
+The backing data structure is represented as a singly linked list of large segments. Each segment is a slice of `T` along with a corresponding `sync.WaitGroup` for each index. Producers use an atomic counter to determine the unique index in the segment where they will write their value, and mark the corresponding wait group as done after having written the value. The consumer simply keeps track of the index it wants to read and waits for the corresponding wait group to complete. Neither operation acquires a lock and therefore performs quite well under highly contentious loads.
+
+Note however that because no locks are acquired, it is unsafe for multiple goroutines to consume from the queue. Consumers must explicitly synchronize between themselves. This allows setups with a single consumer to never acquire a lock, significantly speeding up consumption.
+
 ### SPSCQueue
 
 A `SPSCQueue` is a bounded single-producer single-consumer concurrent queue. This means that not more than a single goroutine must be publishing items to the queue while not more than a single goroutine must be consuming those items.

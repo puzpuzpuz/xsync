@@ -16,8 +16,8 @@ var ptokenPool sync.Pool
 // the counter
 type ptoken struct {
 	idx uint32
-	//lint:ignore U1000 prevents false sharing
-	pad [cacheLineSize - 4]byte
+	// Padding to prevent false sharing.
+	_ [cacheLineSize - 4]byte
 }
 
 // A Counter is a striped int64 counter.
@@ -33,8 +33,8 @@ type Counter struct {
 
 type cstripe struct {
 	c int64
-	//lint:ignore U1000 prevents false sharing
-	pad [cacheLineSize - 8]byte
+	// Padding to prevent false sharing.
+	_ [cacheLineSize - 8]byte
 }
 
 // NewCounter creates a new Counter instance.

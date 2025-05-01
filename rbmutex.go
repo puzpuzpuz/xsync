@@ -16,8 +16,8 @@ var rtokenPool sync.Pool
 // RToken is a reader lock token.
 type RToken struct {
 	slot uint32
-	//lint:ignore U1000 prevents false sharing
-	pad [cacheLineSize - 4]byte
+	// Padding to prevent false sharing.
+	_ [cacheLineSize - 4]byte
 }
 
 // A RBMutex is a reader biased reader/writer mutual exclusion lock.

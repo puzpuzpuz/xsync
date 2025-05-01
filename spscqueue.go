@@ -20,18 +20,15 @@ type SPSCQueueOf[I any] = SPSCQueue[I]
 type SPSCQueue[I any] struct {
 	cap  uint64
 	pidx uint64
-	//lint:ignore U1000 prevents false sharing
-	pad0       [cacheLineSize - 8]byte
+	// Padding to prevent false sharing.
+	_          [cacheLineSize - 8]byte
 	pcachedIdx uint64
-	//lint:ignore U1000 prevents false sharing
-	pad1 [cacheLineSize - 8]byte
-	cidx uint64
-	//lint:ignore U1000 prevents false sharing
-	pad2       [cacheLineSize - 8]byte
+	_          [cacheLineSize - 8]byte
+	cidx       uint64
+	_          [cacheLineSize - 8]byte
 	ccachedIdx uint64
-	//lint:ignore U1000 prevents false sharing
-	pad3  [cacheLineSize - 8]byte
-	items []I
+	_          [cacheLineSize - 8]byte
+	items      []I
 }
 
 // Deprecated: use [NewSPSCQueue].

@@ -19,11 +19,10 @@ type MPMCQueueOf[I any] = MPMCQueue[I]
 type MPMCQueue[I any] struct {
 	cap  uint64
 	head uint64
-	//lint:ignore U1000 prevents false sharing
-	hpad [cacheLineSize - 8]byte
-	tail uint64
-	//lint:ignore U1000 prevents false sharing
-	tpad  [cacheLineSize - 8]byte
+	// Padding to prevent false sharing.
+	_     [cacheLineSize - 8]byte
+	tail  uint64
+	_     [cacheLineSize - 8]byte
 	slots []slotPadded[I]
 }
 
@@ -35,8 +34,7 @@ type slotPadded[I any] struct {
 	//
 	// won't compile, so here we add a best-effort padding for items up to
 	// 56 bytes size.
-	//lint:ignore U1000 prevents false sharing
-	pad [cacheLineSize - unsafe.Sizeof(atomic.Uint64{})]byte
+	_ [cacheLineSize - unsafe.Sizeof(atomic.Uint64{})]byte
 }
 
 type slot[I any] struct {

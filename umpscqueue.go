@@ -1,12 +1,12 @@
 package xsync
 
 import (
-	"math"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 )
 
+// NewUMPSCQueue creates a new UMPSCQueue instance.
 func NewUMPSCQueue[T any]() *UMPSCQueue[T] {
 	q := &UMPSCQueue[T]{}
 	q.readHead = q.newSegment()
@@ -14,25 +14,16 @@ func NewUMPSCQueue[T any]() *UMPSCQueue[T] {
 	return q
 }
 
-// A UMPSCQueue is multi-producer single-consumer queue with an infinite/unbounded capacity. It is
-// meant to serve as a replacement for a channel. However, crucially, it has infinite capacity. This
-// is a very bad idea in many cases as it means that it never exhibits backpressure. In other words,
-// if nothing is consuming elements from the queue, it will eventually consume all available memory
-// and crash the process. However, there are also cases where this is desired behavior as it means
-// the queue will dynamically allocate more memory to store temporary bursts, allowing producers to
-// never block while the consumer catches up.
-//
-// The backing data structure is represented as a singly linked list of large segments. The size of
-// the segments is determined empirically. Each segment is a slice of T along with a corresponding
-// [sync.WaitGroup] for each index. Producers use an atomic counter to determine the unique index in
-// the segment where they will write their value, and mark the corresponding wait group as done after
-// having written the value. The consumer simply keeps track of the index it wants to read and waits
-// for the corresponding wait group to complete. Neither operation acquires a lock and therefore
-// performs quite well under highly contentious loads.
+// A UMPSCQueue an unbounded multi-producer single-consumer concurrent queue. It is meant to serve
+// as a replacement for a channel. However, crucially, it has infinite capacity. This is a very bad
+// idea in many cases as it means that it never exhibits backpressure. In other words, if nothing
+// is consuming elements from the queue, it will eventually consume all available memory and crash
+// the process. However, there are also cases where this is desired behavior as it means the queue
+// will dynamically allocate more memory to store temporary bursts, allowing producers to never
+// block while the consumer catches up.
 //
 // Note however that because no locks are acquired, it is unsafe for multiple goroutines to consume
-// from the queue. Consumers must explicitly synchronize between themselves. This allows setups with
-// a single consumer to never acquire a lock, significantly speeding up consumption.
+// from the queue. Consumers must explicitly synchronize between themselves.
 type UMPSCQueue[T any] struct {
 	// Represents the current head of the queue. This is updated by writers as they materialize the
 	// segments of the queue.
@@ -52,11 +43,10 @@ type UMPSCQueue[T any] struct {
 // parallelism increases, while there is no statistically significant difference beyond 2^12.
 const segmentSize = 1 << 12
 
-// key/value pair representing the [time.Duration] that should be inserted into the backing
-// [metrics.TimeHistogram], and whether the value is ready to be read. The reading goroutine should
-// not attempt to read the value until the ready [sync.WaitGroup] has been marked as done.
+// Holds the item and wait group. The reading goroutine should not attempt to read the value until
+// the ready [sync.WaitGroup] has been marked as done.
 type queueValue[T any] struct {
-	value T
+	item  T
 	ready sync.WaitGroup
 }
 
@@ -67,21 +57,21 @@ func (hv *queueValue[T]) init() {
 
 // set sets the value and marks it as ready.
 func (hv *queueValue[T]) set(value T) {
-	hv.value = value
+	hv.item = value
 	hv.ready.Done()
 }
 
 // get waits for the value to be ready, then reads it.
 func (hv *queueValue[T]) get() T {
 	hv.ready.Wait()
-	return hv.value
+	return hv.item
 }
 
 type queueSegment[T any] struct {
 	// Incremented every time a writer wants to write to this segment, and prevents multiple writers from
 	// attempting to write to the same index. If the index is greater than the size of the segment,
 	// pending writers should try again in the next segment.
-	idx atomic.Uint64
+	idx atomic.Int64
 	// Padding to prevent false sharing.
 	_ [cacheLineSize - unsafe.Sizeof(atomic.Uint64{})]byte
 	// The set of values this segment.
@@ -94,8 +84,10 @@ type queueSegment[T any] struct {
 // newSegment creates a new queueSegment and pre-allocates the value slice by either reusing one
 // from the pool or creating a fresh one.
 func (q *UMPSCQueue[T]) newSegment() *queueSegment[T] {
-	values, ok := q.segmentPool.Get().([]queueValue[T])
-	if !ok {
+	var values []queueValue[T]
+	if v, ok := q.segmentPool.Get().(*[]queueValue[T]); ok {
+		values = *v
+	} else {
 		values = make([]queueValue[T], segmentSize)
 	}
 	for i := range values {
@@ -105,10 +97,8 @@ func (q *UMPSCQueue[T]) newSegment() *queueSegment[T] {
 	s := &queueSegment[T]{
 		values: values,
 	}
-	// Storing math.MaxUint64 means the first call to Add(1) will return 0, not 1! Otherwise, it becomes
-	// very messy as the real intended index is actually s.idx.Add(1) - 1. Setting this once makes this
-	// less error-prone.
-	s.idx.Store(math.MaxUint64)
+	// Storing -1 means the first call to Add(1) will return 0.
+	s.idx.Store(-1)
 	return s
 }
 
@@ -119,27 +109,26 @@ func (q *UMPSCQueue[T]) loadNext(s *queueSegment[T]) *queueSegment[T] {
 	return s.next
 }
 
-// Take returns the next value in the queue, blocking if it is empty. It is not safe to invoke Take
+// Dequeue returns the next value in the queue, blocking if it is empty. It is not safe to invoke Dequeue
 // from multiple goroutines.
-//
-// As it completes reading a segment, it returns the backing value slice to the pool. The actual
-// queueSegment itself cannot be reused as it contains the pointer to the next segment, which cannot
-// safely be updated as it cannot be determined whether all writers have released all references to
-// it.
-func (q *UMPSCQueue[T]) Take() T {
+func (q *UMPSCQueue[T]) Dequeue() T {
 	t := q.readHead.values[q.readIdx].get()
 	q.readIdx++
 	if q.readIdx == segmentSize {
 		q.readIdx = 0
-		q.segmentPool.Put(q.readHead.values)
+		// We're done reading a segment, so return the backing value slice to the pool. The actual
+		// queueSegment itself cannot be reused as it contains the pointer to the next segment, which cannot
+		// safely be updated as it cannot be determined whether all writers have released all references to
+		// it.
+		q.segmentPool.Put(&q.readHead.values)
 		q.readHead = q.loadNext(q.readHead)
 	}
 	return t
 }
 
-// Add writes the given value to the queue. It never blocks and is safe to be called by multiple
+// Enqueue writes the given value to the queue. It never blocks and is safe to be called by multiple
 // goroutines concurrently.
-func (q *UMPSCQueue[T]) Add(value T) {
+func (q *UMPSCQueue[T]) Enqueue(value T) {
 	var segment *queueSegment[T]
 	for {
 		segment = q.writeHead.Load()

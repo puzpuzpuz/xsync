@@ -160,7 +160,7 @@ func hammerMPMCQueueNonBlockingCalls(t *testing.T, gomaxprocs, numOps, numThread
 		}(i)
 	}
 	startwg.Done()
-	// Wait for all the sums from producers.
+	// Wait for all the sums from consumers.
 	sum := 0
 	for i := 0; i < numThreads; i++ {
 		s := <-csum
