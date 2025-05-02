@@ -102,6 +102,7 @@ type Map[K comparable, V any] struct {
 	table        atomic.Pointer[mapTable[K, V]]
 	minTableLen  int
 	growOnly     bool
+	serialResize bool
 }
 
 type mapTable[K comparable, V any] struct {
@@ -142,8 +143,9 @@ type entry[K comparable, V any] struct {
 
 // MapConfig defines configurable Map options.
 type MapConfig struct {
-	sizeHint int
-	growOnly bool
+	sizeHint     int
+	growOnly     bool
+	serialResize bool
 }
 
 // WithPresize configures new Map instance with capacity enough
@@ -165,6 +167,15 @@ func WithPresize(sizeHint int) func(*MapConfig) {
 func WithGrowOnly() func(*MapConfig) {
 	return func(c *MapConfig) {
 		c.growOnly = true
+	}
+}
+
+// WithSerialResize enables serial resizing mode, matching the behavior of
+// previous versions. Use for resource-constrained environments, while
+// parallel resizing (default) provides higher throughput.
+func WithSerialResize() func(*MapConfig) {
+	return func(c *MapConfig) {
+		c.serialResize = true
 	}
 }
 
@@ -194,6 +205,7 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 	}
 	m.minTableLen = len(table.buckets)
 	m.growOnly = c.growOnly
+	m.serialResize = c.serialResize
 	m.table.Store(table)
 	return m
 }
@@ -624,9 +636,10 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	}
 	// Copy the data only if we're not clearing the map.
 	if hint != mapClearHint {
+		// Enable parallel resizing when serialResize is false and table is large enough.
+		// Calculate optimal goroutine count based on table size and available CPUs
 		chunks := 1
-		// Adjusts the parallel resize trigger threshold using a scaling factor.
-		if tableLen >= minBucketsPerGoroutine*2 {
+		if !m.serialResize && tableLen >= minBucketsPerGoroutine*2 {
 			chunks = min(tableLen/minBucketsPerGoroutine, runtime.GOMAXPROCS(0))
 			chunks = max(chunks, 1)
 		}
