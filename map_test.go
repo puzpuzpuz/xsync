@@ -742,7 +742,7 @@ func TestNewMapGrowOnly_OnlyShrinksOnClear(t *testing.T) {
 	}
 }
 
-func TestMapResize(t *testing.T) {
+func TestMapParallelResize(t *testing.T) {
 	testMapResize(t, NewMap[string, int]())
 }
 
@@ -814,7 +814,7 @@ func TestMapResize_CounterLenLimit(t *testing.T) {
 	}
 }
 
-func parallelSeqTypedResizer(m *Map[int, int], numEntries int, positive bool, cdone chan bool) {
+func parallelSeqMapGrower(m *Map[int, int], numEntries int, positive bool, cdone chan bool) {
 	for i := 0; i < numEntries; i++ {
 		if positive {
 			m.Store(i, i)
@@ -825,12 +825,12 @@ func parallelSeqTypedResizer(m *Map[int, int], numEntries int, positive bool, cd
 	cdone <- true
 }
 
-func TestMapParallelResize_GrowOnly(t *testing.T) {
+func TestMapParallelGrowth_GrowOnly(t *testing.T) {
 	const numEntries = 100_000
 	m := NewMap[int, int]()
 	cdone := make(chan bool)
-	go parallelSeqTypedResizer(m, numEntries, true, cdone)
-	go parallelSeqTypedResizer(m, numEntries, false, cdone)
+	go parallelSeqMapGrower(m, numEntries, true, cdone)
+	go parallelSeqMapGrower(m, numEntries, false, cdone)
 	// Wait for the goroutines to finish.
 	<-cdone
 	<-cdone
@@ -849,7 +849,7 @@ func TestMapParallelResize_GrowOnly(t *testing.T) {
 	}
 }
 
-func parallelRandTypedResizer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandMapResizer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		coin := r.Int63n(2)
@@ -864,13 +864,13 @@ func parallelRandTypedResizer(t *testing.T, m *Map[string, int], numIters, numEn
 	cdone <- true
 }
 
-func TestMapParallelResize(t *testing.T) {
+func TestMapParallelGrowth(t *testing.T) {
 	const numIters = 1_000
 	const numEntries = 2 * EntriesPerMapBucket * DefaultMinMapTableLen
 	m := NewMap[string, int]()
 	cdone := make(chan bool)
-	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
-	go parallelRandTypedResizer(t, m, numIters, numEntries, cdone)
+	go parallelRandMapResizer(t, m, numIters, numEntries, cdone)
+	go parallelRandMapResizer(t, m, numIters, numEntries, cdone)
 	// Wait for the goroutines to finish.
 	<-cdone
 	<-cdone
@@ -895,7 +895,7 @@ func TestMapParallelResize(t *testing.T) {
 	}
 }
 
-func parallelRandTypedClearer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandMapClearer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		coin := r.Int63n(2)
@@ -915,8 +915,8 @@ func TestMapParallelClear(t *testing.T) {
 	const numEntries = 1_000
 	m := NewMap[string, int]()
 	cdone := make(chan bool)
-	go parallelRandTypedClearer(t, m, numIters, numEntries, cdone)
-	go parallelRandTypedClearer(t, m, numIters, numEntries, cdone)
+	go parallelRandMapClearer(t, m, numIters, numEntries, cdone)
+	go parallelRandMapClearer(t, m, numIters, numEntries, cdone)
 	// Wait for the goroutines to finish.
 	<-cdone
 	<-cdone
@@ -931,7 +931,7 @@ func TestMapParallelClear(t *testing.T) {
 	}
 }
 
-func parallelSeqTypedStorer(t *testing.T, m *Map[string, int], storeEach, numIters, numEntries int, cdone chan bool) {
+func parallelSeqMapStorer(t *testing.T, m *Map[string, int], storeEach, numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			if storeEach == 0 || j%storeEach == 0 {
@@ -959,7 +959,7 @@ func TestMapParallelStores(t *testing.T) {
 	m := NewMap[string, int]()
 	cdone := make(chan bool)
 	for i := 0; i < numStorers; i++ {
-		go parallelSeqTypedStorer(t, m, i, numIters, numEntries, cdone)
+		go parallelSeqMapStorer(t, m, i, numIters, numEntries, cdone)
 	}
 	// Wait for the goroutines to finish.
 	for i := 0; i < numStorers; i++ {
@@ -977,7 +977,7 @@ func TestMapParallelStores(t *testing.T) {
 	}
 }
 
-func parallelRandTypedStorer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandMapStorer(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
@@ -990,7 +990,7 @@ func parallelRandTypedStorer(t *testing.T, m *Map[string, int], numIters, numEnt
 	cdone <- true
 }
 
-func parallelRandTypedDeleter(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelRandMapDeleter(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numIters; i++ {
 		j := r.Intn(numEntries)
@@ -1003,7 +1003,7 @@ func parallelRandTypedDeleter(t *testing.T, m *Map[string, int], numIters, numEn
 	cdone <- true
 }
 
-func parallelTypedLoader(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
+func parallelMapLoader(t *testing.T, m *Map[string, int], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			// Due to atomic snapshots we must either see no entry, or a "<j>"/j pair.
@@ -1023,9 +1023,9 @@ func TestMapAtomicSnapshot(t *testing.T) {
 	m := NewMap[string, int]()
 	cdone := make(chan bool)
 	// Update or delete random entry in parallel with loads.
-	go parallelRandTypedStorer(t, m, numIters, numEntries, cdone)
-	go parallelRandTypedDeleter(t, m, numIters, numEntries, cdone)
-	go parallelTypedLoader(t, m, numIters, numEntries, cdone)
+	go parallelRandMapStorer(t, m, numIters, numEntries, cdone)
+	go parallelRandMapDeleter(t, m, numIters, numEntries, cdone)
+	go parallelMapLoader(t, m, numIters, numEntries, cdone)
 	// Wait for the goroutines to finish.
 	for i := 0; i < 3; i++ {
 		<-cdone
@@ -1040,8 +1040,8 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 	cdone := make(chan bool)
 	// Update random entry in parallel with deletes.
 	for i := 0; i < numWorkers; i++ {
-		go parallelRandTypedStorer(t, m, numIters, numEntries, cdone)
-		go parallelRandTypedDeleter(t, m, numIters, numEntries, cdone)
+		go parallelRandMapStorer(t, m, numIters, numEntries, cdone)
+		go parallelRandMapDeleter(t, m, numIters, numEntries, cdone)
 	}
 	// Wait for the goroutines to finish.
 	for i := 0; i < 2*numWorkers; i++ {
@@ -1049,7 +1049,7 @@ func TestMapParallelStoresAndDeletes(t *testing.T) {
 	}
 }
 
-func parallelTypedComputer(m *Map[uint64, uint64], numIters, numEntries int, cdone chan bool) {
+func parallelMapComputer(m *Map[uint64, uint64], numIters, numEntries int, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			m.Compute(uint64(j), func(oldValue uint64, loaded bool) (newValue uint64, op ComputeOp) {
@@ -1066,7 +1066,7 @@ func TestMapParallelComputes(t *testing.T) {
 	m := NewMap[uint64, uint64]()
 	cdone := make(chan bool)
 	for i := 0; i < numWorkers; i++ {
-		go parallelTypedComputer(m, numIters, numWorkers, cdone)
+		go parallelMapComputer(m, numIters, numWorkers, cdone)
 	}
 	// Wait for the goroutines to finish.
 	for i := 0; i < numWorkers; i++ {
@@ -1084,7 +1084,7 @@ func TestMapParallelComputes(t *testing.T) {
 	}
 }
 
-func parallelTypedRangeStorer(m *Map[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
+func parallelRangeMapStorer(m *Map[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
 	for {
 		for i := 0; i < numEntries; i++ {
 			m.Store(i, i)
@@ -1096,7 +1096,7 @@ func parallelTypedRangeStorer(m *Map[int, int], numEntries int, stopFlag *int64,
 	cdone <- true
 }
 
-func parallelTypedRangeDeleter(m *Map[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
+func parallelRangeMapDeleter(m *Map[int, int], numEntries int, stopFlag *int64, cdone chan bool) {
 	for {
 		for i := 0; i < numEntries; i++ {
 			m.Delete(i)
@@ -1117,8 +1117,8 @@ func TestMapParallelRange(t *testing.T) {
 	// Start goroutines that would be storing and deleting items in parallel.
 	cdone := make(chan bool)
 	stopFlag := int64(0)
-	go parallelTypedRangeStorer(m, numEntries, &stopFlag, cdone)
-	go parallelTypedRangeDeleter(m, numEntries, &stopFlag, cdone)
+	go parallelRangeMapStorer(m, numEntries, &stopFlag, cdone)
+	go parallelRangeMapDeleter(m, numEntries, &stopFlag, cdone)
 	// Iterate the map and verify that no duplicate keys were met.
 	met := make(map[int]int)
 	m.Range(func(key int, value int) bool {
@@ -1143,7 +1143,7 @@ func TestMapParallelRange(t *testing.T) {
 	<-cdone
 }
 
-func parallelTypedShrinker(t *testing.T, m *Map[uint64, *point], numIters, numEntries int, stopFlag *int64, cdone chan bool) {
+func parallelMapShrinker(t *testing.T, m *Map[uint64, *point], numIters, numEntries int, stopFlag *int64, cdone chan bool) {
 	for i := 0; i < numIters; i++ {
 		for j := 0; j < numEntries; j++ {
 			if p, loaded := m.LoadOrStore(uint64(j), &point{int32(j), int32(j)}); loaded {
@@ -1158,7 +1158,7 @@ func parallelTypedShrinker(t *testing.T, m *Map[uint64, *point], numIters, numEn
 	cdone <- true
 }
 
-func parallelTypedUpdater(t *testing.T, m *Map[uint64, *point], idx int, stopFlag *int64, cdone chan bool) {
+func parallelMapUpdater(t *testing.T, m *Map[uint64, *point], idx int, stopFlag *int64, cdone chan bool) {
 	for atomic.LoadInt64(stopFlag) != 1 {
 		sleepUs := int(Fastrand() % 10)
 		if p, loaded := m.LoadOrStore(uint64(idx), &point{int32(idx), int32(idx)}); loaded {
@@ -1179,8 +1179,8 @@ func TestMapDoesNotLoseEntriesOnResize(t *testing.T) {
 	m := NewMap[uint64, *point]()
 	cdone := make(chan bool)
 	stopFlag := int64(0)
-	go parallelTypedShrinker(t, m, numIters, numEntries, &stopFlag, cdone)
-	go parallelTypedUpdater(t, m, numEntries, &stopFlag, cdone)
+	go parallelMapShrinker(t, m, numIters, numEntries, &stopFlag, cdone)
+	go parallelMapUpdater(t, m, numEntries, &stopFlag, cdone)
 	// Wait for the goroutines to finish.
 	<-cdone
 	<-cdone
