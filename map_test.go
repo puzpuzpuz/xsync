@@ -743,8 +743,15 @@ func TestNewMapGrowOnly_OnlyShrinksOnClear(t *testing.T) {
 }
 
 func TestMapResize(t *testing.T) {
+	testMapResize(t, NewMap[string, int]())
+}
+
+func TestMapSerialResize(t *testing.T) {
+	testMapResize(t, NewMap[string, int](WithSerialResize()))
+}
+
+func testMapResize(t *testing.T, m *Map[string, int]) {
 	const numEntries = 100_000
-	m := NewMap[string, int]()
 
 	for i := 0; i < numEntries; i++ {
 		m.Store(strconv.Itoa(i), i)
