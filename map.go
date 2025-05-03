@@ -171,7 +171,8 @@ func WithGrowOnly() func(*MapConfig) {
 }
 
 // WithSerialResize enables serial resizing mode, matching the behavior of
-// previous versions. Use for resource-constrained environments, while
+// older versions. With this setting, Map will no longer spawn additional
+// goroutines when resizing. Use in resource-constrained environments, while
 // parallel resizing (default) provides higher throughput.
 func WithSerialResize() func(*MapConfig) {
 	return func(c *MapConfig) {

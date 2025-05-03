@@ -67,7 +67,16 @@ m.Store(42, 42)
 pm := xsync.ToPlainMap(m)
 ```
 
-Finally, `Map` uses the built-in Golang's hash function which has DDOS protection. It uses `maphash.Comparable` as the default hash function. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation.
+`Map` uses the built-in Golang's hash function which has DDOS protection. It uses `maphash.Comparable` as the default hash function. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation.
+
+By default, `Map` spawns additional goroutines to speed up resizing the hash table. This can be disabled by creating a `Map` with the `WithSerialResize` setting.
+```go
+m := xsync.NewMap[int, int](xsync.WithSerialResize())
+// resize will take place on the current goroutine only
+for i := 0; i < 10000; i++ {
+	m.Store(i, i)
+}
+```
 
 ### UMPSCQueue
 
