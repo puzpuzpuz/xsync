@@ -103,7 +103,6 @@ type Map[K comparable, V any] struct {
 	seed         maphash.Seed
 	minTableLen  int
 	growOnly     bool
-	serialResize bool
 }
 
 type resizeState[K comparable, V any] struct {
@@ -152,9 +151,8 @@ type entry[K comparable, V any] struct {
 
 // MapConfig defines configurable Map options.
 type MapConfig struct {
-	sizeHint     int
-	growOnly     bool
-	serialResize bool
+	sizeHint int
+	growOnly bool
 }
 
 // WithPresize configures new Map instance with capacity enough
@@ -183,9 +181,10 @@ func WithGrowOnly() func(*MapConfig) {
 // older versions. With this setting, Map will no longer spawn additional
 // goroutines when resizing. Use in resource-constrained environments, while
 // parallel resizing (default) provides higher throughput.
+//
+// Deprecated: Default behavior now uses only writer goroutines for resizing
 func WithSerialResize() func(*MapConfig) {
 	return func(c *MapConfig) {
-		c.serialResize = true
 	}
 }
 
@@ -216,7 +215,6 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 	m.seed = maphash.MakeSeed()
 	m.minTableLen = len(table.buckets)
 	m.growOnly = c.growOnly
-	m.serialResize = c.serialResize
 	m.table.Store(table)
 	return m
 }
