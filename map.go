@@ -34,7 +34,7 @@ const (
 	defaultMetaMasked uint64 = defaultMeta & metaMask
 	emptyMetaSlot     uint8  = 0x80
 	// minimum buckets per goroutine during parallel resize
-	minBucketsPerGoroutine = 64
+	minBucketsPerGoroutine = 4
 )
 
 type mapResizeHint int
@@ -96,13 +96,23 @@ type MapOf[K comparable, V any] = Map[K, V]
 type Map[K comparable, V any] struct {
 	totalGrowths atomic.Int64
 	totalShrinks atomic.Int64
-	resizing     atomic.Bool // resize in progress flag
-	resizeMu     sync.Mutex  // only used along with resizeCond
-	resizeCond   sync.Cond   // used to wake up resize waiters (concurrent modifications)
+	resizeState  atomic.Pointer[resizeState[K, V]]
+	resizeMu     sync.Mutex // only used along with resizeCond
+	resizeCond   sync.Cond  // used to wake up resize waiters (concurrent modifications)
 	table        atomic.Pointer[mapTable[K, V]]
+	seed         maphash.Seed
 	minTableLen  int
 	growOnly     bool
 	serialResize bool
+}
+
+type resizeState[K comparable, V any] struct {
+	table     atomic.Pointer[mapTable[K, V]]
+	chunks    atomic.Int32
+	chunkSize atomic.Int64
+	newTable  atomic.Pointer[mapTable[K, V]]
+	process   atomic.Int32
+	completed atomic.Int32
 }
 
 type mapTable[K comparable, V any] struct {
@@ -111,7 +121,6 @@ type mapTable[K comparable, V any] struct {
 	// used to determine if a table shrinking is needed
 	// occupies min(buckets_memory/1024, 64KB) of memory
 	size []counterStripe
-	seed maphash.Seed
 }
 
 type counterStripe struct {
@@ -204,6 +213,7 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 		tableLen := nextPowOf2(uint32((float64(c.sizeHint) / entriesPerMapBucket) / mapLoadFactor))
 		table = newMapTable[K, V](int(tableLen))
 	}
+	m.seed = maphash.MakeSeed()
 	m.minTableLen = len(table.buckets)
 	m.growOnly = c.growOnly
 	m.serialResize = c.serialResize
@@ -226,7 +236,6 @@ func newMapTable[K comparable, V any](minTableLen int) *mapTable[K, V] {
 	t := &mapTable[K, V]{
 		buckets: buckets,
 		size:    counter,
-		seed:    maphash.MakeSeed(),
 	}
 	return t
 }
@@ -251,7 +260,7 @@ func ToPlainMap[K comparable, V any](m *Map[K, V]) map[K]V {
 // The ok result indicates whether value was found in the map.
 func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 	table := m.table.Load()
-	hash := maphash.Comparable(table.seed, key)
+	hash := maphash.Comparable(m.seed, key)
 	h1 := h1(hash)
 	h2w := broadcast(h2(hash))
 	bidx := uint64(len(table.buckets)-1) & h1
@@ -414,7 +423,7 @@ func (m *Map[K, V]) doCompute(
 		)
 		table := m.table.Load()
 		tableLen := len(table.buckets)
-		hash := maphash.Comparable(table.seed, key)
+		hash := maphash.Comparable(m.seed, key)
 		h1 := h1(hash)
 		h2 := h2(hash)
 		h2w := broadcast(h2)
@@ -453,10 +462,12 @@ func (m *Map[K, V]) doCompute(
 		rootb.mu.Lock()
 		// The following two checks must go in reverse to what's
 		// in the resize method.
-		if m.resizeInProgress() {
+		if rs := m.resizeState.Load(); rs != nil &&
+			rs.table.Load() != nil &&
+			rs.newTable.Load() != nil {
 			// Resize is in progress. Wait, then go for another attempt.
 			rootb.mu.Unlock()
-			m.waitForResize()
+			m.helpCopyAndWait(rs)
 			goto compute_attempt
 		}
 		if m.newerTableExists(table) {
@@ -581,7 +592,7 @@ func (m *Map[K, V]) newerTableExists(table *mapTable[K, V]) bool {
 }
 
 func (m *Map[K, V]) resizeInProgress() bool {
-	return m.resizing.Load()
+	return m.resizeState.Load() != nil
 }
 
 func (m *Map[K, V]) waitForResize() {
@@ -602,89 +613,153 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 			return
 		}
 	}
-	// Slow path.
-	if !m.resizing.CompareAndSwap(false, true) {
-		// Someone else started resize. Wait for it to finish.
-		m.waitForResize()
+
+	rs := m.resizeState.Load()
+	if rs != nil {
+		// TODO:
+		// Calling waitForResize will significantly reduce write throughput performance.
+		// However, if it is not called, deletions may occur too quickly, causing shrink
+		// requests to be discarded. This may lead to the failure of the following test:
+		// TestMapStoreThenParallelDelete_DoesNotShrinkBelowMinTableLen.
+		//m.waitForResize()
 		return
 	}
+
+	// Slow path
+	rs = new(resizeState[K, V])
+	if !m.resizeState.CompareAndSwap(nil, rs) {
+		// TODO:
+		// Calling waitForResize will significantly reduce write throughput performance.
+		// However, if it is not called, deletions may occur too quickly, causing shrink
+		// requests to be discarded. This may lead to the failure of the following test:
+		// TestMapStoreThenParallelDelete_DoesNotShrinkBelowMinTableLen.
+		//m.waitForResize()
+		return
+	}
+
 	var newTable *mapTable[K, V]
 	table := m.table.Load()
 	tableLen := len(table.buckets)
+	var newTableLen int
 	switch hint {
 	case mapGrowHint:
 		// Grow the table with factor of 2.
 		m.totalGrowths.Add(1)
-		newTable = newMapTable[K, V](tableLen << 1)
+		newTableLen = tableLen << 1
 	case mapShrinkHint:
 		shrinkThreshold := int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
 		if tableLen > m.minTableLen && table.sumSize() <= shrinkThreshold {
 			// Shrink the table with factor of 2.
 			m.totalShrinks.Add(1)
-			newTable = newMapTable[K, V](tableLen >> 1)
+			newTableLen = tableLen >> 1
 		} else {
 			// No need to shrink. Wake up all waiters and give up.
 			m.resizeMu.Lock()
-			m.resizing.Store(false)
+			m.resizeState.Store(nil)
 			m.resizeCond.Broadcast()
 			m.resizeMu.Unlock()
 			return
 		}
 	case mapClearHint:
 		newTable = newMapTable[K, V](m.minTableLen)
+		m.table.Store(newTable)
+		m.resizeMu.Lock()
+		m.resizeState.Store(nil)
+		m.resizeCond.Broadcast()
+		m.resizeMu.Unlock()
+		return
 	default:
 		panic(fmt.Sprintf("unexpected resize hint: %d", hint))
 	}
+
 	// Copy the data only if we're not clearing the map.
-	if hint != mapClearHint {
-		// Enable parallel resizing when serialResize is false and table is large enough.
-		// Calculate optimal goroutine count based on table size and available CPUs
-		chunks := 1
-		if !m.serialResize && tableLen >= minBucketsPerGoroutine*2 {
-			chunks = min(tableLen/minBucketsPerGoroutine, runtime.GOMAXPROCS(0))
-			chunks = max(chunks, 1)
+	rs.table.Store(table)
+	chunks := min(tableLen/minBucketsPerGoroutine, runtime.GOMAXPROCS(0))
+	rs.chunks.Store(int32(chunks))
+	rs.chunkSize.Store(int64((tableLen + chunks - 1) / chunks))
+	newTable = newMapTable[K, V](newTableLen)
+	rs.newTable.Store(newTable)
+	m.helpCopyAndWait(rs)
+
+	// TODO: async finalizeResize
+	// Creating a large new table (newTable) is relatively slow, primarily
+	// due to slow memory allocation, followed by bucket initialization.
+	// The following code can asynchronously create a large table and complete
+	// migration, allowing the current operation to return quickly.
+	// For throughput, this approach benefits single-threaded scenarios
+	// but offers limited gains for multi-threaded cases.
+	//
+	//const asyncResizeThreshold = 128 * 1024 / cacheLineSize
+	//if tableLen >= asyncResizeThreshold {
+	//	go m.finalizeResize(rs, table, newTableLen)
+	//} else {
+	//	m.finalizeResize(rs, table, newTableLen)
+	//}
+	//func (m *Map[K, V]) finalizeResize(rs *resizeState[K, V], table *mapTable[K, V], newTableLen int) {
+	//	rs.table.Store(table)
+	//	tableLen := len(table.buckets)
+	//	chunks := min(tableLen/minBucketsPerGoroutine, runtime.GOMAXPROCS(0))
+	//	rs.chunks.Store(int32(chunks))
+	//	rs.chunkSize.Store(int64((tableLen + chunks - 1) / chunks))
+	//	newTable := newMapTable[K, V](newTableLen)
+	//	rs.newTable.Store(newTable)
+	//	m.helpCopyAndWait(rs)
+	//}
+}
+
+func (m *Map[K, V]) helpCopyAndWait(rs *resizeState[K, V]) {
+	table := rs.table.Load()
+	tableLen := len(table.buckets)
+	chunks := rs.chunks.Load()
+	chunkSize := int(rs.chunkSize.Load())
+	newTable := rs.newTable.Load()
+	isGrowth := len(newTable.buckets) > tableLen
+	for {
+		process := rs.process.Add(1)
+		if process > chunks {
+			// Wait for it to finish.
+			m.waitForResize()
+			return
 		}
-		if chunks > 1 {
-			var copyWg sync.WaitGroup
-			chunkSize := (tableLen + chunks - 1) / chunks
-			for c := 0; c < chunks; c++ {
-				copyWg.Add(1)
-				go func(start, end int) {
-					for i := start; i < end; i++ {
-						copied := copyBucketWithDestLock[K, V](&table.buckets[i], newTable)
-						if copied > 0 {
-							newTable.addSize(uint64(i), copied)
-						}
-					}
-					copyWg.Done()
-				}(c*chunkSize, min((c+1)*chunkSize, tableLen))
+		process--
+		start := int(process) * chunkSize
+		end := min(start+chunkSize, tableLen)
+		copied := 0
+		if isGrowth {
+			for i := start; i < end; i++ {
+				copied += copyBucket[K, V](&table.buckets[i], newTable, m.seed)
 			}
-			copyWg.Wait()
 		} else {
-			for i := 0; i < tableLen; i++ {
-				copied := copyBucket(&table.buckets[i], newTable)
-				newTable.addSizePlain(uint64(i), copied)
+			for i := start; i < end; i++ {
+				copied += copyBucketWithDestLock[K, V](&table.buckets[i], newTable, m.seed)
 			}
+		}
+		if copied != 0 {
+			newTable.addSize(uint64(start), copied)
+		}
+		if rs.completed.Add(1) == chunks {
+			// Publish the new table and wake up all waiters.
+			m.table.Store(newTable)
+			m.resizeMu.Lock()
+			m.resizeState.Store(nil)
+			m.resizeCond.Broadcast()
+			m.resizeMu.Unlock()
+			return
 		}
 	}
-	// Publish the new table and wake up all waiters.
-	m.table.Store(newTable)
-	m.resizeMu.Lock()
-	m.resizing.Store(false)
-	m.resizeCond.Broadcast()
-	m.resizeMu.Unlock()
 }
 
 func copyBucketWithDestLock[K comparable, V any](
 	b *bucketPadded[K, V],
 	destTable *mapTable[K, V],
+	seed maphash.Seed,
 ) (copied int) {
 	rootb := b
 	rootb.mu.Lock()
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if e := b.entries[i].Load(); e != nil {
-				hash := maphash.Comparable(destTable.seed, e.key)
+				hash := maphash.Comparable(seed, e.key)
 				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
 				destb := &destTable.buckets[bidx]
 				destb.mu.Lock()
@@ -705,13 +780,14 @@ func copyBucketWithDestLock[K comparable, V any](
 func copyBucket[K comparable, V any](
 	b *bucketPadded[K, V],
 	destTable *mapTable[K, V],
+	seed maphash.Seed,
 ) (copied int) {
 	rootb := b
 	rootb.mu.Lock()
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
 			if e := b.entries[i].Load(); e != nil {
-				hash := maphash.Comparable(destTable.seed, e.key)
+				hash := maphash.Comparable(seed, e.key)
 				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
 				destb := &destTable.buckets[bidx]
 				appendToBucket(h2(hash), b.entries[i].Load(), destb)
