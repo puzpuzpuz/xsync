@@ -178,4 +178,4 @@ if mu.TryLock() {
 
 ## License
 
-Licensed under MIT.
+Licensed under Apache v2.
