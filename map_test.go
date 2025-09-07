@@ -3,6 +3,7 @@ package xsync_test
 import (
 	"math"
 	"math/rand"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -742,15 +743,8 @@ func TestNewMapGrowOnly_OnlyShrinksOnClear(t *testing.T) {
 	}
 }
 
-func TestMapParallelResize(t *testing.T) {
-	testMapResize(t, NewMap[string, int]())
-}
-
-func TestMapSerialResize(t *testing.T) {
-	testMapResize(t, NewMap[string, int](WithSerialResize()))
-}
-
-func testMapResize(t *testing.T, m *Map[string, int]) {
+func TestMapResize(t *testing.T) {
+	m := NewMap[string, int]()
 	const numEntries = 100_000
 
 	for i := 0; i < numEntries; i++ {
@@ -812,6 +806,147 @@ func TestMapResize_CounterLenLimit(t *testing.T) {
 		t.Fatalf("number of counter stripes was too large: %d, expected: %d",
 			stats.CounterLen, MaxMapCounterLen)
 	}
+}
+
+func testParallelResize(t *testing.T, numGoroutines int) {
+	m := NewMap[int, int]()
+
+	// Fill the map to trigger resizing
+	const initialEntries = 10000
+	const newEntries = 5000
+	for i := 0; i < initialEntries; i++ {
+		m.Store(i, i*2)
+	}
+
+	// Start concurrent operations that should trigger helping behavior
+	var wg sync.WaitGroup
+
+	// Launch goroutines that will encounter resize operations
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			// Perform many operations to trigger resize and helping
+			for i := 0; i < newEntries; i++ {
+				key := goroutineID*newEntries + i + initialEntries
+				m.Store(key, key*2)
+
+				// Verify the value
+				if val, ok := m.Load(key); !ok || val != key*2 {
+					t.Errorf("Failed to load key %d: got %v, %v", key, val, ok)
+					return
+				}
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	// Verify all entries are present
+	finalSize := m.Size()
+	expectedSize := initialEntries + numGoroutines*newEntries
+	if finalSize != expectedSize {
+		t.Errorf("Expected size %d, got %d", expectedSize, finalSize)
+	}
+
+	stats := m.Stats()
+	if stats.TotalGrowths == 0 {
+		t.Error("Expected at least one table growth due to concurrent operations")
+	}
+}
+
+func TestParallelResize(t *testing.T) {
+	testParallelResize(t, 1)
+	testParallelResize(t, runtime.GOMAXPROCS(0))
+	testParallelResize(t, 100)
+}
+
+func testParallelResizeWithSameKeys(t *testing.T, numGoroutines int) {
+	m := NewMap[int, int]()
+
+	// Fill the map to trigger resizing
+	const entries = 1000
+	for i := 0; i < entries; i++ {
+		m.Store(2*i, 2*i)
+	}
+
+	// Start concurrent operations that should trigger helping behavior
+	var wg sync.WaitGroup
+
+	// Launch goroutines that will encounter resize operations
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for i := 0; i < 10*entries; i++ {
+				m.Store(i, i)
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	// Verify all entries are present
+	finalSize := m.Size()
+	expectedSize := 10 * entries
+	if finalSize != expectedSize {
+		t.Errorf("Expected size %d, got %d", expectedSize, finalSize)
+	}
+
+	stats := m.Stats()
+	if stats.TotalGrowths == 0 {
+		t.Error("Expected at least one table growth due to concurrent operations")
+	}
+}
+
+func TestParallelResize_IntersectingKeys(t *testing.T) {
+	testParallelResizeWithSameKeys(t, 1)
+	testParallelResizeWithSameKeys(t, runtime.GOMAXPROCS(0))
+	testParallelResizeWithSameKeys(t, 100)
+}
+
+func testParallelShrinking(t *testing.T, numGoroutines int) {
+	m := NewMap[int, int]()
+
+	// Fill the map to trigger resizing
+	const entries = 100000
+	for i := 0; i < entries; i++ {
+		m.Store(i, i)
+	}
+
+	// Start concurrent operations that should trigger helping behavior
+	var wg sync.WaitGroup
+
+	// Launch goroutines that will encounter resize operations
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for i := 0; i < entries; i++ {
+				m.Delete(i)
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	// Verify all entries are present
+	finalSize := m.Size()
+	if finalSize != 0 {
+		t.Errorf("Expected size 0, got %d", finalSize)
+	}
+
+	stats := m.Stats()
+	if stats.TotalShrinks == 0 {
+		t.Error("Expected at least one table shrinking due to concurrent operations")
+	}
+}
+
+func TestParallelShrinking(t *testing.T) {
+	testParallelShrinking(t, 1)
+	testParallelShrinking(t, runtime.GOMAXPROCS(0))
+	testParallelShrinking(t, 100)
 }
 
 func parallelSeqMapGrower(m *Map[int, int], numEntries int, positive bool, cdone chan bool) {
