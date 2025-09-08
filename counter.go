@@ -62,7 +62,7 @@ func (c *Counter) Add(delta int64) {
 	t, ok := ptokenPool.Get().(*ptoken)
 	if !ok {
 		t = new(ptoken)
-		t.idx = runtime_fastrand()
+		t.idx = runtime_cheaprand()
 	}
 	for {
 		stripe := &c.stripes[t.idx&c.mask]
@@ -71,7 +71,7 @@ func (c *Counter) Add(delta int64) {
 			break
 		}
 		// Give a try with another randomly selected stripe.
-		t.idx = runtime_fastrand()
+		t.idx = runtime_cheaprand()
 	}
 	ptokenPool.Put(t)
 }
