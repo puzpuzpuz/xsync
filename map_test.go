@@ -1160,7 +1160,7 @@ func parallelMapShrinker(t *testing.T, m *Map[uint64, *point], numIters, numEntr
 
 func parallelMapUpdater(t *testing.T, m *Map[uint64, *point], idx int, stopFlag *int64, cdone chan bool) {
 	for atomic.LoadInt64(stopFlag) != 1 {
-		sleepUs := int(Fastrand() % 10)
+		sleepUs := int(Cheaprand() % 10)
 		if p, loaded := m.LoadOrStore(uint64(idx), &point{int32(idx), int32(idx)}); loaded {
 			t.Errorf("value was present for %d: %v", idx, p)
 		}
@@ -1318,8 +1318,8 @@ func benchmarkMapStringKeys(
 		storeThreshold := 10 * readPercentage
 		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
 		for pb.Next() {
-			op := int(Fastrand() % 1000)
-			i := int(Fastrand() % benchmarkNumEntries)
+			op := int(Cheaprand() % 1000)
+			i := int(Cheaprand() % benchmarkNumEntries)
 			if op >= deleteThreshold {
 				deleteFn(benchmarkKeys[i])
 			} else if op >= storeThreshold {
@@ -1431,8 +1431,8 @@ func benchmarkMapIntKeys(
 		storeThreshold := 10 * readPercentage
 		deleteThreshold := 10*readPercentage + ((1000 - 10*readPercentage) / 2)
 		for pb.Next() {
-			op := int(Fastrand() % 1000)
-			i := int(Fastrand() % benchmarkNumEntries)
+			op := int(Cheaprand() % 1000)
+			i := int(Cheaprand() % benchmarkNumEntries)
 			if op >= deleteThreshold {
 				deleteFn(i)
 			} else if op >= storeThreshold {

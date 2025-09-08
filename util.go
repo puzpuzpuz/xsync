@@ -43,8 +43,8 @@ func parallelism() uint32 {
 }
 
 //go:noescape
-//go:linkname runtime_fastrand runtime.fastrand
-func runtime_fastrand() uint32
+//go:linkname runtime_cheaprand runtime.cheaprand
+func runtime_cheaprand() uint32
 
 func broadcast(b uint8) uint64 {
 	return 0x101010101010101 * uint64(b)

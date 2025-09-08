@@ -24,13 +24,13 @@ func TestNextPowOf2(t *testing.T) {
 }
 
 // This test is here to catch potential problems
-// with fastrand-related changes.
-func TestFastrand(t *testing.T) {
+// with cheaprand-related changes.
+func TestCheaprand(t *testing.T) {
 	count := 100
 	set := make(map[uint32]struct{}, count)
 
 	for i := 0; i < count; i++ {
-		num := Fastrand()
+		num := Cheaprand()
 		set[num] = struct{}{}
 	}
 
@@ -268,16 +268,16 @@ func TestSetByte(t *testing.T) {
 	}
 }
 
-func BenchmarkFastrand(b *testing.B) {
+func BenchmarkCheaprand(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_ = Fastrand()
+		_ = Cheaprand()
 	}
-	// about 1.4 ns/op on x86-64
+	// <1.4 ns/op on x86-64
 }
 
 func BenchmarkRand(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = rand.Uint32()
 	}
-	// about 12 ns/op on x86-64
+	// about 5 ns/op on x86-64
 }

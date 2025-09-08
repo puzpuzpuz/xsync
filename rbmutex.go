@@ -103,7 +103,7 @@ func (mu *RBMutex) fastRlock() *RToken {
 		t, ok := rtokenPool.Get().(*RToken)
 		if !ok {
 			t = new(RToken)
-			t.slot = runtime_fastrand()
+			t.slot = runtime_cheaprand()
 		}
 		// Try all available slots to distribute reader threads to slots.
 		for i := 0; i < len(mu.rslots); i++ {
