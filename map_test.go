@@ -1598,7 +1598,7 @@ func BenchmarkMapRange(b *testing.B) {
 }
 
 // Benchmarks noop performance of Compute
-func BenchmarkCompute(b *testing.B) {
+func BenchmarkMapCompute(b *testing.B) {
 	tests := []struct {
 		Name string
 		Op   ComputeOp
@@ -1620,6 +1620,57 @@ func BenchmarkCompute(b *testing.B) {
 				m.Compute(struct{}{}, func(oldValue bool, loaded bool) (newValue bool, op ComputeOp) {
 					return oldValue, test.Op
 				})
+			}
+		})
+	}
+}
+
+func BenchmarkMapParallelRehashing(b *testing.B) {
+	tests := []struct {
+		name       string
+		goroutines int
+		numEntries int
+	}{
+		{"1goroutine_10M", 1, 10_000_000},
+		{"4goroutines_10M", 4, 10_000_000},
+		{"8goroutines_10M", 8, 10_000_000},
+	}
+	for _, test := range tests {
+		b.Run(test.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				m := NewMap[int, int]()
+
+				var wg sync.WaitGroup
+				entriesPerGoroutine := test.numEntries / test.goroutines
+
+				start := time.Now()
+
+				for g := 0; g < test.goroutines; g++ {
+					wg.Add(1)
+					go func(goroutineID int) {
+						defer wg.Done()
+						base := goroutineID * entriesPerGoroutine
+						for j := 0; j < entriesPerGoroutine; j++ {
+							key := base + j
+							m.Store(key, key)
+						}
+					}(g)
+				}
+
+				wg.Wait()
+				duration := time.Since(start)
+
+				b.ReportMetric(float64(test.numEntries)/duration.Seconds(), "entries/s")
+
+				finalSize := m.Size()
+				if finalSize != test.numEntries {
+					b.Fatalf("Expected size %d, got %d", test.numEntries, finalSize)
+				}
+
+				stats := m.Stats()
+				if stats.TotalGrowths == 0 {
+					b.Error("Expected at least one table growth during rehashing")
+				}
 			}
 		})
 	}
