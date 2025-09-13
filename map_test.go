@@ -856,7 +856,7 @@ func testParallelResize(t *testing.T, numGoroutines int) {
 	}
 }
 
-func TestParallelResize(t *testing.T) {
+func TestMapParallelResize(t *testing.T) {
 	testParallelResize(t, 1)
 	testParallelResize(t, runtime.GOMAXPROCS(0))
 	testParallelResize(t, 100)
@@ -900,7 +900,7 @@ func testParallelResizeWithSameKeys(t *testing.T, numGoroutines int) {
 	}
 }
 
-func TestParallelResize_IntersectingKeys(t *testing.T) {
+func TestMapParallelResize_IntersectingKeys(t *testing.T) {
 	testParallelResizeWithSameKeys(t, 1)
 	testParallelResizeWithSameKeys(t, runtime.GOMAXPROCS(0))
 	testParallelResizeWithSameKeys(t, 100)
@@ -943,7 +943,7 @@ func testParallelShrinking(t *testing.T, numGoroutines int) {
 	}
 }
 
-func TestParallelShrinking(t *testing.T) {
+func TestMapParallelShrinking(t *testing.T) {
 	testParallelShrinking(t, 1)
 	testParallelShrinking(t, runtime.GOMAXPROCS(0))
 	testParallelShrinking(t, 100)
