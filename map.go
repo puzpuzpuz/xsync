@@ -201,10 +201,10 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
 	var table *mapTable[K, V]
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
-		table = newMapTable[K, V](defaultMinMapTableLen)
+		table = newMapTable[K, V](defaultMinMapTableLen, maphash.MakeSeed())
 	} else {
 		tableLen := nextPowOf2(uint32((float64(c.sizeHint) / entriesPerMapBucket) / mapLoadFactor))
-		table = newMapTable[K, V](int(tableLen))
+		table = newMapTable[K, V](int(tableLen), maphash.MakeSeed())
 	}
 	m.minTableLen = len(table.buckets)
 	m.growOnly = c.growOnly
@@ -212,7 +212,7 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 	return m
 }
 
-func newMapTable[K comparable, V any](minTableLen int) *mapTable[K, V] {
+func newMapTable[K comparable, V any](minTableLen int, seed maphash.Seed) *mapTable[K, V] {
 	buckets := make([]bucketPadded[K, V], minTableLen)
 	for i := range buckets {
 		buckets[i].meta.Store(defaultMeta)
@@ -227,7 +227,7 @@ func newMapTable[K comparable, V any](minTableLen int) *mapTable[K, V] {
 	t := &mapTable[K, V]{
 		buckets: buckets,
 		size:    counter,
-		seed:    maphash.MakeSeed(),
+		seed:    seed,
 	}
 	return t
 }
@@ -611,14 +611,18 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	switch hint {
 	case mapGrowHint:
 		// Grow the table with factor of 2.
+		// We must keep the same table seed here to keep the same hash codes
+		// allowing us to avoid locking destination buckets when resizing.
 		m.totalGrowths.Add(1)
-		newTable = newMapTable[K, V](tableLen << 1)
+		newTable = newMapTable[K, V](tableLen<<1, table.seed)
 	case mapShrinkHint:
 		shrinkThreshold := int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
 		if tableLen > m.minTableLen && table.sumSize() <= shrinkThreshold {
 			// Shrink the table with factor of 2.
+			// It's fine to generate a new seed since full locking
+			// is required anyway.
 			m.totalShrinks.Add(1)
-			newTable = newMapTable[K, V](tableLen >> 1)
+			newTable = newMapTable[K, V](tableLen>>1, maphash.MakeSeed())
 		} else {
 			// No need to shrink. Wake up all waiters and give up.
 			m.resizeMu.Lock()
@@ -628,7 +632,7 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 			return
 		}
 	case mapClearHint:
-		newTable = newMapTable[K, V](m.minTableLen)
+		newTable = newMapTable[K, V](m.minTableLen, maphash.MakeSeed())
 	default:
 		panic(fmt.Sprintf("unexpected resize hint: %d", hint))
 	}
@@ -713,6 +717,7 @@ func (m *Map[K, V]) transfer(table, newTable *mapTable[K, V]) {
 	}
 }
 
+// TODO: it's fine to use plain stores here
 // doesn't acquire dest bucket lock
 func transferBucketUnsafe[K comparable, V any](
 	b *bucketPadded[K, V],
