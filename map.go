@@ -112,7 +112,7 @@ type Map[K comparable, V any] struct {
 }
 
 type mapTable[K comparable, V any] struct {
-	buckets []bucketPadded[K, V]
+	buckets []bucketPadded
 	// striped counter for number of table entries;
 	// used to determine if a table shrinking is needed
 	// occupies min(buckets_memory/1024, 64KB) of memory
@@ -128,16 +128,16 @@ type counterStripe struct {
 
 // bucketPadded is a CL-sized map bucket holding up to
 // entriesPerMapBucket entries.
-type bucketPadded[K comparable, V any] struct {
+type bucketPadded struct {
 	//lint:ignore U1000 ensure each bucket takes two cache lines on both 32 and 64-bit archs
-	pad [cacheLineSize - unsafe.Sizeof(bucket[K, V]{})]byte
-	bucket[K, V]
+	pad [cacheLineSize - unsafe.Sizeof(bucket{})]byte
+	bucket
 }
 
-type bucket[K comparable, V any] struct {
-	meta    atomic.Uint64
-	entries [entriesPerMapBucket]atomic.Pointer[entry[K, V]] // *entry
-	next    atomic.Pointer[bucketPadded[K, V]]               // *bucketPadded
+type bucket struct {
+	meta    uint64
+	entries [entriesPerMapBucket]unsafe.Pointer // *entry
+	next    unsafe.Pointer                      // *bucketPadded
 	mu      sync.Mutex
 }
 
@@ -213,9 +213,9 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 }
 
 func newMapTable[K comparable, V any](minTableLen int, seed maphash.Seed) *mapTable[K, V] {
-	buckets := make([]bucketPadded[K, V], minTableLen)
+	buckets := make([]bucketPadded, minTableLen)
 	for i := range buckets {
-		buckets[i].meta.Store(defaultMeta)
+		buckets[i].meta = defaultMeta
 	}
 	counterLen := minTableLen >> 10
 	if counterLen < minMapCounterLen {
@@ -258,22 +258,24 @@ func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 	bidx := uint64(len(table.buckets)-1) & h1
 	b := &table.buckets[bidx]
 	for {
-		metaw := b.meta.Load()
+		metaw := atomic.LoadUint64(&b.meta)
 		markedw := markZeroBytes(metaw^h2w) & metaMask
 		for markedw != 0 {
 			idx := firstMarkedByteIndex(markedw)
-			e := b.entries[idx].Load()
-			if e != nil {
+			eptr := atomic.LoadPointer(&b.entries[idx])
+			if eptr != nil {
+				e := (*entry[K, V])(eptr)
 				if e.key == key {
 					return e.value, true
 				}
 			}
 			markedw &= markedw - 1
 		}
-		b = b.next.Load()
-		if b == nil {
+		bptr := atomic.LoadPointer(&b.next)
+		if bptr == nil {
 			return
 		}
+		b = (*bucketPadded)(bptr)
 	}
 }
 
@@ -410,7 +412,7 @@ func (m *Map[K, V]) doCompute(
 	for {
 	compute_attempt:
 		var (
-			emptyb   *bucketPadded[K, V]
+			emptyb   *bucketPadded
 			emptyidx int
 		)
 		table := m.table.Load()
@@ -426,12 +428,13 @@ func (m *Map[K, V]) doCompute(
 			b := rootb
 		load:
 			for {
-				metaw := b.meta.Load()
+				metaw := atomic.LoadUint64(&b.meta)
 				markedw := markZeroBytes(metaw^h2w) & metaMask
 				for markedw != 0 {
 					idx := firstMarkedByteIndex(markedw)
-					e := b.entries[idx].Load()
-					if e != nil {
+					eptr := atomic.LoadPointer(&b.entries[idx])
+					if eptr != nil {
+						e := (*entry[K, V])(eptr)
 						if e.key == key {
 							if loadOp == loadOrComputeOp {
 								return e.value, true
@@ -441,13 +444,14 @@ func (m *Map[K, V]) doCompute(
 					}
 					markedw &= markedw - 1
 				}
-				b = b.next.Load()
-				if b == nil {
+				bptr := atomic.LoadPointer(&b.next)
+				if bptr == nil {
 					if loadOp == loadAndDeleteOp {
 						return *new(V), false
 					}
 					break load
 				}
+				b = (*bucketPadded)(bptr)
 			}
 		}
 
@@ -467,12 +471,13 @@ func (m *Map[K, V]) doCompute(
 		}
 		b := rootb
 		for {
-			metaw := b.meta.Load()
+			metaw := b.meta
 			markedw := markZeroBytes(metaw^h2w) & metaMask
 			for markedw != 0 {
 				idx := firstMarkedByteIndex(markedw)
-				e := b.entries[idx].Load()
-				if e != nil {
+				eptr := b.entries[idx]
+				if eptr != nil {
+					e := (*entry[K, V])(eptr)
 					if e.key == key {
 						// In-place update/delete.
 						// We get a copy of the value via an interface{} on each call,
@@ -486,8 +491,8 @@ func (m *Map[K, V]) doCompute(
 							// Deletion.
 							// First we update the hash, then the entry.
 							newmetaw := setByte(metaw, emptyMetaSlot, idx)
-							b.meta.Store(newmetaw)
-							b.entries[idx].Store(nil)
+							atomic.StoreUint64(&b.meta, newmetaw)
+							atomic.StorePointer(&b.entries[idx], nil)
 							rootb.mu.Unlock()
 							table.addSize(bidx, -1)
 							// Might need to shrink the table if we left bucket empty.
@@ -499,7 +504,7 @@ func (m *Map[K, V]) doCompute(
 							newe := new(entry[K, V])
 							newe.key = key
 							newe.value = newv
-							b.entries[idx].Store(newe)
+							atomic.StorePointer(&b.entries[idx], unsafe.Pointer(newe))
 						case CancelOp:
 							newv = oldv
 						}
@@ -523,7 +528,7 @@ func (m *Map[K, V]) doCompute(
 					emptyidx = idx
 				}
 			}
-			if b.next.Load() == nil {
+			if b.next == nil {
 				if emptyb != nil {
 					// Insertion into an existing bucket.
 					var zeroV V
@@ -537,8 +542,8 @@ func (m *Map[K, V]) doCompute(
 						newe.key = key
 						newe.value = newValue
 						// First we update meta, then the entry.
-						emptyb.meta.Store(setByte(emptyb.meta.Load(), h2, emptyidx))
-						emptyb.entries[emptyidx].Store(newe)
+						atomic.StoreUint64(&emptyb.meta, setByte(emptyb.meta, h2, emptyidx))
+						atomic.StorePointer(&emptyb.entries[emptyidx], unsafe.Pointer(newe))
 						rootb.mu.Unlock()
 						table.addSize(bidx, 1)
 						return newValue, computeOnly
@@ -560,19 +565,19 @@ func (m *Map[K, V]) doCompute(
 					return newValue, false
 				default:
 					// Create and append a bucket.
-					newb := new(bucketPadded[K, V])
-					newb.meta.Store(setByte(defaultMeta, h2, 0))
+					newb := new(bucketPadded)
+					newb.meta = setByte(defaultMeta, h2, 0)
 					newe := new(entry[K, V])
 					newe.key = key
 					newe.value = newValue
-					newb.entries[0].Store(newe)
-					b.next.Store(newb)
+					newb.entries[0] = unsafe.Pointer(newe)
+					atomic.StorePointer(&b.next, unsafe.Pointer(newb))
 					rootb.mu.Unlock()
 					table.addSize(bidx, 1)
 					return newValue, computeOnly
 				}
 			}
-			b = b.next.Load()
+			b = (*bucketPadded)(b.next)
 		}
 	}
 }
@@ -720,54 +725,54 @@ func (m *Map[K, V]) transfer(table, newTable *mapTable[K, V]) {
 // TODO: it's fine to use plain stores here
 // doesn't acquire dest bucket lock
 func transferBucketUnsafe[K comparable, V any](
-	b *bucketPadded[K, V],
+	b *bucketPadded,
 	destTable *mapTable[K, V],
 ) (copied int) {
 	rootb := b
 	rootb.mu.Lock()
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
-			if e := b.entries[i].Load(); e != nil {
+			if eptr := b.entries[i]; eptr != nil {
+				e := (*entry[K, V])(eptr)
 				hash := maphash.Comparable(destTable.seed, e.key)
 				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
 				destb := &destTable.buckets[bidx]
-				appendToBucket(h2(hash), b.entries[i].Load(), destb)
+				appendToBucket(h2(hash), e, destb)
 				copied++
 			}
 		}
-		if next := b.next.Load(); next == nil {
+		if b.next == nil {
 			rootb.mu.Unlock()
 			return
-		} else {
-			b = next
 		}
+		b = (*bucketPadded)(b.next)
 	}
 }
 
 func transferBucket[K comparable, V any](
-	b *bucketPadded[K, V],
+	b *bucketPadded,
 	destTable *mapTable[K, V],
 ) (copied int) {
 	rootb := b
 	rootb.mu.Lock()
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
-			if e := b.entries[i].Load(); e != nil {
+			if eptr := b.entries[i]; eptr != nil {
+				e := (*entry[K, V])(eptr)
 				hash := maphash.Comparable(destTable.seed, e.key)
 				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
 				destb := &destTable.buckets[bidx]
 				destb.mu.Lock()
-				appendToBucket(h2(hash), b.entries[i].Load(), destb)
+				appendToBucket(h2(hash), e, destb)
 				destb.mu.Unlock()
 				copied++
 			}
 		}
-		if next := b.next.Load(); next == nil {
+		if b.next == nil {
 			rootb.mu.Unlock()
 			return
-		} else {
-			b = next
 		}
+		b = (*bucketPadded)(b.next)
 	}
 }
 
@@ -796,16 +801,15 @@ func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 		rootb.mu.Lock()
 		for {
 			for i := 0; i < entriesPerMapBucket; i++ {
-				if entry := b.entries[i].Load(); entry != nil {
-					bentries = append(bentries, entry)
+				if b.entries[i] != nil {
+					bentries = append(bentries, (*entry[K, V])(b.entries[i]))
 				}
 			}
-			if next := b.next.Load(); next == nil {
+			if b.next == nil {
 				rootb.mu.Unlock()
 				break
-			} else {
-				b = next
 			}
+			b = (*bucketPadded)(b.next)
 		}
 		// Call the function for all copied entries.
 		for j, e := range bentries {
@@ -830,24 +834,23 @@ func (m *Map[K, V]) Size() int {
 	return int(m.table.Load().sumSize())
 }
 
-func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadded[K, V]) {
+func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadded) {
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
-			if b.entries[i].Load() == nil {
-				b.meta.Store(setByte(b.meta.Load(), h2, i))
-				b.entries[i].Store(e)
+			if b.entries[i] == nil {
+				b.meta = setByte(b.meta, h2, i)
+				b.entries[i] = unsafe.Pointer(e)
 				return
 			}
 		}
-		if next := b.next.Load(); next == nil {
-			newb := new(bucketPadded[K, V])
-			newb.meta.Store(setByte(defaultMeta, h2, 0))
-			newb.entries[0].Store(e)
-			b.next.Store(newb)
+		if b.next == nil {
+			newb := new(bucketPadded)
+			newb.meta = setByte(defaultMeta, h2, 0)
+			newb.entries[0] = unsafe.Pointer(e)
+			b.next = unsafe.Pointer(newb)
 			return
-		} else {
-			b = next
 		}
+		b = (*bucketPadded)(b.next)
 	}
 }
 
@@ -953,7 +956,7 @@ func (m *Map[K, V]) Stats() MapStats {
 			nentriesLocal := 0
 			stats.Capacity += entriesPerMapBucket
 			for i := 0; i < entriesPerMapBucket; i++ {
-				if b.entries[i].Load() != nil {
+				if atomic.LoadPointer(&b.entries[i]) != nil {
 					stats.Size++
 					nentriesLocal++
 				}
@@ -962,11 +965,10 @@ func (m *Map[K, V]) Stats() MapStats {
 			if nentriesLocal == 0 {
 				stats.EmptyBuckets++
 			}
-			if next := b.next.Load(); next == nil {
+			if b.next == nil {
 				break
-			} else {
-				b = next
 			}
+			b = (*bucketPadded)(atomic.LoadPointer(&b.next))
 			stats.TotalBuckets++
 		}
 		if nentries < stats.MinEntries {

@@ -54,11 +54,11 @@ func runParallel(b *testing.B, benchFn func(pb *testing.PB)) {
 }
 
 func TestMap_BucketStructSize(t *testing.T) {
-	size := unsafe.Sizeof(BucketPadded[string, int64]{})
+	size := unsafe.Sizeof(BucketPadded{})
 	if size != 64 {
 		t.Fatalf("size of 64B (one cache line) is expected, got: %d", size)
 	}
-	size = unsafe.Sizeof(BucketPadded[struct{}, int32]{})
+	size = unsafe.Sizeof(BucketPadded{})
 	if size != 64 {
 		t.Fatalf("size of 64B (one cache line) is expected, got: %d", size)
 	}
