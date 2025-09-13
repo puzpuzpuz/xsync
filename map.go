@@ -722,8 +722,7 @@ func (m *Map[K, V]) transfer(table, newTable *mapTable[K, V]) {
 	}
 }
 
-// TODO: it's fine to use plain stores here
-// doesn't acquire dest bucket lock
+// Doesn't acquire dest bucket lock.
 func transferBucketUnsafe[K comparable, V any](
 	b *bucketPadded,
 	destTable *mapTable[K, V],
@@ -834,6 +833,8 @@ func (m *Map[K, V]) Size() int {
 	return int(m.table.Load().sumSize())
 }
 
+// It is safe to use plain stores here because the destination bucket must be
+// either locked or execlusively written to by the helper during resize.
 func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadded) {
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
