@@ -671,7 +671,7 @@ func (m *Map[K, V]) helpResize(seq int64) {
 		table := m.table.Load()
 		nextTable := m.nextTable.Load()
 		if m.resizeSeq.Load() == seq {
-			if nextTable == nil {
+			if nextTable == nil || nextTable == table {
 				// Carry on until the next table is set by the main
 				// resize goroutine or until the resize finishes.
 				runtime.Gosched()
