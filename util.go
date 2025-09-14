@@ -60,6 +60,7 @@ func markZeroBytes(w uint64) uint64 {
 	return ((w - 0x0101010101010101) & (^w) & 0x8080808080808080)
 }
 
+// Sets byte of the input word at the specified index to the given value.
 func setByte(w uint64, b uint8, idx int) uint64 {
 	shift := idx << 3
 	return (w &^ (0xff << shift)) | (uint64(b) << shift)
