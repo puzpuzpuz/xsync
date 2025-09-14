@@ -675,14 +675,20 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 		m.transfer(table, newTable)
 	}
 
-	// Publish the new table, wait for all resizers and, finally,
-	// wake up all waiters.
+	// We're about to publish the new table, but before that
+	// we must wait for all helpers to finish.
+	for resizeHelpers(m.resizeCtl.Load()) != 0 {
+		runtime.Gosched()
+	}
 	m.table.Store(newTable)
 	m.nextTable.Store(nil)
 	ctl := resizeCtl(seq+1, 0)
 	newCtl := resizeCtl(seq+2, 0)
+	// Increment the sequence number and wake up all waiters.
 	m.resizeMu.Lock()
-	// Swap to the next (even) sequence number only once all helpers are done.
+	// There may be slowpoke helpers who have just incremented
+	// the helper counter. This CAS loop makes sure to wait
+	// for them to back off.
 	for !m.resizeCtl.CompareAndSwap(ctl, newCtl) {
 		runtime.Gosched()
 	}
