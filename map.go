@@ -668,7 +668,7 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	// Copy the data only if we're not clearing the map.
 	if hint != mapClearHint {
 		// Set up cooperative transfer state.
-		// Initialization order matters here
+		// Next table must be published as the last step.
 		m.resizeIdx.Store(0)
 		m.nextTable.Store(newTable)
 		// Copy the buckets.
