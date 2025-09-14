@@ -869,7 +869,7 @@ func (m *Map[K, V]) Size() int {
 }
 
 // It is safe to use plain stores here because the destination bucket must be
-// either locked or execlusively written to by the helper during resize.
+// either locked or exclusively written to by the helper during resize.
 func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadded) {
 	for {
 		for i := 0; i < entriesPerMapBucket; i++ {
