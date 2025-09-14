@@ -36,10 +36,15 @@ const (
 	// minimal number of buckets to transfer when participating in cooperative
 	// resize; should be at least defaultMinMapTableLen
 	minResizeTransferStride = 64
+	// upper limit for max number of additional goroutines that participate
+	// in cooperative resize; must be changed simultaneously with resizeCtl
+	// and the related code
+	maxResizeHelpersLimit = (1 << 5) - 1
 )
 
-// max number of additional goroutines that participate in cooperative resize
-var maxResizeHelpers = max(int32(parallelism()), 1)
+// max number of additional goroutines that participate in cooperative resize;
+// "resize owner" goroutine isn't counted
+var maxResizeHelpers = min(max(int32(parallelism()-1), 1), maxResizeHelpersLimit)
 
 type mapResizeHint int
 
@@ -98,17 +103,23 @@ type MapOf[K comparable, V any] = Map[K, V]
 // and C++'s absl::flat_hash_map (meta memory and SWAR-based
 // lookups).
 type Map[K comparable, V any] struct {
-	totalGrowths  atomic.Int64
-	totalShrinks  atomic.Int64
-	table         atomic.Pointer[mapTable[K, V]]
-	nextTable     atomic.Pointer[mapTable[K, V]] // table being transferred to
-	resizeSeq     atomic.Int64                   // resize sequence; odd values mean in-progress resize
-	resizeMu      sync.Mutex                     // only used along with resizeCond
-	resizeCond    sync.Cond                      // used to wake up resize waiters (concurrent writes)
-	resizeIdx     atomic.Int64                   // transfer progress index for resize
-	resizeHelpers atomic.Int32                   // number of active resize helpers
-	minTableLen   int
-	growOnly      bool
+	totalGrowths atomic.Int64
+	totalShrinks atomic.Int64
+	table        atomic.Pointer[mapTable[K, V]]
+	// table being transferred to
+	nextTable atomic.Pointer[mapTable[K, V]]
+	// resize control state: combines resize sequence number (upper 59 bits) and
+	// the current number of resize helpers (lower 5 bits);
+	// odd values of resize sequence mean in-progress resize
+	resizeCtl atomic.Uint64
+	// only used along with resizeCond
+	resizeMu sync.Mutex
+	// used to wake up resize waiters (concurrent writes)
+	resizeCond sync.Cond
+	// transfer progress index for resize
+	resizeIdx   atomic.Int64
+	minTableLen int
+	growOnly    bool
 }
 
 type mapTable[K comparable, V any] struct {
@@ -458,7 +469,7 @@ func (m *Map[K, V]) doCompute(
 		rootb.mu.Lock()
 		// The following two checks must go in reverse to what's
 		// in the resize method.
-		if seq := m.resizeSeq.Load(); seq&1 == 1 {
+		if seq := resizeSeq(m.resizeCtl.Load()); seq&1 == 1 {
 			// Resize is in progress. Help with the transfer, then go for another attempt.
 			rootb.mu.Unlock()
 			m.helpResize(seq)
@@ -586,9 +597,21 @@ func (m *Map[K, V]) newerTableExists(table *mapTable[K, V]) bool {
 	return table != m.table.Load()
 }
 
+func resizeSeq(ctl uint64) uint64 {
+	return ctl >> 5
+}
+
+func resizeHelpers(ctl uint64) uint64 {
+	return ctl & maxResizeHelpersLimit
+}
+
+func resizeCtl(seq uint64, helpers uint64) uint64 {
+	return (seq << 5) | (helpers & maxResizeHelpersLimit)
+}
+
 func (m *Map[K, V]) waitForResize() {
 	m.resizeMu.Lock()
-	for m.resizeSeq.Load()&1 == 1 {
+	for resizeSeq(m.resizeCtl.Load())&1 == 1 {
 		m.resizeCond.Wait()
 	}
 	m.resizeMu.Unlock()
@@ -605,8 +628,8 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 		}
 	}
 	// Slow path.
-	seq := m.resizeSeq.Load()
-	if seq&1 == 1 || !m.resizeSeq.CompareAndSwap(seq, seq+1) {
+	seq := resizeSeq(m.resizeCtl.Load())
+	if seq&1 == 1 || !m.resizeCtl.CompareAndSwap(resizeCtl(seq, 0), resizeCtl(seq+1, 0)) {
 		m.helpResize(seq)
 		return
 	}
@@ -631,7 +654,7 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 		} else {
 			// No need to shrink. Wake up all waiters and give up.
 			m.resizeMu.Lock()
-			m.resizeSeq.Add(1)
+			m.resizeCtl.Store(resizeCtl(seq+2, 0))
 			m.resizeCond.Broadcast()
 			m.resizeMu.Unlock()
 			return
@@ -647,41 +670,53 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 		// Set up cooperative transfer state.
 		// Initialization order matters here
 		m.resizeIdx.Store(0)
-		m.resizeHelpers.Store(0)
 		m.nextTable.Store(newTable)
 		// Copy the buckets.
 		m.transfer(table, newTable)
-		// Wait until all helpers are done.
-		for m.resizeHelpers.Load() != 0 {
-			runtime.Gosched()
-		}
 	}
 
-	// Publish the new table and wake up all waiters.
+	// Publish the new table, wait for all resizers and, finally,
+	// wake up all waiters.
 	m.table.Store(newTable)
 	m.nextTable.Store(nil)
+	ctl := resizeCtl(seq+1, 0)
+	newCtl := resizeCtl(seq+2, 0)
 	m.resizeMu.Lock()
-	m.resizeSeq.Add(1)
+	// Swap to the next (even) sequence number only once all helpers are done.
+	for !m.resizeCtl.CompareAndSwap(ctl, newCtl) {
+		runtime.Gosched()
+	}
 	m.resizeCond.Broadcast()
 	m.resizeMu.Unlock()
 }
 
-func (m *Map[K, V]) helpResize(seq int64) {
+func (m *Map[K, V]) helpResize(seq uint64) {
 	for {
 		table := m.table.Load()
 		nextTable := m.nextTable.Load()
-		if m.resizeSeq.Load() == seq {
+		if resizeSeq(m.resizeCtl.Load()) == seq {
 			if nextTable == nil || nextTable == table {
 				// Carry on until the next table is set by the main
 				// resize goroutine or until the resize finishes.
 				runtime.Gosched()
 				continue
 			}
-			// The same resize is still in-progress, so register as a helper.
-			if m.resizeHelpers.Add(1) < maxResizeHelpers && m.resizeSeq.Load() == seq {
-				m.transfer(table, nextTable)
+			// The resize is still in-progress, so let's try registering
+			// as a helper.
+			for {
+				ctl := m.resizeCtl.Load()
+				if resizeSeq(ctl) != seq || resizeHelpers(ctl) >= uint64(maxResizeHelpers) {
+					// The resize has ended or there are too many helpers.
+					break
+				}
+				if m.resizeCtl.CompareAndSwap(ctl, ctl+1) {
+					// Yay, we're a resize helper!
+					m.transfer(table, nextTable)
+					// Don't forget to unregister as a helper.
+					m.resizeCtl.Add(^uint64(0))
+					break
+				}
 			}
-			m.resizeHelpers.Add(-1)
 			m.waitForResize()
 		}
 		break
