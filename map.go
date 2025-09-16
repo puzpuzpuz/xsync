@@ -771,7 +771,7 @@ func transferBucketUnsafe[K comparable, V any](
 	rootb := b
 	rootb.mu.Lock()
 	for {
-		for i := 0; i < entriesPerMapBucket; i++ {
+		for i := range entriesPerMapBucket {
 			if eptr := b.entries[i]; eptr != nil {
 				e := (*entry[K, V])(eptr)
 				hash := maphash.Comparable(destTable.seed, e.key)
@@ -796,7 +796,7 @@ func transferBucket[K comparable, V any](
 	rootb := b
 	rootb.mu.Lock()
 	for {
-		for i := 0; i < entriesPerMapBucket; i++ {
+		for i := range entriesPerMapBucket {
 			if eptr := b.entries[i]; eptr != nil {
 				e := (*entry[K, V])(eptr)
 				hash := maphash.Comparable(destTable.seed, e.key)
@@ -840,7 +840,7 @@ func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 		// the intermediate slice.
 		rootb.mu.Lock()
 		for {
-			for i := 0; i < entriesPerMapBucket; i++ {
+			for i := range entriesPerMapBucket {
 				if b.entries[i] != nil {
 					bentries = append(bentries, (*entry[K, V])(b.entries[i]))
 				}
@@ -878,7 +878,7 @@ func (m *Map[K, V]) Size() int {
 // either locked or exclusively written to by the helper during resize.
 func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadded) {
 	for {
-		for i := 0; i < entriesPerMapBucket; i++ {
+		for i := range entriesPerMapBucket {
 			if b.entries[i] == nil {
 				b.meta = setByte(b.meta, h2, i)
 				b.entries[i] = unsafe.Pointer(e)
@@ -997,7 +997,7 @@ func (m *Map[K, V]) Stats() MapStats {
 		for {
 			nentriesLocal := 0
 			stats.Capacity += entriesPerMapBucket
-			for i := 0; i < entriesPerMapBucket; i++ {
+			for i := range entriesPerMapBucket {
 				if atomic.LoadPointer(&b.entries[i]) != nil {
 					stats.Size++
 					nentriesLocal++

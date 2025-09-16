@@ -22,12 +22,12 @@ func TestSPSCQueueOf_InvalidSize(t *testing.T) {
 
 func TestSPSCQueueOfTryEnqueueDequeueInt(t *testing.T) {
 	q := NewSPSCQueue[int](10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if !q.TryEnqueue(i) {
 			t.Fatal("TryEnqueue failed")
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if got, ok := q.TryDequeue(); !ok || got != i {
 			t.Fatalf("%v: got %v, want %d", ok, got, i)
 		}
@@ -36,12 +36,12 @@ func TestSPSCQueueOfTryEnqueueDequeueInt(t *testing.T) {
 
 func TestSPSCQueueOfTryEnqueueDequeueString(t *testing.T) {
 	q := NewSPSCQueue[string](10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if !q.TryEnqueue(strconv.Itoa(i)) {
 			t.Fatal("TryEnqueue failed")
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if got, ok := q.TryDequeue(); !ok || got != strconv.Itoa(i) {
 			t.Fatalf("%v: got %v, want %d", ok, got, i)
 		}
@@ -54,12 +54,12 @@ func TestSPSCQueueOfTryEnqueueDequeueStruct(t *testing.T) {
 		baz int
 	}
 	q := NewSPSCQueue[foo](10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if !q.TryEnqueue(foo{i, i}) {
 			t.Fatal("TryEnqueue failed")
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if got, ok := q.TryDequeue(); !ok || got.bar != i || got.baz != i {
 			t.Fatalf("%v: got %v, want %d", ok, got, i)
 		}
@@ -72,7 +72,7 @@ func TestSPSCQueueOfTryEnqueueDequeueStructRef(t *testing.T) {
 		baz int
 	}
 	q := NewSPSCQueue[*foo](11)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if !q.TryEnqueue(&foo{i, i}) {
 			t.Fatal("TryEnqueue failed")
 		}
@@ -80,7 +80,7 @@ func TestSPSCQueueOfTryEnqueueDequeueStructRef(t *testing.T) {
 	if !q.TryEnqueue(nil) {
 		t.Fatal("TryEnqueue with nil failed")
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if got, ok := q.TryDequeue(); !ok || got.bar != i || got.baz != i {
 			t.Fatalf("%v: got %v, want %d", ok, got, i)
 		}
@@ -92,12 +92,12 @@ func TestSPSCQueueOfTryEnqueueDequeueStructRef(t *testing.T) {
 
 func TestSPSCQueueOfTryEnqueueDequeue(t *testing.T) {
 	q := NewSPSCQueue[int](10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if !q.TryEnqueue(i) {
 			t.Fatalf("failed to enqueue for %d", i)
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if got, ok := q.TryDequeue(); !ok || got != i {
 			t.Fatalf("got %v, want %d, for status %v", got, i, ok)
 		}
@@ -129,7 +129,7 @@ func hammerSPSCQueueOfNonBlockingCalls(t *testing.T, cap, numOps int) {
 	// Start producer.
 	go func() {
 		startwg.Wait()
-		for j := 0; j < numOps; j++ {
+		for j := range numOps {
 			for !q.TryEnqueue(j) {
 				// busy spin until success
 			}
@@ -139,7 +139,7 @@ func hammerSPSCQueueOfNonBlockingCalls(t *testing.T, cap, numOps int) {
 	go func() {
 		startwg.Wait()
 		sum := 0
-		for j := 0; j < numOps; j++ {
+		for range numOps {
 			var (
 				item int
 				ok   bool
@@ -184,8 +184,8 @@ func benchmarkSPSCQueueOfProdCons(b *testing.B, queueSize, localWork int) {
 	go func() {
 		foo := 0
 		for atomic.AddInt32(&N, -1) >= 0 {
-			for g := 0; g < callsPerSched; g++ {
-				for i := 0; i < localWork; i++ {
+			for range callsPerSched {
+				for range localWork {
 					foo *= 2
 					foo /= 2
 				}
@@ -206,7 +206,7 @@ func benchmarkSPSCQueueOfProdCons(b *testing.B, queueSize, localWork int) {
 				if v == 0 {
 					break
 				}
-				for i := 0; i < localWork; i++ {
+				for range localWork {
 					foo *= 2
 					foo /= 2
 				}
@@ -238,8 +238,8 @@ func benchmarkSPSCChan(b *testing.B, chanSize, localWork int) {
 	go func() {
 		foo := 0
 		for atomic.AddInt32(&N, -1) >= 0 {
-			for g := 0; g < callsPerSched; g++ {
-				for i := 0; i < localWork; i++ {
+			for range callsPerSched {
+				for range localWork {
 					foo *= 2
 					foo /= 2
 				}
@@ -257,7 +257,7 @@ func benchmarkSPSCChan(b *testing.B, chanSize, localWork int) {
 			if v == 0 {
 				break
 			}
-			for i := 0; i < localWork; i++ {
+			for range localWork {
 				foo *= 2
 				foo /= 2
 			}

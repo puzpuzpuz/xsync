@@ -11,10 +11,10 @@ import (
 
 func TestUMPSCQueueEnqueueDequeueInt(t *testing.T) {
 	q := NewUMPSCQueue[int]()
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		q.Enqueue(i)
 	}
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		if got := q.Dequeue(); got != i {
 			t.Fatalf("got %v, want %d", got, i)
 		}
@@ -23,10 +23,10 @@ func TestUMPSCQueueEnqueueDequeueInt(t *testing.T) {
 
 func TestUMPSCQueueEnqueueDequeueString(t *testing.T) {
 	q := NewUMPSCQueue[string]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		q.Enqueue(strconv.Itoa(i))
 	}
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if got := q.Dequeue(); got != strconv.Itoa(i) {
 			t.Fatalf("got %v, want %d", got, i)
 		}
@@ -39,10 +39,10 @@ func TestUMPSCQueueEnqueueDequeueStruct(t *testing.T) {
 		baz int
 	}
 	q := NewUMPSCQueue[foo]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		q.Enqueue(foo{i, i})
 	}
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if got := q.Dequeue(); got.bar != i || got.baz != i {
 			t.Fatalf("got %v, want %d", got, i)
 		}
@@ -55,11 +55,11 @@ func TestUMPSCQueueEnqueueDequeueStructRef(t *testing.T) {
 		baz int
 	}
 	q := NewUMPSCQueue[*foo]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		q.Enqueue(&foo{i, i})
 	}
 	q.Enqueue(nil)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if got := q.Dequeue(); got.bar != i || got.baz != i {
 			t.Fatalf("got %v, want %d", got, i)
 		}
@@ -108,7 +108,7 @@ func hammerUMPSCQueueBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads 
 	startwg.Add(1)
 	csum := make(chan int, 1)
 	// Start producers.
-	for i := 0; i < numThreads; i++ {
+	for i := range numThreads {
 		go func(n int) {
 			startwg.Wait()
 			for j := n; j < numOps; j += numThreads {
@@ -120,7 +120,7 @@ func hammerUMPSCQueueBlockingCalls(t *testing.T, gomaxprocs, numOps, numThreads 
 	go func() {
 		startwg.Wait()
 		sum := 0
-		for i := 0; i < numOps; i++ {
+		for range numOps {
 			item := q.Dequeue()
 			sum += item
 		}
@@ -161,7 +161,7 @@ func BenchmarkChanVsUMPSCQueue(b *testing.B) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			for range b.N {
+			for b.Loop() {
 				q.Dequeue()
 			}
 		}()
