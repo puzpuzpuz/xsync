@@ -10,7 +10,7 @@ import (
 
 func TestCounterInc(t *testing.T) {
 	c := NewCounter()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if v := c.Value(); v != int64(i) {
 			t.Fatalf("got %v, want %d", v, i)
 		}
@@ -20,7 +20,7 @@ func TestCounterInc(t *testing.T) {
 
 func TestCounterDec(t *testing.T) {
 	c := NewCounter()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if v := c.Value(); v != int64(-i) {
 			t.Fatalf("got %v, want %d", v, -i)
 		}
@@ -30,7 +30,7 @@ func TestCounterDec(t *testing.T) {
 
 func TestCounterAdd(t *testing.T) {
 	c := NewCounter()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if v := c.Value(); v != int64(i*42) {
 			t.Fatalf("got %v, want %d", v, i*42)
 		}
@@ -51,7 +51,7 @@ func TestCounterReset(t *testing.T) {
 }
 
 func parallelIncrementor(c *Counter, numIncs int, cdone chan bool) {
-	for i := 0; i < numIncs; i++ {
+	for range numIncs {
 		c.Inc()
 	}
 	cdone <- true
@@ -62,11 +62,11 @@ func doTestParallelIncrementors(t *testing.T, numModifiers, gomaxprocs int) {
 	c := NewCounter()
 	cdone := make(chan bool)
 	numIncs := 10_000
-	for i := 0; i < numModifiers; i++ {
+	for range numModifiers {
 		go parallelIncrementor(c, numIncs, cdone)
 	}
 	// Wait for the goroutines to finish.
-	for i := 0; i < numModifiers; i++ {
+	for range numModifiers {
 		<-cdone
 	}
 	expected := int64(numModifiers * numIncs)

@@ -17,12 +17,12 @@ import (
 func TestRBMutexSerialReader(t *testing.T) {
 	const numCalls = 10
 	mu := NewRBMutex()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		var rtokens [numCalls]*RToken
-		for j := 0; j < numCalls; j++ {
+		for j := range numCalls {
 			rtokens[j] = mu.RLock()
 		}
-		for j := 0; j < numCalls; j++ {
+		for j := range numCalls {
 			mu.RUnlock(rtokens[j])
 		}
 	}
@@ -31,9 +31,9 @@ func TestRBMutexSerialReader(t *testing.T) {
 func TestRBMutexSerialOptimisticReader(t *testing.T) {
 	const numCalls = 10
 	mu := NewRBMutex()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		var rtokens [numCalls]*RToken
-		for j := 0; j < numCalls; j++ {
+		for j := range numCalls {
 			ok, rt := mu.TryRLock()
 			if !ok {
 				t.Fatalf("TryRLock failed for %d", j)
@@ -43,7 +43,7 @@ func TestRBMutexSerialOptimisticReader(t *testing.T) {
 			}
 			rtokens[j] = rt
 		}
-		for j := 0; j < numCalls; j++ {
+		for j := range numCalls {
 			mu.RUnlock(rtokens[j])
 		}
 	}
@@ -51,7 +51,7 @@ func TestRBMutexSerialOptimisticReader(t *testing.T) {
 
 func TestRBMutexSerialOptimisticWriter(t *testing.T) {
 	mu := NewRBMutex()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if !mu.TryLock() {
 			t.Fatal("TryLock failed")
 		}
@@ -73,18 +73,18 @@ func doTestParallelReaders(numReaders, gomaxprocs int) {
 	clocked := make(chan bool)
 	cunlock := make(chan bool)
 	cdone := make(chan bool)
-	for i := 0; i < numReaders; i++ {
+	for range numReaders {
 		go parallelReader(mu, clocked, cunlock, cdone)
 	}
 	// Wait for all parallel RLock()s to succeed.
-	for i := 0; i < numReaders; i++ {
+	for range numReaders {
 		<-clocked
 	}
-	for i := 0; i < numReaders; i++ {
+	for range numReaders {
 		cunlock <- true
 	}
 	// Wait for the goroutines to finish.
-	for i := 0; i < numReaders; i++ {
+	for range numReaders {
 		<-cdone
 	}
 }
@@ -97,14 +97,14 @@ func TestRBMutexParallelReaders(t *testing.T) {
 }
 
 func reader(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
-	for i := 0; i < numIterations; i++ {
+	for range numIterations {
 		t := mu.RLock()
 		n := atomic.AddInt32(activity, 1)
 		if n < 1 || n >= 10000 {
 			mu.RUnlock(t)
 			panic(fmt.Sprintf("rlock(%d)\n", n))
 		}
-		for i := 0; i < 100; i++ {
+		for range 100 {
 		}
 		atomic.AddInt32(activity, -1)
 		mu.RUnlock(t)
@@ -113,14 +113,14 @@ func reader(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
 }
 
 func writer(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
-	for i := 0; i < numIterations; i++ {
+	for range numIterations {
 		mu.Lock()
 		n := atomic.AddInt32(activity, 10000)
 		if n != 10000 {
 			mu.Unlock()
 			panic(fmt.Sprintf("wlock(%d)\n", n))
 		}
-		for i := 0; i < 100; i++ {
+		for range 100 {
 		}
 		atomic.AddInt32(activity, -10000)
 		mu.Unlock()
@@ -165,14 +165,14 @@ func TestRBMutex(t *testing.T) {
 }
 
 func optimisticReader(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
-	for i := 0; i < numIterations; i++ {
+	for range numIterations {
 		if ok, t := mu.TryRLock(); ok {
 			n := atomic.AddInt32(activity, 1)
 			if n < 1 || n >= 10000 {
 				mu.RUnlock(t)
 				panic(fmt.Sprintf("rlock(%d)\n", n))
 			}
-			for i := 0; i < 100; i++ {
+			for range 100 {
 			}
 			atomic.AddInt32(activity, -1)
 			mu.RUnlock(t)
@@ -182,14 +182,14 @@ func optimisticReader(mu *RBMutex, numIterations int, activity *int32, cdone cha
 }
 
 func optimisticWriter(mu *RBMutex, numIterations int, activity *int32, cdone chan bool) {
-	for i := 0; i < numIterations; i++ {
+	for range numIterations {
 		if mu.TryLock() {
 			n := atomic.AddInt32(activity, 10000)
 			if n != 10000 {
 				mu.Unlock()
 				panic(fmt.Sprintf("wlock(%d)\n", n))
 			}
-			for i := 0; i < 100; i++ {
+			for range 100 {
 			}
 			atomic.AddInt32(activity, -10000)
 			mu.Unlock()
