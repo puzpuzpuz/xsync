@@ -181,6 +181,71 @@ func TestMapLoadAndStore_NonNilValue(t *testing.T) {
 	}
 }
 
+func TestMapAll(t *testing.T) {
+	m := NewMap[string, int]()
+	for i := range 1000 {
+		m.Store(strconv.Itoa(i), i)
+	}
+
+	iters := 0
+	met := make(map[string]int)
+	for key, value := range m.All() {
+		if key != strconv.Itoa(value) {
+			t.Fatalf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
+			break
+		}
+		met[key] += 1
+		iters++
+	}
+
+	if iters != 1000 {
+		t.Fatalf("got unexpected number of iterations: %d", iters)
+	}
+	for i := range 1000 {
+		if c := met[strconv.Itoa(i)]; c != 1 {
+			t.Fatalf("range did not iterate correctly over %d: %d", i, c)
+		}
+	}
+}
+
+func TestMapAll_Break(t *testing.T) {
+	m := NewMap[string, int]()
+	for i := range 100 {
+		m.Store(strconv.Itoa(i), i)
+	}
+
+	iters := 0
+	for range m.All() {
+		iters++
+
+		if iters == 50 {
+			break
+		}
+	}
+
+	if iters != 50 {
+		t.Fatalf("got unexpected number of iterations: %d", iters)
+	}
+}
+
+func TestMapAll_NestedDelete(t *testing.T) {
+	const numEntries = 256
+	m := NewMap[string, int]()
+	for i := range numEntries {
+		m.Store(strconv.Itoa(i), i)
+	}
+
+	for key := range m.All() {
+		m.Delete(key)
+	}
+
+	for i := range numEntries {
+		if _, ok := m.Load(strconv.Itoa(i)); ok {
+			t.Fatalf("value found for %d", i)
+		}
+	}
+}
+
 func TestMapRange(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap[string, int]()
