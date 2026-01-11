@@ -733,11 +733,13 @@ func (m *Map[K, V]) transfer(table, newTable *mapTable[K, V]) {
 	tableLen := len(table.buckets)
 	newTableLen := len(newTable.buckets)
 	// Determines the concurrent task range for destination buckets.
-	// We iterate based on the "Destination Constraint" to allow lock-free
-	// writes:
-	// - Grow (Pow2):   baseLen == tableLen. Source i moves to Dest i, i+baseLen...
-	// - Shrink (Pow2): baseLen == newTableLen. Source i, i+baseLen... move to Dest i.
-	// By iterating 0..baseLen and processing all aliasing source buckets
+	// We iterate based on these properties to avoid locking destination
+	// buckets:
+	// - Grow (Pow2):   baseLen == tableLen
+	//   Entries from source bucket i move to dest buckets i and i+baseLen
+	// - Shrink (Pow2): baseLen == newTableLen
+	//   Entries from source buckets i and i+baseLen move to dest bucket i
+	// By iterating 0..baseLen and processing all possible source buckets
 	// (srcIdx += baseLen) in the inner loop, a single goroutine exclusively
 	// owns the write operations for its assigned destination buckets.
 	baseLen := min(tableLen, newTableLen)
@@ -754,7 +756,7 @@ func (m *Map[K, V]) transfer(table, newTable *mapTable[K, V]) {
 		total := 0
 		for i := start; i < end; i++ {
 			// Visit all source buckets that map to this destination bucket.
-			// In Grow, runs once. In Shrink, runs twice (usually).
+			// When growing, runs once. When shrinking, runs twice.
 			for srcIdx := i; srcIdx < tableLen; srcIdx += baseLen {
 				total += transferBucketUnsafe(&table.buckets[srcIdx], newTable)
 			}
@@ -872,7 +874,7 @@ func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadd
 }
 
 func (table *mapTable[K, V]) addSize(bucketIdx uint64, delta int) {
-	cidx := uint64(len(table.size)-1) & bucketIdx
+	cidx := bucketIdx & uint64(len(table.size)-1)
 	atomic.AddInt64(&table.size[cidx].c, int64(delta))
 }
 
