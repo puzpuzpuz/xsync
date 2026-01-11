@@ -647,10 +647,10 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 		shrinkThreshold := int64((tableLen * entriesPerMapBucket) / mapShrinkFraction)
 		if tableLen > m.minTableLen && table.sumSize() <= shrinkThreshold {
 			// Shrink the table with factor of 2.
-			// It's fine to generate a new seed since full locking
-			// is required anyway.
+			// Analogous to growth, we must preserve the seed to ensure stable
+			// hash mapping, enabling lock-free writes to destination buckets.
 			m.totalShrinks.Add(1)
-			newTable = newMapTable[K, V](tableLen>>1, maphash.MakeSeed())
+			newTable = newMapTable[K, V](tableLen>>1, table.seed)
 		} else {
 			// No need to shrink. Wake up all waiters and give up.
 			m.resizeMu.Lock()
@@ -732,29 +732,31 @@ func (m *Map[K, V]) helpResize(seq uint64) {
 func (m *Map[K, V]) transfer(table, newTable *mapTable[K, V]) {
 	tableLen := len(table.buckets)
 	newTableLen := len(newTable.buckets)
-	stride := max((tableLen>>3)/int(maxResizeHelpers), minResizeTransferStride)
+	// Determines the concurrent task range for destination buckets.
+	// We iterate based on the "Destination Constraint" to allow lock-free
+	// writes:
+	// - Grow (Pow2):   baseLen == tableLen. Source i moves to Dest i, i+baseLen...
+	// - Shrink (Pow2): baseLen == newTableLen. Source i, i+baseLen... move to Dest i.
+	// By iterating 0..baseLen and processing all aliasing source buckets
+	// (srcIdx += baseLen) in the inner loop, a single goroutine exclusively
+	// owns the write operations for its assigned destination buckets.
+	baseLen := min(tableLen, newTableLen)
+	stride := max((baseLen>>3)/int(maxResizeHelpers), minResizeTransferStride)
 	for {
 		// Claim work by incrementing resizeIdx.
 		nextIdx := m.resizeIdx.Add(int64(stride))
 		start := max(0, int(nextIdx)-stride)
-		if start > tableLen {
+		if start >= baseLen {
 			break
 		}
-		end := min(int(nextIdx), tableLen)
+		end := min(int(nextIdx), baseLen)
 		// Transfer buckets in this range.
 		total := 0
-		if newTableLen > tableLen {
-			// We're growing the table with 2x multiplier, so entries from a N bucket can
-			// only be transferred to N and 2*N buckets in the new table. Thus, destination
-			// buckets written by the resize helpers don't intersect, so we don't need to
-			// acquire locks in the destination buckets.
-			for i := start; i < end; i++ {
-				total += transferBucketUnsafe(&table.buckets[i], newTable)
-			}
-		} else {
-			// We're shrinking the table, so all locks must be acquired.
-			for i := start; i < end; i++ {
-				total += transferBucket(&table.buckets[i], newTable)
+		for i := start; i < end; i++ {
+			// Visit all source buckets that map to this destination bucket.
+			// In Grow, runs once. In Shrink, runs twice (usually).
+			for srcIdx := i; srcIdx < tableLen; srcIdx += baseLen {
+				total += transferBucketUnsafe(&table.buckets[srcIdx], newTable)
 			}
 		}
 		// The exact counter stripe doesn't matter here, so pick up the one
@@ -778,33 +780,6 @@ func transferBucketUnsafe[K comparable, V any](
 				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
 				destb := &destTable.buckets[bidx]
 				appendToBucket(h2(hash), e, destb)
-				copied++
-			}
-		}
-		if b.next == nil {
-			rootb.mu.Unlock()
-			return
-		}
-		b = (*bucketPadded)(b.next)
-	}
-}
-
-func transferBucket[K comparable, V any](
-	b *bucketPadded,
-	destTable *mapTable[K, V],
-) (copied int) {
-	rootb := b
-	rootb.mu.Lock()
-	for {
-		for i := range entriesPerMapBucket {
-			if eptr := b.entries[i]; eptr != nil {
-				e := (*entry[K, V])(eptr)
-				hash := maphash.Comparable(destTable.seed, e.key)
-				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
-				destb := &destTable.buckets[bidx]
-				destb.mu.Lock()
-				appendToBucket(h2(hash), e, destb)
-				destb.mu.Unlock()
 				copied++
 			}
 		}
