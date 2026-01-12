@@ -60,7 +60,7 @@ CLHT is built around the idea of organizing the hash table in cache-line-sized b
 
 Apart from CLHT, `Map` borrows ideas from Java's `j.u.c.ConcurrentHashMap` (immutable K/V pair structs instead of atomic snapshots) and C++'s `absl::flat_hash_map` (meta memory and SWAR-based lookups).
 
-Besides the `Range` method available for map iteration, there is also `ToPlainMap` utility function to convert a `Map` to a built-in Go's `map`:
+Besides the `Range` and `All` methods available for map iteration, there is also `ToPlainMap` utility function to convert a `Map` to a built-in Go's `map`:
 ```go
 m := xsync.NewMap[int, int]()
 m.Store(42, 42)

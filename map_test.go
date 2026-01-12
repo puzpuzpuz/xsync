@@ -183,6 +183,10 @@ func TestMapLoadAndStore_NonNilValue(t *testing.T) {
 
 func TestMapAll(t *testing.T) {
 	m := NewMap[string, int]()
+	for range m.All() {
+		t.Fatal("got an iteration on empty map")
+	}
+
 	for i := range 1000 {
 		m.Store(strconv.Itoa(i), i)
 	}
