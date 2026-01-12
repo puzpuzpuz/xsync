@@ -3,6 +3,7 @@ package xsync
 import (
 	"fmt"
 	"hash/maphash"
+	"iter"
 	"math"
 	"runtime"
 	"strings"
@@ -790,6 +791,15 @@ func transferBucketUnsafe[K comparable, V any](
 			return
 		}
 		b = (*bucketPadded)(b.next)
+	}
+}
+
+// All is similar to [Range], but returns an [iter.Seq2], so is compatible with
+// Go 1.23+ iterators. All of the same caveats and behaviour from [Range] apply
+// to All.
+func (m *Map[K, V]) All() iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		m.Range(yield)
 	}
 }
 
