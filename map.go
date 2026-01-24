@@ -30,7 +30,7 @@ const (
 	// minimum counter stripes to use
 	minMapCounterLen = 8
 	// maximum counter stripes to use; stands for around 4KB of memory
-	maxMapCounterLen = 32
+	maxMapCounterLen   = 32
 	metaMask           = 0xffffffffff
 	occupiedMeta       = 0x8080808080808080
 	occupiedMetaMasked = occupiedMeta & metaMask
@@ -1104,8 +1104,10 @@ func (m *Map[K, V]) RangeRelaxed(f func(key K, value V) bool) {
 
 // AllRelaxed is similar to [RangeRelaxed], but returns an [iter.Seq2],
 // so is compatible with Go 1.23+ iterators. All of the same caveats
-// and behaviour from [RangeRelaxed] apply to AllRelaxed. For stronger
-// consistency guarantees, see [All].
+// and behaviour from [RangeRelaxed] apply to AllRelaxed.
+//
+// For stronger consistency guarantees where each key is visited at
+// most once, see [All].
 func (m *Map[K, V]) AllRelaxed() iter.Seq2[K, V] {
 	return m.RangeRelaxed
 }
