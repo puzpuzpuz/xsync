@@ -5,6 +5,7 @@ import (
 	"hash/maphash"
 	"iter"
 	"math"
+	"math/bits"
 	"runtime"
 	"strings"
 	"sync"
@@ -79,6 +80,16 @@ const (
 	loadAndDeleteOp
 )
 
+type hashKind int
+
+const (
+	hashKindComparable hashKind = iota
+	hashKindInt
+	hashKindInt64
+	hashKindUint64
+	hashKindUintptr
+)
+
 // Deprecated: use [Map]
 type MapOf[K comparable, V any] = Map[K, V]
 
@@ -121,6 +132,7 @@ type Map[K comparable, V any] struct {
 	resizeIdx   atomic.Int64
 	minTableLen int
 	growOnly    bool
+	hashKind    hashKind
 }
 
 type mapTable[K comparable, V any] struct {
@@ -130,6 +142,8 @@ type mapTable[K comparable, V any] struct {
 	// occupies min(buckets_memory/1024, 64KB) of memory
 	size []counterStripe
 	seed maphash.Seed
+	// intSeed is derived from seed for fast integer hashing
+	intSeed uint64
 }
 
 type counterStripe struct {
@@ -211,6 +225,7 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 
 	m := &Map[K, V]{}
 	m.resizeCond = *sync.NewCond(&m.resizeMu)
+	m.hashKind = detectHashKind[K]()
 	var table *mapTable[K, V]
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
 		table = newMapTable[K, V](defaultMinMapTableLen, maphash.MakeSeed())
@@ -222,6 +237,47 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 	m.growOnly = c.growOnly
 	m.table.Store(table)
 	return m
+}
+
+// detectHashKind returns the appropriate hash kind for the key type.
+func detectHashKind[K comparable]() hashKind {
+	var zero K
+	switch any(zero).(type) {
+	case int:
+		return hashKindInt
+	case int64:
+		return hashKindInt64
+	case uint64:
+		return hashKindUint64
+	case uintptr:
+		return hashKindUintptr
+	default:
+		return hashKindComparable
+	}
+}
+
+// hashUint64 computes a hash for integer keys using a 128-bit
+// multiply-xorshift mixer (wyhash-style). The constant is xxHash's
+// PRIME64_1 which provides excellent avalanche. This is significantly
+// faster than maphash.Comparable for integer types.
+func hashUint64(seed, v uint64) uint64 {
+	hi, lo := bits.Mul64(v^seed, 0x9E3779B185EBCA87)
+	return hi ^ lo
+}
+
+func hashKey[K comparable](k K, hashKind hashKind, seed maphash.Seed, intSeed uint64) uint64 {
+	switch hashKind {
+	case hashKindInt:
+		return hashUint64(intSeed, uint64(any(k).(int)))
+	case hashKindInt64:
+		return hashUint64(intSeed, uint64(any(k).(int64)))
+	case hashKindUint64:
+		return hashUint64(intSeed, any(k).(uint64))
+	case hashKindUintptr:
+		return hashUint64(intSeed, uint64(any(k).(uintptr)))
+	default:
+		return maphash.Comparable(seed, k)
+	}
 }
 
 func newMapTable[K comparable, V any](minTableLen int, seed maphash.Seed) *mapTable[K, V] {
@@ -236,10 +292,16 @@ func newMapTable[K comparable, V any](minTableLen int, seed maphash.Seed) *mapTa
 		counterLen = maxMapCounterLen
 	}
 	counter := make([]counterStripe, counterLen)
+	// Derive intSeed from maphash.Seed for fast integer hashing
+	var h maphash.Hash
+	h.SetSeed(seed)
+	h.WriteByte(0)
+	intSeed := h.Sum64()
 	t := &mapTable[K, V]{
 		buckets: buckets,
 		size:    counter,
 		seed:    seed,
+		intSeed: intSeed,
 	}
 	return t
 }
@@ -264,17 +326,41 @@ func ToPlainMap[K comparable, V any](m *Map[K, V]) map[K]V {
 // The ok result indicates whether value was found in the map.
 func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 	table := m.table.Load()
-	hash := maphash.Comparable(table.seed, key)
+	// This is hot path, hence hand-inlined hashKey().
+	var hash uint64
+	switch m.hashKind {
+	case hashKindInt:
+		hash = hashUint64(table.intSeed, uint64(any(key).(int)))
+	case hashKindInt64:
+		hash = hashUint64(table.intSeed, uint64(any(key).(int64)))
+	case hashKindUint64:
+		hash = hashUint64(table.intSeed, any(key).(uint64))
+	case hashKindUintptr:
+		hash = hashUint64(table.intSeed, uint64(any(key).(uintptr)))
+	default:
+		hash = maphash.Comparable(table.seed, key)
+	}
 	h1 := h1(hash)
 	h2w := broadcast(h2(hash))
 	bidx := uint64(len(table.buckets)-1) & h1
-	b := &table.buckets[bidx]
+	// Same as: b := &table.buckets[bidx]
+	// Inline bounds check elimination via unsafe pointer arithmetic.
+	// Safety: bidx is always < len(table.buckets) since it's masked with (len-1).
+	b := (*bucketPadded)(unsafe.Add(unsafe.Pointer(&table.buckets[0]),
+		uintptr(bidx)*unsafe.Sizeof(bucketPadded{})))
 	for {
 		metaw := atomic.LoadUint64(&b.meta)
 		markedw := markZeroBytes(metaw^h2w) & metaMask
 		for markedw != 0 {
 			idx := firstMarkedByteIndex(markedw)
-			eptr := atomic.LoadPointer(&b.entries[idx])
+			// Same as: eptr := atomic.LoadPointer(&b.entries[idx])
+			// Inline bounds check elimination via unsafe pointer arithmetic.
+			// Safety: idx is always < entriesPerMapBucket (5) since it comes from
+			// firstMarkedByteIndex which returns index of a marked byte in the
+			// 5-byte metadata mask (metaMask).
+			eptr := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Add(
+				unsafe.Pointer(&b.entries[0]),
+				uintptr(idx)*unsafe.Sizeof(b.entries[0]))))
 			if eptr != nil {
 				e := (*entry[K, V])(eptr)
 				if e.key == key {
@@ -293,14 +379,116 @@ func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 
 // Store sets the value for a key.
 func (m *Map[K, V]) Store(key K, value V) {
-	m.doCompute(
-		key,
-		func(V, bool) (V, ComputeOp) {
-			return value, UpdateOp
-		},
-		noLoadOp,
-		false,
-	)
+	// Store is a popular operation, hence instead of using doCompute,
+	// it uses a simplified and slightly faster version of it.
+	for {
+	store_attempt:
+		var (
+			emptyb   *bucketPadded
+			emptyidx int
+		)
+		table := m.table.Load()
+		tableLen := len(table.buckets)
+		// This is hot path, hence hand-inlined hashKey().
+		var hash uint64
+		switch m.hashKind {
+		case hashKindInt:
+			hash = hashUint64(table.intSeed, uint64(any(key).(int)))
+		case hashKindInt64:
+			hash = hashUint64(table.intSeed, uint64(any(key).(int64)))
+		case hashKindUint64:
+			hash = hashUint64(table.intSeed, any(key).(uint64))
+		case hashKindUintptr:
+			hash = hashUint64(table.intSeed, uint64(any(key).(uintptr)))
+		default:
+			hash = maphash.Comparable(table.seed, key)
+		}
+		h1 := h1(hash)
+		h2 := h2(hash)
+		h2w := broadcast(h2)
+		bidx := uint64(len(table.buckets)-1) & h1
+		rootb := &table.buckets[bidx]
+
+		rootb.mu.Lock()
+		// The following two checks must go in reverse to what's
+		// in the resize method.
+		if seq := resizeSeq(m.resizeCtl.Load()); seq&1 == 1 {
+			// Resize is in progress. Help with the transfer, then go for another attempt.
+			rootb.mu.Unlock()
+			m.helpResize(seq)
+			goto store_attempt
+		}
+		if m.newerTableExists(table) {
+			// Someone resized the table. Go for another attempt.
+			rootb.mu.Unlock()
+			goto store_attempt
+		}
+		b := rootb
+		for {
+			metaw := b.meta
+			markedw := markZeroBytes(metaw^h2w) & metaMask
+			for markedw != 0 {
+				idx := firstMarkedByteIndex(markedw)
+				eptr := b.entries[idx]
+				if eptr != nil {
+					e := (*entry[K, V])(eptr)
+					if e.key == key {
+						// In-place update.
+						newe := new(entry[K, V])
+						newe.key = key
+						newe.value = value
+						atomic.StorePointer(&b.entries[idx], unsafe.Pointer(newe))
+						rootb.mu.Unlock()
+						return
+					}
+				}
+				markedw &= markedw - 1
+			}
+			if emptyb == nil {
+				// Search for empty entries (up to 5 per bucket).
+				emptyw := metaw & defaultMetaMasked
+				if emptyw != 0 {
+					idx := firstMarkedByteIndex(emptyw)
+					emptyb = b
+					emptyidx = idx
+				}
+			}
+			if b.next == nil {
+				if emptyb != nil {
+					// Insertion into an existing bucket.
+					newe := new(entry[K, V])
+					newe.key = key
+					newe.value = value
+					// First we update meta, then the entry.
+					atomic.StoreUint64(&emptyb.meta, setByte(emptyb.meta, h2, emptyidx))
+					atomic.StorePointer(&emptyb.entries[emptyidx], unsafe.Pointer(newe))
+					rootb.mu.Unlock()
+					table.addSize(bidx, 1)
+					return
+				}
+				growThreshold := float64(tableLen) * entriesPerMapBucket * mapLoadFactor
+				if table.sumSize() > int64(growThreshold) {
+					// Need to grow the table. Then go for another attempt.
+					rootb.mu.Unlock()
+					m.resize(table, mapGrowHint)
+					goto store_attempt
+				}
+				// Insertion into a new bucket.
+				// Create and append a bucket.
+				newb := new(bucketPadded)
+				newb.meta = setByte(defaultMeta, h2, 0)
+				newe := new(entry[K, V])
+				newe.key = key
+				newe.value = value
+				newb.entries[0] = unsafe.Pointer(newe)
+				atomic.StorePointer(&b.next, unsafe.Pointer(newb))
+				rootb.mu.Unlock()
+				table.addSize(bidx, 1)
+				return
+			}
+			b = (*bucketPadded)(b.next)
+		}
+	}
 }
 
 // LoadOrStore returns the existing value for the key if present.
@@ -429,7 +617,20 @@ func (m *Map[K, V]) doCompute(
 		)
 		table := m.table.Load()
 		tableLen := len(table.buckets)
-		hash := maphash.Comparable(table.seed, key)
+		// This is hot path, hence hand-inlined hashKey().
+		var hash uint64
+		switch m.hashKind {
+		case hashKindInt:
+			hash = hashUint64(table.intSeed, uint64(any(key).(int)))
+		case hashKindInt64:
+			hash = hashUint64(table.intSeed, uint64(any(key).(int64)))
+		case hashKindUint64:
+			hash = hashUint64(table.intSeed, any(key).(uint64))
+		case hashKindUintptr:
+			hash = hashUint64(table.intSeed, uint64(any(key).(uintptr)))
+		default:
+			hash = maphash.Comparable(table.seed, key)
+		}
 		h1 := h1(hash)
 		h2 := h2(hash)
 		h2w := broadcast(h2)
@@ -759,7 +960,7 @@ func (m *Map[K, V]) transfer(table, newTable *mapTable[K, V]) {
 			// Visit all source buckets that map to this destination bucket.
 			// When growing, runs once. When shrinking, runs twice.
 			for srcIdx := i; srcIdx < tableLen; srcIdx += baseLen {
-				total += transferBucketUnsafe(&table.buckets[srcIdx], newTable)
+				total += transferBucketUnsafe(&table.buckets[srcIdx], newTable, m.hashKind)
 			}
 		}
 		// The exact counter stripe doesn't matter here, so pick up the one
@@ -772,6 +973,7 @@ func (m *Map[K, V]) transfer(table, newTable *mapTable[K, V]) {
 func transferBucketUnsafe[K comparable, V any](
 	b *bucketPadded,
 	destTable *mapTable[K, V],
+	hashKind hashKind,
 ) (copied int) {
 	rootb := b
 	rootb.mu.Lock()
@@ -779,7 +981,7 @@ func transferBucketUnsafe[K comparable, V any](
 		for i := range entriesPerMapBucket {
 			if eptr := b.entries[i]; eptr != nil {
 				e := (*entry[K, V])(eptr)
-				hash := maphash.Comparable(destTable.seed, e.key)
+				hash := hashKey(e.key, hashKind, destTable.seed, destTable.intSeed)
 				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
 				destb := &destTable.buckets[bidx]
 				appendToBucket(h2(hash), e, destb)
