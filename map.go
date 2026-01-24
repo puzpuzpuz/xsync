@@ -771,7 +771,7 @@ func (m *Map[K, V]) doCompute(
 				switch op {
 				case DeleteOp, CancelOp:
 					rootb.mu.Unlock()
-					return newValue, false
+					return zeroV, false
 				default:
 					// Create and append a bucket.
 					newb := new(bucketPadded)

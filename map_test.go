@@ -1042,6 +1042,47 @@ func TestMapOfCompute(t *testing.T) {
 	}
 }
 
+func TestMapCompute_CancelOpOnOverflowBucket(t *testing.T) {
+	// This test covers the CancelOp path when inserting into a new overflow bucket.
+	// We need to fill buckets completely so that a new key requires creating
+	// an overflow bucket, then return CancelOp to abort the insertion.
+	const numAttempts = 1000
+	const sentinel = 999
+
+	for attempt := range numAttempts {
+		m := NewMap[int, int]()
+		// Fill the map to create conditions where some bucket chains are full.
+		// Insert entries - some will hash to the same bucket creating overflow.
+		numEntries := 100 + (attempt % 100) // Vary the fill level
+		for i := range numEntries {
+			m.Store(i, i)
+		}
+
+		// Try Compute with CancelOp for new keys.
+		baseKey := 10000 + attempt*1000
+		for i := range 50 {
+			key := baseKey + i
+			v, ok := m.Compute(key, func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+				if loaded {
+					t.Fatal("key should not exist")
+				}
+				return sentinel, CancelOp
+			})
+			if ok {
+				t.Fatalf("ok should be false when CancelOp is returned for new key")
+			}
+			// Both code paths should return zero value for CancelOp
+			if v != 0 {
+				t.Fatalf("expected zero value for CancelOp, got: %d", v)
+			}
+			// Verify the key was not inserted
+			if _, exists := m.Load(key); exists {
+				t.Fatalf("key %d should not exist after CancelOp", key)
+			}
+		}
+	}
+}
+
 func TestMapStringStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap[string, int]()
