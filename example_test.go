@@ -89,3 +89,43 @@ func ExampleMap_DeleteMatching() {
 	// deleted: 2
 	// size: 2
 }
+
+func ExampleMap_Range() {
+	m := xsync.NewMap[string, int]()
+	m.Store("alice", 10)
+	m.Store("bob", 20)
+	m.Store("carol", 30)
+
+	// Range iterates over all entries in the map.
+	// It acquires bucket locks to ensure each key is visited at most once.
+	sum := 0
+	m.Range(func(key string, value int) bool {
+		sum += value
+		return true // continue iteration
+	})
+	fmt.Printf("sum: %d\n", sum)
+
+	// Output:
+	// sum: 60
+}
+
+func ExampleMap_RangeRelaxed() {
+	m := xsync.NewMap[string, int]()
+	m.Store("alice", 10)
+	m.Store("bob", 20)
+	m.Store("carol", 30)
+
+	// RangeRelaxed is a faster, lock-free alternative to Range.
+	// It does not acquire locks. However, the same key may be
+	// visited more than once if it is concurrently deleted and
+	// re-inserted during the iteration.
+	sum := 0
+	m.RangeRelaxed(func(key string, value int) bool {
+		sum += value
+		return true // continue iteration
+	})
+	fmt.Printf("sum: %d\n", sum)
+
+	// Output:
+	// sum: 60
+}
