@@ -30,11 +30,10 @@ const (
 	// minimum counter stripes to use
 	minMapCounterLen = 8
 	// maximum counter stripes to use; stands for around 4KB of memory
-	maxMapCounterLen         = 32
-	defaultMeta       uint64 = 0x8080808080808080
-	metaMask          uint64 = 0xffffffffff
-	defaultMetaMasked uint64 = defaultMeta & metaMask
-	emptyMetaSlot     uint8  = 0x80
+	maxMapCounterLen = 32
+	metaMask           = 0xffffffffff
+	occupiedMeta       = 0x8080808080808080
+	occupiedMetaMasked = occupiedMeta & metaMask
 	// minimal number of buckets to transfer when participating in cooperative
 	// resize; should be at least defaultMinMapTableLen
 	minResizeTransferStride = 64
@@ -282,9 +281,6 @@ func hashKey[K comparable](k K, hashKind hashKind, seed maphash.Seed, intSeed ui
 
 func newMapTable[K comparable, V any](minTableLen int, seed maphash.Seed) *mapTable[K, V] {
 	buckets := make([]bucketPadded, minTableLen)
-	for i := range buckets {
-		buckets[i].meta = defaultMeta
-	}
 	counterLen := minTableLen >> 10
 	if counterLen < minMapCounterLen {
 		counterLen = minMapCounterLen
@@ -446,7 +442,7 @@ func (m *Map[K, V]) Store(key K, value V) {
 			}
 			if emptyb == nil {
 				// Search for empty entries (up to 5 per bucket).
-				emptyw := metaw & defaultMetaMasked
+				emptyw := ^metaw & occupiedMetaMasked
 				if emptyw != 0 {
 					idx := firstMarkedByteIndex(emptyw)
 					emptyb = b
@@ -476,7 +472,7 @@ func (m *Map[K, V]) Store(key K, value V) {
 				// Insertion into a new bucket.
 				// Create and append a bucket.
 				newb := new(bucketPadded)
-				newb.meta = setByte(defaultMeta, h2, 0)
+				newb.meta = setByte(0, h2, 0)
 				newe := new(entry[K, V])
 				newe.key = key
 				newe.value = value
@@ -703,13 +699,13 @@ func (m *Map[K, V]) doCompute(
 						case DeleteOp:
 							// Deletion.
 							// First we update the hash, then the entry.
-							newmetaw := setByte(metaw, emptyMetaSlot, idx)
+							newmetaw := setByte(metaw, 0, idx)
 							atomic.StoreUint64(&b.meta, newmetaw)
 							atomic.StorePointer(&b.entries[idx], nil)
 							rootb.mu.Unlock()
 							table.addSize(bidx, -1)
 							// Might need to shrink the table if we left bucket empty.
-							if newmetaw == defaultMeta {
+							if newmetaw == 0 {
 								m.resize(table, mapShrinkHint)
 							}
 							return oldv, !computeOnly
@@ -734,7 +730,7 @@ func (m *Map[K, V]) doCompute(
 			}
 			if emptyb == nil {
 				// Search for empty entries (up to 5 per bucket).
-				emptyw := metaw & defaultMetaMasked
+				emptyw := ^metaw & occupiedMetaMasked
 				if emptyw != 0 {
 					idx := firstMarkedByteIndex(emptyw)
 					emptyb = b
@@ -779,7 +775,7 @@ func (m *Map[K, V]) doCompute(
 				default:
 					// Create and append a bucket.
 					newb := new(bucketPadded)
-					newb.meta = setByte(defaultMeta, h2, 0)
+					newb.meta = setByte(0, h2, 0)
 					newe := new(entry[K, V])
 					newe.key = key
 					newe.value = newValue
@@ -1085,16 +1081,17 @@ func (m *Map[K, V]) RangeRelaxed(f func(key K, value V) bool) {
 		b := &table.buckets[i]
 		for {
 			metaw := atomic.LoadUint64(&b.meta)
-			for i := range entriesPerMapBucket {
-				if uint8(metaw>>(i*8)) != emptyMetaSlot {
-					eptr := atomic.LoadPointer(&b.entries[i])
-					if eptr != nil {
-						e := (*entry[K, V])(eptr)
-						if !f(e.key, e.value) {
-							return
-						}
+			markedw := metaw & occupiedMeta
+			for markedw != 0 {
+				idx := firstMarkedByteIndex(markedw)
+				eptr := atomic.LoadPointer(&b.entries[idx])
+				if eptr != nil {
+					e := (*entry[K, V])(eptr)
+					if !f(e.key, e.value) {
+						return
 					}
 				}
+				markedw &= markedw - 1
 			}
 			bptr := atomic.LoadPointer(&b.next)
 			if bptr == nil {
@@ -1165,11 +1162,11 @@ delete_loop_attempt:
 					if del {
 						// Deletion.
 						// First we update the meta, then the entry.
-						newmetaw := setByte(b.meta, emptyMetaSlot, i)
+						newmetaw := setByte(b.meta, 0, i)
 						atomic.StoreUint64(&b.meta, newmetaw)
 						atomic.StorePointer(&b.entries[i], nil)
 						bucketDeleted++
-						if newmetaw == defaultMeta {
+						if newmetaw == 0 {
 							anyBucketEmptied = true
 						}
 					}
@@ -1226,7 +1223,7 @@ func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadd
 		}
 		if b.next == nil {
 			newb := new(bucketPadded)
-			newb.meta = setByte(defaultMeta, h2, 0)
+			newb.meta = setByte(0, h2, 0)
 			newb.entries[0] = unsafe.Pointer(e)
 			b.next = unsafe.Pointer(newb)
 			return
@@ -1253,7 +1250,7 @@ func h1(h uint64) uint64 {
 }
 
 func h2(h uint64) uint8 {
-	return uint8(h & 0x7f)
+	return 0x80 | uint8(h&0x7f)
 }
 
 // MapStats is Map statistics.
