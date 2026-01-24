@@ -256,10 +256,12 @@ func detectHashKind[K comparable]() hashKind {
 	}
 }
 
-// hashUint64 computes a hash for integer keys using wyhash-style mixing.
-// This is significantly faster than maphash.Comparable for integer types.
+// hashUint64 computes a hash for integer keys using a 128-bit
+// multiply-xorshift mixer (wyhash-style). The constant is xxHash's
+// PRIME64_1 which provides excellent avalanche. This is significantly
+// faster than maphash.Comparable for integer types.
 func hashUint64(seed, v uint64) uint64 {
-	hi, lo := bits.Mul64(v^seed, 0x9E3779B97F4A7C15)
+	hi, lo := bits.Mul64(v^seed, 0x9E3779B185EBCA87)
 	return hi ^ lo
 }
 
