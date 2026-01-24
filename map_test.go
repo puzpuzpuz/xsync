@@ -637,6 +637,67 @@ func TestMapParallelDeleteMatching(t *testing.T) {
 	testParallelDeleteMatching(t, 100)
 }
 
+func TestMapDeleteMatching_ConcurrentResize(t *testing.T) {
+	// This test attempts to cover the resize paths in DeleteMatching:
+	// 1. Resize in progress during DeleteMatching iteration
+	// 2. Table changed (resize completed) during DeleteMatching iteration
+	const numIterations = 1000
+	const numEntries = 100
+
+	for iter := range numIterations {
+		// Start with minimal size to maximize resize frequency
+		m := NewMap[int, int]()
+		// Pre-fill just enough to have entries
+		for i := range numEntries {
+			m.Store(i, i)
+		}
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+
+		// Goroutines that trigger resize by adding many new entries
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				for i := numEntries; i < numEntries*10; i++ {
+					m.Store(i, i)
+				}
+			}()
+		}
+
+		// Goroutines that call DeleteMatching repeatedly during resize
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				for range 10 {
+					m.DeleteMatching(func(key int, value int) (del, stop bool) {
+						return key%5 == 0, false
+					})
+				}
+			}()
+		}
+
+		// Start all goroutines simultaneously
+		close(start)
+		wg.Wait()
+
+		// Verify map consistency
+		size := m.Size()
+		rangeCount := 0
+		m.Range(func(key int, value int) bool {
+			rangeCount++
+			return true
+		})
+		if size != rangeCount {
+			t.Errorf("iteration %d: size %d != range count %d", iter, size, rangeCount)
+		}
+	}
+}
+
 func TestMapStringStore(t *testing.T) {
 	const numEntries = 128
 	m := NewMap[string, int]()
@@ -828,6 +889,52 @@ func TestMapLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 		}
 		return true
 	})
+}
+
+func TestMapLoadOrCompute_ExistingKey(t *testing.T) {
+	m := NewMap[string, int]()
+	m.Store("key", 42)
+	v, loaded := m.LoadOrCompute("key", func() (int, bool) {
+		t.Fatal("value func should not be called for existing key")
+		return 100, false
+	})
+	if !loaded {
+		t.Fatal("expected loaded to be true")
+	}
+	if v != 42 {
+		t.Fatalf("expected value 42, got %d", v)
+	}
+}
+
+func TestMapLoadOrCompute_ConcurrentExistingKey(t *testing.T) {
+	// This test attempts to cover the race condition where:
+	// 1. LoadOrCompute's fast path doesn't find the key
+	// 2. Another goroutine inserts the key
+	// 3. LoadOrCompute acquires the lock and finds the key
+	const numIters = 10000
+	for range numIters {
+		m := NewMap[int, int]()
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			m.Store(1, 42)
+		}()
+		go func() {
+			defer wg.Done()
+			m.LoadOrCompute(1, func() (int, bool) {
+				return 100, false
+			})
+		}()
+		wg.Wait()
+		v, ok := m.Load(1)
+		if !ok {
+			t.Fatal("key should exist")
+		}
+		if v != 42 && v != 100 {
+			t.Fatalf("unexpected value: %d", v)
+		}
+	}
 }
 
 func TestMapOfCompute(t *testing.T) {
@@ -1224,6 +1331,25 @@ func TestNewMapWithPresize(t *testing.T) {
 	assertMapCapacity(t, NewMap[string, string](WithPresize(500)), 1280)
 	assertMapCapacity(t, NewMap[int, int](WithPresize(1_000_000)), 2621440)
 	assertMapCapacity(t, NewMap[point, point](WithPresize(100)), 160)
+}
+
+func TestDeprecatedNewMapOf(t *testing.T) {
+	m := NewMapOf[string, int]()
+	m.Store("foo", 42)
+	v, ok := m.Load("foo")
+	if !ok || v != 42 {
+		t.Fatal("NewMapOf should work like NewMap")
+	}
+}
+
+func TestDeprecatedWithSerialResize(t *testing.T) {
+	// WithSerialResize is a no-op, just verify it doesn't panic
+	m := NewMap[string, int](WithSerialResize())
+	m.Store("foo", 42)
+	v, ok := m.Load("foo")
+	if !ok || v != 42 {
+		t.Fatal("WithSerialResize should be a no-op")
+	}
 }
 
 func TestNewMapWithPresize_DoesNotShrinkBelowMinTableLen(t *testing.T) {
