@@ -309,6 +309,179 @@ func TestMapRange_NestedDelete(t *testing.T) {
 	}
 }
 
+func TestMapDeleteMatching(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[string, int]()
+	for i := range numEntries {
+		m.Store(strconv.Itoa(i), i)
+	}
+	// Delete even values.
+	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+		return value%2 == 0, false
+	})
+	if deleted != numEntries/2 {
+		t.Fatalf("expected %d deleted, got %d", numEntries/2, deleted)
+	}
+	if m.Size() != numEntries/2 {
+		t.Fatalf("expected size %d, got %d", numEntries/2, m.Size())
+	}
+	// Verify only odd values remain.
+	for i := range numEntries {
+		_, ok := m.Load(strconv.Itoa(i))
+		if i%2 == 0 && ok {
+			t.Fatalf("even value %d should have been deleted", i)
+		}
+		if i%2 != 0 && !ok {
+			t.Fatalf("odd value %d should not have been deleted", i)
+		}
+	}
+}
+
+func TestMapDeleteMatching_Cancel(t *testing.T) {
+	const numEntries = 100
+	m := NewMap[string, int]()
+	for i := range numEntries {
+		m.Store(strconv.Itoa(i), i)
+	}
+	// Delete entries and cancel after 10 deletions.
+	callCount := 0
+	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+		callCount++
+		if callCount == 10 {
+			return true, true // delete this one and cancel
+		}
+		return true, false
+	})
+	if deleted != 10 {
+		t.Fatalf("expected 10 deleted, got %d", deleted)
+	}
+	if callCount != 10 {
+		t.Fatalf("expected f to be called 10 times, got %d", callCount)
+	}
+	if m.Size() != numEntries-10 {
+		t.Fatalf("expected size %d, got %d", numEntries-10, m.Size())
+	}
+}
+
+func TestMapDeleteMatching_EmptyMap(t *testing.T) {
+	m := NewMap[string, int]()
+	callCount := 0
+	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+		callCount++
+		return false, false
+	})
+	if deleted != 0 {
+		t.Fatalf("expected 0 deleted on empty map, got %d", deleted)
+	}
+	if callCount != 0 {
+		t.Fatalf("expected f to be called 0 times, got %d", callCount)
+	}
+}
+
+func TestMapDeleteMatching_NoDeletions(t *testing.T) {
+	const numEntries = 100
+	m := NewMap[string, int]()
+	for i := range numEntries {
+		m.Store(strconv.Itoa(i), i)
+	}
+	callCount := 0
+	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+		callCount++
+		return false, false // never delete
+	})
+	if deleted != 0 {
+		t.Fatalf("expected 0 deleted, got %d", deleted)
+	}
+	if callCount != numEntries {
+		t.Fatalf("expected f to be called %d times, got %d", numEntries, callCount)
+	}
+	if m.Size() != numEntries {
+		t.Fatalf("expected size %d, got %d", numEntries, m.Size())
+	}
+}
+
+func TestMapDeleteMatching_AllDeleted(t *testing.T) {
+	const numEntries = 256
+	m := NewMap[string, int]()
+	for i := range numEntries {
+		m.Store(strconv.Itoa(i), i)
+	}
+	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+		return true, false // delete all
+	})
+	if deleted != numEntries {
+		t.Fatalf("expected %d deleted, got %d", numEntries, deleted)
+	}
+	if m.Size() != 0 {
+		t.Fatalf("expected size 0, got %d", m.Size())
+	}
+}
+
+func testParallelDeleteMatching(t *testing.T, numGoroutines int) {
+	const numEntries = 10000
+	const numIterations = 50
+
+	m := NewMap[int, int]()
+	for i := range numEntries {
+		m.Store(i, i)
+	}
+
+	var wg sync.WaitGroup
+	var totalDeleted atomic.Int64
+
+	// Launch goroutines that delete even numbers.
+	for range numGoroutines / 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range numIterations {
+				deleted := m.DeleteMatching(func(key int, value int) (del, cancel bool) {
+					return key%2 == 0, false
+				})
+				totalDeleted.Add(int64(deleted))
+			}
+		}()
+	}
+
+	// Launch goroutines that re-add entries.
+	for range numGoroutines / 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range numIterations {
+				for i := range numEntries {
+					m.Store(i, i)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify map is in consistent state.
+	size := m.Size()
+	rangeCount := 0
+	m.Range(func(key int, value int) bool {
+		if key != value {
+			t.Errorf("key %d != value %d", key, value)
+		}
+		rangeCount++
+		return true
+	})
+	if size != rangeCount {
+		t.Errorf("size %d != range count %d", size, rangeCount)
+	}
+	if totalDeleted.Load() == 0 {
+		t.Error("expected some deletions to occur")
+	}
+}
+
+func TestMapParallelDeleteMatching(t *testing.T) {
+	testParallelDeleteMatching(t, 2)
+	testParallelDeleteMatching(t, runtime.GOMAXPROCS(0))
+	testParallelDeleteMatching(t, 100)
+}
+
 func TestMapStringStore(t *testing.T) {
 	const numEntries = 128
 	m := NewMap[string, int]()
@@ -1881,6 +2054,73 @@ func BenchmarkMapParallelRehashing(b *testing.B) {
 				if stats.TotalGrowths == 0 {
 					b.Error("Expected at least one table growth during rehashing")
 				}
+			}
+		})
+	}
+}
+
+func BenchmarkMapDeleteMatching(b *testing.B) {
+	tests := []struct {
+		name          string
+		numEntries    int
+		deletePercent int
+	}{
+		{"entries=1000_delete=10%", 1000, 10},
+		{"entries=1000_delete=50%", 1000, 50},
+		{"entries=1000_delete=100%", 1000, 100},
+		{"entries=100000_delete=10%", 100000, 10},
+		{"entries=100000_delete=50%", 100000, 50},
+		{"entries=100000_delete=100%", 100000, 100},
+		{"entries=1000000_delete=10%", 1000000, 10},
+		{"entries=1000000_delete=50%", 1000000, 50},
+		{"entries=1000000_delete=100%", 1000000, 100},
+	}
+	for _, test := range tests {
+		b.Run(test.name, func(b *testing.B) {
+			for b.Loop() {
+				m := NewMap[int, int](WithPresize(test.numEntries))
+				for i := range test.numEntries {
+					m.Store(i, i)
+				}
+				threshold := test.numEntries * test.deletePercent / 100
+				m.DeleteMatching(func(key int, value int) (del, cancel bool) {
+					return key < threshold, false
+				})
+			}
+		})
+	}
+}
+
+func BenchmarkMapRangeDelete(b *testing.B) {
+	tests := []struct {
+		name          string
+		numEntries    int
+		deletePercent int
+	}{
+		{"entries=1000_delete=10%", 1000, 10},
+		{"entries=1000_delete=50%", 1000, 50},
+		{"entries=1000_delete=100%", 1000, 100},
+		{"entries=100000_delete=10%", 100000, 10},
+		{"entries=100000_delete=50%", 100000, 50},
+		{"entries=100000_delete=100%", 100000, 100},
+		{"entries=1000000_delete=10%", 1000000, 10},
+		{"entries=1000000_delete=50%", 1000000, 50},
+		{"entries=1000000_delete=100%", 1000000, 100},
+	}
+	for _, test := range tests {
+		b.Run(test.name, func(b *testing.B) {
+			for b.Loop() {
+				m := NewMap[int, int](WithPresize(test.numEntries))
+				for i := range test.numEntries {
+					m.Store(i, i)
+				}
+				threshold := test.numEntries * test.deletePercent / 100
+				m.Range(func(key int, value int) bool {
+					if key < threshold {
+						m.Delete(key)
+					}
+					return true
+				})
 			}
 		})
 	}
