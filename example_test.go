@@ -70,3 +70,22 @@ func ExampleMapOf_Compute() {
 	})
 	fmt.Printf("err: %v\n", err)
 }
+
+func ExampleMap_DeleteMatching() {
+	m := xsync.NewMap[string, int]()
+	m.Store("alice", 10)
+	m.Store("bob", 20)
+	m.Store("carol", 30)
+	m.Store("dave", 40)
+
+	// Delete entries with value greater than 25.
+	deleted := m.DeleteMatching(func(key string, value int) (delete, stop bool) {
+		return value > 25, false
+	})
+	fmt.Printf("deleted: %d\n", deleted)
+	fmt.Printf("size: %d\n", m.Size())
+
+	// Output:
+	// deleted: 2
+	// size: 2
+}

@@ -60,24 +60,24 @@ s := m.Size()
 
 CLHT is built around the idea of organizing the hash table in cache-line-sized buckets, so that on all modern CPUs update operations complete with minimal cache-line transfer. Also, `Get` operations are obstruction-free and involve no writes to shared memory, hence no mutexes or any other sort of locks. Due to this design, in all considered scenarios `Map` outperforms `sync.Map`. `Map` also uses cooperative parallel rehashing: this means that the goroutines executing write operations may participate in a concurrent rehashing instead of waiting for it to finish.
 
-Apart from CLHT, `Map` borrows ideas from Java's `j.u.c.ConcurrentHashMap` (immutable K/V pair structs instead of atomic snapshots) and C++'s `absl::flat_hash_map` (meta memory and SWAR-based lookups).
+Apart from CLHT, `Map` borrows ideas from Java's `j.u.c.ConcurrentHashMap` (immutable K/V pair structs instead of atomic snapshots) and C++'s `absl::flat_hash_map` a.k.a. SwissTable (meta memory and SWAR-based lookups).
+
+`Map` uses the built-in Golang's hash function which has DDOS protection. It uses `maphash.Comparable` as the default hash function. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation.
 
 Besides the `Range` and `All` methods available for map iteration, there is also `ToPlainMap` utility function to convert a `Map` to a built-in Go's `map`:
+
 ```go
 m := xsync.NewMap[int, int]()
 m.Store(42, 42)
 pm := xsync.ToPlainMap(m)
 ```
 
-`Map` uses the built-in Golang's hash function which has DDOS protection. It uses `maphash.Comparable` as the default hash function. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation.
+For bulk conditional deletions, `DeleteMatching` can be used. This method is handy in caching use cases when it's necessary to delete stale entries:
 
-By default, `Map` spawns additional goroutines to speed up resizing the hash table. This can be disabled by creating a `Map` with the `WithSerialResize` setting.
 ```go
-m := xsync.NewMap[int, int](xsync.WithSerialResize())
-// resize will take place on the current goroutine only
-for i := 0; i < 10000; i++ {
-	m.Store(i, i)
-}
+m.DeleteMatching(func(key int, value int) (delete, stop bool) {
+	return key%2 == 0, false // delete even keys
+})
 ```
 
 ### UMPSCQueue

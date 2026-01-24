@@ -1051,6 +1051,96 @@ func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 	}
 }
 
+// DeleteMatching deletes all entries for which the delete return
+// value of f is true. If the stop return value is true, the
+// iteration stops immediately. The function returns the number
+// of deleted entries.
+//
+// DeleteMatching does not necessarily correspond to any consistent
+// snapshot of the Map's contents: if the value for any key is stored
+// or deleted concurrently (including by a concurrent DeleteMatching
+// call), DeleteMatching may reflect any mapping for that key from
+// any point during the call. In particular, if the map is resized
+// during the call (for example, due to concurrent modifications),
+// the iteration restarts internally with the new table, which may
+// result in calling f with the same key more than once.
+//
+// This call locks a hash table bucket for the duration of
+// evaluating f for all entries in the bucket and performing
+// deletions. It means that modifications on other entries in
+// the bucket will be blocked until f executes. Consider this when
+// the function includes long-running operations.
+func (m *Map[K, V]) DeleteMatching(f func(key K, value V) (delete, stop bool)) int {
+	var totalDeleted int
+	var anyBucketEmptied bool
+delete_loop_attempt:
+	table := m.table.Load()
+	for bidx := range table.buckets {
+		rootb := &table.buckets[bidx]
+		rootb.mu.Lock()
+		// The following two checks must go in reverse to what's
+		// in the resize method.
+		if seq := resizeSeq(m.resizeCtl.Load()); seq&1 == 1 {
+			// Resize is in progress. Help with the transfer, then go for another attempt.
+			rootb.mu.Unlock()
+			m.helpResize(seq)
+			goto delete_loop_attempt
+		}
+		if m.newerTableExists(table) {
+			// Someone resized the table. Go for another attempt.
+			rootb.mu.Unlock()
+			goto delete_loop_attempt
+		}
+
+		var bucketDeleted int
+		b := rootb
+		for {
+			for i := range entriesPerMapBucket {
+				eptr := b.entries[i]
+				if eptr != nil {
+					e := (*entry[K, V])(eptr)
+					del, stop := f(e.key, e.value)
+					if del {
+						// Deletion.
+						// First we update the meta, then the entry.
+						newmetaw := setByte(b.meta, emptyMetaSlot, i)
+						atomic.StoreUint64(&b.meta, newmetaw)
+						atomic.StorePointer(&b.entries[i], nil)
+						bucketDeleted++
+						if newmetaw == defaultMeta {
+							anyBucketEmptied = true
+						}
+					}
+					if stop {
+						rootb.mu.Unlock()
+						totalDeleted += bucketDeleted
+						if bucketDeleted > 0 {
+							table.addSize(uint64(bidx), -bucketDeleted)
+						}
+						if anyBucketEmptied {
+							m.resize(table, mapShrinkHint)
+						}
+						return totalDeleted
+					}
+				}
+			}
+			if b.next == nil {
+				break
+			}
+			b = (*bucketPadded)(b.next)
+		}
+		rootb.mu.Unlock()
+		if bucketDeleted > 0 {
+			totalDeleted += bucketDeleted
+			table.addSize(uint64(bidx), -bucketDeleted)
+		}
+	}
+	if anyBucketEmptied {
+		m.resize(table, mapShrinkHint)
+	}
+	return totalDeleted
+}
+
 // Clear deletes all keys and values currently stored in the map.
 func (m *Map[K, V]) Clear() {
 	m.resize(m.table.Load(), mapClearHint)
