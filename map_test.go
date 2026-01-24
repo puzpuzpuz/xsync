@@ -284,6 +284,9 @@ func TestMapRange_FalseReturned(t *testing.T) {
 	}
 	iters := 0
 	m.Range(func(key string, value int) bool {
+		if key != strconv.Itoa(value) {
+			t.Fatalf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
+		}
 		iters++
 		return iters != 13
 	})
@@ -299,12 +302,105 @@ func TestMapRange_NestedDelete(t *testing.T) {
 		m.Store(strconv.Itoa(i), i)
 	}
 	m.Range(func(key string, value int) bool {
+		if key != strconv.Itoa(value) {
+			t.Fatalf("got unexpected key/value: %v/%v", key, value)
+		}
 		m.Delete(key)
 		return true
 	})
 	for i := range numEntries {
 		if _, ok := m.Load(strconv.Itoa(i)); ok {
 			t.Fatalf("value found for %d", i)
+		}
+	}
+}
+
+func TestMapRangeRelaxed(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[string, int]()
+	for i := range numEntries {
+		m.Store(strconv.Itoa(i), i)
+	}
+	iters := 0
+	met := make(map[string]int)
+	m.RangeRelaxed(func(key string, value int) bool {
+		if key != strconv.Itoa(value) {
+			t.Fatalf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
+			return false
+		}
+		met[key] += 1
+		iters++
+		return true
+	})
+	if iters != numEntries {
+		t.Fatalf("got unexpected number of iterations: %d", iters)
+	}
+	for i := range numEntries {
+		if c := met[strconv.Itoa(i)]; c != 1 {
+			t.Fatalf("range did not iterate correctly over %d: %d", i, c)
+		}
+	}
+}
+
+func TestMapRangeRelaxed_FalseReturned(t *testing.T) {
+	m := NewMap[string, int]()
+	for i := range 100 {
+		m.Store(strconv.Itoa(i), i)
+	}
+	iters := 0
+	m.RangeRelaxed(func(key string, value int) bool {
+		if key != strconv.Itoa(value) {
+			t.Fatalf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
+		}
+		iters++
+		return iters != 13
+	})
+	if iters != 13 {
+		t.Fatalf("got unexpected number of iterations: %d", iters)
+	}
+}
+
+func TestMapRangeRelaxed_NestedDelete(t *testing.T) {
+	const numEntries = 256
+	m := NewMap[string, int]()
+	for i := range numEntries {
+		m.Store(strconv.Itoa(i), i)
+	}
+	m.RangeRelaxed(func(key string, value int) bool {
+		if key != strconv.Itoa(value) {
+			t.Fatalf("got unexpected key/value: %v/%v", key, value)
+		}
+		m.Delete(key)
+		return true
+	})
+	for i := range numEntries {
+		if _, ok := m.Load(strconv.Itoa(i)); ok {
+			t.Fatalf("value found for %d", i)
+		}
+	}
+}
+
+func TestMapAllRelaxed(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[string, int]()
+	for i := range numEntries {
+		m.Store(strconv.Itoa(i), i)
+	}
+	iters := 0
+	met := make(map[string]int)
+	for key, value := range m.AllRelaxed() {
+		if key != strconv.Itoa(value) {
+			t.Fatalf("got unexpected key/value for iteration %d: %v/%v", iters, key, value)
+		}
+		met[key] += 1
+		iters++
+	}
+	if iters != numEntries {
+		t.Fatalf("got unexpected number of iterations: %d", iters)
+	}
+	for i := range numEntries {
+		if c := met[strconv.Itoa(i)]; c != 1 {
+			t.Fatalf("all did not iterate correctly over %d: %d", i, c)
 		}
 	}
 }
@@ -417,6 +513,65 @@ func TestMapDeleteMatching_AllDeleted(t *testing.T) {
 	}
 }
 
+func testParallelRangeRelaxed(t *testing.T, numGoroutines int) {
+	const numEntries = 10000
+	const numIterations = 50
+
+	m := NewMap[int, int]()
+	for i := range numEntries {
+		m.Store(i, i)
+	}
+
+	var wg sync.WaitGroup
+	var totalIterations atomic.Int64
+
+	// Launch goroutines that iterate using RangeRelaxed.
+	for range numGoroutines / 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range numIterations {
+				m.RangeRelaxed(func(key int, value int) bool {
+					if key != value {
+						t.Errorf("key %d != value %d", key, value)
+					}
+					totalIterations.Add(1)
+					return true
+				})
+			}
+		}()
+	}
+
+	// Launch goroutines that modify the map.
+	for range numGoroutines / 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range numIterations {
+				for i := range numEntries {
+					m.Store(i, i)
+					if i%10 == 0 {
+						m.Delete(i)
+						m.Store(i, i)
+					}
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if totalIterations.Load() == 0 {
+		t.Error("expected some iterations to occur")
+	}
+}
+
+func TestMapParallelRangeRelaxed(t *testing.T) {
+	testParallelRangeRelaxed(t, 2)
+	testParallelRangeRelaxed(t, runtime.GOMAXPROCS(0))
+	testParallelRangeRelaxed(t, 100)
+}
+
 func testParallelDeleteMatching(t *testing.T, numGoroutines int) {
 	const numEntries = 10000
 	const numIterations = 50
@@ -480,6 +635,67 @@ func TestMapParallelDeleteMatching(t *testing.T) {
 	testParallelDeleteMatching(t, 2)
 	testParallelDeleteMatching(t, runtime.GOMAXPROCS(0))
 	testParallelDeleteMatching(t, 100)
+}
+
+func TestMapDeleteMatching_ConcurrentResize(t *testing.T) {
+	// This test attempts to cover the resize paths in DeleteMatching:
+	// 1. Resize in progress during DeleteMatching iteration
+	// 2. Table changed (resize completed) during DeleteMatching iteration
+	const numIterations = 1000
+	const numEntries = 100
+
+	for iter := range numIterations {
+		// Start with minimal size to maximize resize frequency
+		m := NewMap[int, int]()
+		// Pre-fill just enough to have entries
+		for i := range numEntries {
+			m.Store(i, i)
+		}
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+
+		// Goroutines that trigger resize by adding many new entries
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				for i := numEntries; i < numEntries*10; i++ {
+					m.Store(i, i)
+				}
+			}()
+		}
+
+		// Goroutines that call DeleteMatching repeatedly during resize
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				for range 10 {
+					m.DeleteMatching(func(key int, value int) (del, stop bool) {
+						return key%5 == 0, false
+					})
+				}
+			}()
+		}
+
+		// Start all goroutines simultaneously
+		close(start)
+		wg.Wait()
+
+		// Verify map consistency
+		size := m.Size()
+		rangeCount := 0
+		m.Range(func(key int, value int) bool {
+			rangeCount++
+			return true
+		})
+		if size != rangeCount {
+			t.Errorf("iteration %d: size %d != range count %d", iter, size, rangeCount)
+		}
+	}
 }
 
 func TestMapStringStore(t *testing.T) {
@@ -675,6 +891,52 @@ func TestMapLoadOrCompute_FunctionCalledOnce(t *testing.T) {
 	})
 }
 
+func TestMapLoadOrCompute_ExistingKey(t *testing.T) {
+	m := NewMap[string, int]()
+	m.Store("key", 42)
+	v, loaded := m.LoadOrCompute("key", func() (int, bool) {
+		t.Fatal("value func should not be called for existing key")
+		return 100, false
+	})
+	if !loaded {
+		t.Fatal("expected loaded to be true")
+	}
+	if v != 42 {
+		t.Fatalf("expected value 42, got %d", v)
+	}
+}
+
+func TestMapLoadOrCompute_ConcurrentExistingKey(t *testing.T) {
+	// This test attempts to cover the race condition where:
+	// 1. LoadOrCompute's fast path doesn't find the key
+	// 2. Another goroutine inserts the key
+	// 3. LoadOrCompute acquires the lock and finds the key
+	const numIters = 10000
+	for range numIters {
+		m := NewMap[int, int]()
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			m.Store(1, 42)
+		}()
+		go func() {
+			defer wg.Done()
+			m.LoadOrCompute(1, func() (int, bool) {
+				return 100, false
+			})
+		}()
+		wg.Wait()
+		v, ok := m.Load(1)
+		if !ok {
+			t.Fatal("key should exist")
+		}
+		if v != 42 && v != 100 {
+			t.Fatalf("unexpected value: %d", v)
+		}
+	}
+}
+
 func TestMapOfCompute(t *testing.T) {
 	m := NewMap[string, int]()
 	// Store a new value.
@@ -777,6 +1039,47 @@ func TestMapOfCompute(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("ok should be false when trying to delete a non-existing value")
+	}
+}
+
+func TestMapCompute_CancelOpOnOverflowBucket(t *testing.T) {
+	// This test covers the CancelOp path when inserting into a new overflow bucket.
+	// We need to fill buckets completely so that a new key requires creating
+	// an overflow bucket, then return CancelOp to abort the insertion.
+	const numAttempts = 1000
+	const sentinel = 999
+
+	for attempt := range numAttempts {
+		m := NewMap[int, int]()
+		// Fill the map to create conditions where some bucket chains are full.
+		// Insert entries - some will hash to the same bucket creating overflow.
+		numEntries := 100 + (attempt % 100) // Vary the fill level
+		for i := range numEntries {
+			m.Store(i, i)
+		}
+
+		// Try Compute with CancelOp for new keys.
+		baseKey := 10000 + attempt*1000
+		for i := range 50 {
+			key := baseKey + i
+			v, ok := m.Compute(key, func(oldValue int, loaded bool) (newValue int, op ComputeOp) {
+				if loaded {
+					t.Fatal("key should not exist")
+				}
+				return sentinel, CancelOp
+			})
+			if ok {
+				t.Fatalf("ok should be false when CancelOp is returned for new key")
+			}
+			// Both code paths should return zero value for CancelOp
+			if v != 0 {
+				t.Fatalf("expected zero value for CancelOp, got: %d", v)
+			}
+			// Verify the key was not inserted
+			if _, exists := m.Load(key); exists {
+				t.Fatalf("key %d should not exist after CancelOp", key)
+			}
+		}
 	}
 }
 
@@ -1069,6 +1372,25 @@ func TestNewMapWithPresize(t *testing.T) {
 	assertMapCapacity(t, NewMap[string, string](WithPresize(500)), 1280)
 	assertMapCapacity(t, NewMap[int, int](WithPresize(1_000_000)), 2621440)
 	assertMapCapacity(t, NewMap[point, point](WithPresize(100)), 160)
+}
+
+func TestDeprecatedNewMapOf(t *testing.T) {
+	m := NewMapOf[string, int]()
+	m.Store("foo", 42)
+	v, ok := m.Load("foo")
+	if !ok || v != 42 {
+		t.Fatal("NewMapOf should work like NewMap")
+	}
+}
+
+func TestDeprecatedWithSerialResize(t *testing.T) {
+	// WithSerialResize is a no-op, just verify it doesn't panic
+	m := NewMap[string, int](WithSerialResize())
+	m.Store("foo", 42)
+	v, ok := m.Load("foo")
+	if !ok || v != 42 {
+		t.Fatal("WithSerialResize should be a no-op")
+	}
 }
 
 func TestNewMapWithPresize_DoesNotShrinkBelowMinTableLen(t *testing.T) {
@@ -1972,6 +2294,24 @@ func BenchmarkMapRange(b *testing.B) {
 		foo := 0
 		for pb.Next() {
 			m.Range(func(key string, value int) bool {
+				foo++
+				return true
+			})
+			_ = foo
+		}
+	})
+}
+
+func BenchmarkMapRangeRelaxed(b *testing.B) {
+	m := NewMap[string, int](WithPresize(benchmarkNumEntries))
+	for i := range benchmarkNumEntries {
+		m.Store(benchmarkKeys[i], i)
+	}
+	b.ResetTimer()
+	runParallel(b, func(pb *testing.PB) {
+		foo := 0
+		for pb.Next() {
+			m.RangeRelaxed(func(key string, value int) bool {
 				foo++
 				return true
 			})

@@ -30,11 +30,10 @@ const (
 	// minimum counter stripes to use
 	minMapCounterLen = 8
 	// maximum counter stripes to use; stands for around 4KB of memory
-	maxMapCounterLen         = 32
-	defaultMeta       uint64 = 0x8080808080808080
-	metaMask          uint64 = 0xffffffffff
-	defaultMetaMasked uint64 = defaultMeta & metaMask
-	emptyMetaSlot     uint8  = 0x80
+	maxMapCounterLen   = 32
+	metaMask           = 0xffffffffff
+	occupiedMeta       = 0x8080808080808080
+	occupiedMetaMasked = occupiedMeta & metaMask
 	// minimal number of buckets to transfer when participating in cooperative
 	// resize; should be at least defaultMinMapTableLen
 	minResizeTransferStride = 64
@@ -282,9 +281,6 @@ func hashKey[K comparable](k K, hashKind hashKind, seed maphash.Seed, intSeed ui
 
 func newMapTable[K comparable, V any](minTableLen int, seed maphash.Seed) *mapTable[K, V] {
 	buckets := make([]bucketPadded, minTableLen)
-	for i := range buckets {
-		buckets[i].meta = defaultMeta
-	}
 	counterLen := minTableLen >> 10
 	if counterLen < minMapCounterLen {
 		counterLen = minMapCounterLen
@@ -446,7 +442,7 @@ func (m *Map[K, V]) Store(key K, value V) {
 			}
 			if emptyb == nil {
 				// Search for empty entries (up to 5 per bucket).
-				emptyw := metaw & defaultMetaMasked
+				emptyw := ^metaw & occupiedMetaMasked
 				if emptyw != 0 {
 					idx := firstMarkedByteIndex(emptyw)
 					emptyb = b
@@ -476,7 +472,7 @@ func (m *Map[K, V]) Store(key K, value V) {
 				// Insertion into a new bucket.
 				// Create and append a bucket.
 				newb := new(bucketPadded)
-				newb.meta = setByte(defaultMeta, h2, 0)
+				newb.meta = setByte(0, h2, 0)
 				newe := new(entry[K, V])
 				newe.key = key
 				newe.value = value
@@ -703,13 +699,13 @@ func (m *Map[K, V]) doCompute(
 						case DeleteOp:
 							// Deletion.
 							// First we update the hash, then the entry.
-							newmetaw := setByte(metaw, emptyMetaSlot, idx)
+							newmetaw := setByte(metaw, 0, idx)
 							atomic.StoreUint64(&b.meta, newmetaw)
 							atomic.StorePointer(&b.entries[idx], nil)
 							rootb.mu.Unlock()
 							table.addSize(bidx, -1)
 							// Might need to shrink the table if we left bucket empty.
-							if newmetaw == defaultMeta {
+							if newmetaw == 0 {
 								m.resize(table, mapShrinkHint)
 							}
 							return oldv, !computeOnly
@@ -734,7 +730,7 @@ func (m *Map[K, V]) doCompute(
 			}
 			if emptyb == nil {
 				// Search for empty entries (up to 5 per bucket).
-				emptyw := metaw & defaultMetaMasked
+				emptyw := ^metaw & occupiedMetaMasked
 				if emptyw != 0 {
 					idx := firstMarkedByteIndex(emptyw)
 					emptyb = b
@@ -775,11 +771,11 @@ func (m *Map[K, V]) doCompute(
 				switch op {
 				case DeleteOp, CancelOp:
 					rootb.mu.Unlock()
-					return newValue, false
+					return zeroV, false
 				default:
 					// Create and append a bucket.
 					newb := new(bucketPadded)
-					newb.meta = setByte(defaultMeta, h2, 0)
+					newb.meta = setByte(0, h2, 0)
 					newe := new(entry[K, V])
 					newe.key = key
 					newe.value = newValue
@@ -996,13 +992,6 @@ func transferBucketUnsafe[K comparable, V any](
 	}
 }
 
-// All is similar to [Range], but returns an [iter.Seq2], so is compatible with
-// Go 1.23+ iterators. All of the same caveats and behaviour from [Range] apply
-// to All.
-func (m *Map[K, V]) All() iter.Seq2[K, V] {
-	return m.Range
-}
-
 // Range calls f sequentially for each key and value present in the
 // map. If f returns false, range stops the iteration.
 //
@@ -1016,6 +1005,9 @@ func (m *Map[K, V]) All() iter.Seq2[K, V] {
 // creation, modification and deletion. However, the concurrent
 // modification rule apply, i.e. the changes may be not reflected
 // in the subsequently iterated entries.
+//
+// For a faster, lock-free alternative with relaxed consistency
+// guarantees, see [RangeRelaxed].
 func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 	// Pre-allocate array big enough to fit entries for most hash tables.
 	bentries := make([]*entry[K, V], 0, 16*entriesPerMapBucket)
@@ -1049,6 +1041,75 @@ func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 		}
 		bentries = bentries[:0]
 	}
+}
+
+// All is similar to [Range], but returns an [iter.Seq2], so is compatible with
+// Go 1.23+ iterators. All of the same caveats and behaviour from [Range] apply
+// to All.
+//
+// For a faster, lock-free alternative with relaxed consistency
+// guarantees, see [AllRelaxed].
+func (m *Map[K, V]) All() iter.Seq2[K, V] {
+	return m.Range
+}
+
+// RangeRelaxed calls f sequentially for each key and value present
+// in the map. If f returns false, range stops the iteration.
+//
+// RangeRelaxed is a faster, lock-free alternative to [Range]. Unlike
+// Range, it does not acquire bucket locks and does not allocate memory
+// for entry snapshots. Instead, it reads entries directly using atomic
+// loads.
+//
+// RangeRelaxed does not necessarily correspond to any consistent
+// snapshot of the Map's contents: if the value for any key is stored
+// or deleted concurrently, RangeRelaxed may reflect any mapping for
+// that key from any point during the RangeRelaxed call. Unlike [Range],
+// the same key may be visited more than once if it is concurrently
+// deleted and re-inserted during the iteration.
+//
+// It is safe to modify the map while iterating it, including entry
+// creation, modification and deletion. However, the concurrent
+// modification rule apply, i.e. the changes may be not reflected
+// in the subsequently iterated entries.
+//
+// For stronger consistency guarantees where each key is visited at
+// most once, see [Range].
+func (m *Map[K, V]) RangeRelaxed(f func(key K, value V) bool) {
+	table := m.table.Load()
+	for i := range table.buckets {
+		b := &table.buckets[i]
+		for {
+			metaw := atomic.LoadUint64(&b.meta)
+			markedw := metaw & occupiedMeta
+			for markedw != 0 {
+				idx := firstMarkedByteIndex(markedw)
+				eptr := atomic.LoadPointer(&b.entries[idx])
+				if eptr != nil {
+					e := (*entry[K, V])(eptr)
+					if !f(e.key, e.value) {
+						return
+					}
+				}
+				markedw &= markedw - 1
+			}
+			bptr := atomic.LoadPointer(&b.next)
+			if bptr == nil {
+				break
+			}
+			b = (*bucketPadded)(bptr)
+		}
+	}
+}
+
+// AllRelaxed is similar to [RangeRelaxed], but returns an [iter.Seq2],
+// so is compatible with Go 1.23+ iterators. All of the same caveats
+// and behaviour from [RangeRelaxed] apply to AllRelaxed.
+//
+// For stronger consistency guarantees where each key is visited at
+// most once, see [All].
+func (m *Map[K, V]) AllRelaxed() iter.Seq2[K, V] {
+	return m.RangeRelaxed
 }
 
 // DeleteMatching deletes all entries for which the delete return
@@ -1103,11 +1164,11 @@ delete_loop_attempt:
 					if del {
 						// Deletion.
 						// First we update the meta, then the entry.
-						newmetaw := setByte(b.meta, emptyMetaSlot, i)
+						newmetaw := setByte(b.meta, 0, i)
 						atomic.StoreUint64(&b.meta, newmetaw)
 						atomic.StorePointer(&b.entries[i], nil)
 						bucketDeleted++
-						if newmetaw == defaultMeta {
+						if newmetaw == 0 {
 							anyBucketEmptied = true
 						}
 					}
@@ -1164,7 +1225,7 @@ func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadd
 		}
 		if b.next == nil {
 			newb := new(bucketPadded)
-			newb.meta = setByte(defaultMeta, h2, 0)
+			newb.meta = setByte(0, h2, 0)
 			newb.entries[0] = unsafe.Pointer(e)
 			b.next = unsafe.Pointer(newb)
 			return
@@ -1191,7 +1252,7 @@ func h1(h uint64) uint64 {
 }
 
 func h2(h uint64) uint8 {
-	return uint8(h & 0x7f)
+	return 0x80 | uint8(h&0x7f)
 }
 
 // MapStats is Map statistics.

@@ -80,6 +80,15 @@ m.DeleteMatching(func(key int, value int) (delete, stop bool) {
 })
 ```
 
+For high-performance iteration, `RangeRelaxed` (and `AllRelaxed` for Go 1.23+ iterators) can be used. Unlike `Range`, it is lock-free. However, it has relaxed consistency: the same key may be visited more than once if it is concurrently deleted and re-inserted during the iteration.
+
+```go
+m.RangeRelaxed(func(key int, value int) bool {
+	// process entry
+	return true // continue iteration
+})
+```
+
 ### UMPSCQueue
 
 A `UMPSCQueue` is an unbounded multi-producer single-consumer concurrent queue. This means that multiple goroutines can publish items to the queue while not more than a single goroutine must be consuming those items. Unlike bounded queues, this one puts no limit to the queue capacity.
