@@ -79,7 +79,7 @@ func ExampleMap_DeleteMatching() {
 	m.Store("dave", 40)
 
 	// Delete entries with value greater than 25.
-	deleted := m.DeleteMatching(func(key string, value int) (delete, cancel bool) {
+	deleted := m.DeleteMatching(func(key string, value int) (delete, stop bool) {
 		return value > 25, false
 	})
 	fmt.Printf("deleted: %d\n", deleted)

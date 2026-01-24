@@ -316,7 +316,7 @@ func TestMapDeleteMatching(t *testing.T) {
 		m.Store(strconv.Itoa(i), i)
 	}
 	// Delete even values.
-	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+	deleted := m.DeleteMatching(func(key string, value int) (del, stop bool) {
 		return value%2 == 0, false
 	})
 	if deleted != numEntries/2 {
@@ -345,7 +345,7 @@ func TestMapDeleteMatching_Cancel(t *testing.T) {
 	}
 	// Delete entries and cancel after 10 deletions.
 	callCount := 0
-	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+	deleted := m.DeleteMatching(func(key string, value int) (del, stop bool) {
 		callCount++
 		if callCount == 10 {
 			return true, true // delete this one and cancel
@@ -366,7 +366,7 @@ func TestMapDeleteMatching_Cancel(t *testing.T) {
 func TestMapDeleteMatching_EmptyMap(t *testing.T) {
 	m := NewMap[string, int]()
 	callCount := 0
-	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+	deleted := m.DeleteMatching(func(key string, value int) (del, stop bool) {
 		callCount++
 		return false, false
 	})
@@ -385,7 +385,7 @@ func TestMapDeleteMatching_NoDeletions(t *testing.T) {
 		m.Store(strconv.Itoa(i), i)
 	}
 	callCount := 0
-	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+	deleted := m.DeleteMatching(func(key string, value int) (del, stop bool) {
 		callCount++
 		return false, false // never delete
 	})
@@ -406,7 +406,7 @@ func TestMapDeleteMatching_AllDeleted(t *testing.T) {
 	for i := range numEntries {
 		m.Store(strconv.Itoa(i), i)
 	}
-	deleted := m.DeleteMatching(func(key string, value int) (del, cancel bool) {
+	deleted := m.DeleteMatching(func(key string, value int) (del, stop bool) {
 		return true, false // delete all
 	})
 	if deleted != numEntries {
@@ -435,7 +435,7 @@ func testParallelDeleteMatching(t *testing.T, numGoroutines int) {
 		go func() {
 			defer wg.Done()
 			for range numIterations {
-				deleted := m.DeleteMatching(func(key int, value int) (del, cancel bool) {
+				deleted := m.DeleteMatching(func(key int, value int) (del, stop bool) {
 					return key%2 == 0, false
 				})
 				totalDeleted.Add(int64(deleted))
@@ -2083,7 +2083,7 @@ func BenchmarkMapDeleteMatching(b *testing.B) {
 					m.Store(i, i)
 				}
 				threshold := test.numEntries * test.deletePercent / 100
-				m.DeleteMatching(func(key int, value int) (del, cancel bool) {
+				m.DeleteMatching(func(key int, value int) (del, stop bool) {
 					return key < threshold, false
 				})
 			}

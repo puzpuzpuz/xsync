@@ -75,7 +75,7 @@ pm := xsync.ToPlainMap(m)
 For bulk conditional deletions, `DeleteMatching` can be used. This method is handy in caching use cases when it's necessary to delete stale entries:
 
 ```go
-m.DeleteMatching(func(key int, value int) (delete, cancel bool) {
+m.DeleteMatching(func(key int, value int) (delete, stop bool) {
 	return key%2 == 0, false // delete even keys
 })
 ```

@@ -1052,7 +1052,7 @@ func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 }
 
 // DeleteMatching deletes all entries for which the delete return
-// value of f is true. If the cancel return value is true, the
+// value of f is true. If the stop return value is true, the
 // iteration stops immediately. The function returns the number
 // of deleted entries.
 //
@@ -1070,10 +1070,10 @@ func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 // deletions. It means that modifications on other entries in
 // the bucket will be blocked until f executes. Consider this when
 // the function includes long-running operations.
-func (m *Map[K, V]) DeleteMatching(f func(key K, value V) (delete, cancel bool)) int {
+func (m *Map[K, V]) DeleteMatching(f func(key K, value V) (delete, stop bool)) int {
 	var totalDeleted int
 	var anyBucketEmptied bool
-delete_from_table:
+delete_loop_attempt:
 	table := m.table.Load()
 	for bidx := range table.buckets {
 		rootb := &table.buckets[bidx]
@@ -1084,12 +1084,12 @@ delete_from_table:
 			// Resize is in progress. Help with the transfer, then go for another attempt.
 			rootb.mu.Unlock()
 			m.helpResize(seq)
-			goto delete_from_table
+			goto delete_loop_attempt
 		}
 		if m.newerTableExists(table) {
 			// Someone resized the table. Go for another attempt.
 			rootb.mu.Unlock()
-			goto delete_from_table
+			goto delete_loop_attempt
 		}
 
 		var bucketDeleted int
@@ -1099,7 +1099,7 @@ delete_from_table:
 				eptr := b.entries[i]
 				if eptr != nil {
 					e := (*entry[K, V])(eptr)
-					del, cancel := f(e.key, e.value)
+					del, stop := f(e.key, e.value)
 					if del {
 						// Deletion.
 						// First we update the meta, then the entry.
@@ -1111,7 +1111,7 @@ delete_from_table:
 							anyBucketEmptied = true
 						}
 					}
-					if cancel {
+					if stop {
 						rootb.mu.Unlock()
 						totalDeleted += bucketDeleted
 						if bucketDeleted > 0 {
