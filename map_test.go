@@ -343,6 +343,57 @@ func TestMapIntStore(t *testing.T) {
 	}
 }
 
+func TestMapStore_Int64Keys(t *testing.T) {
+	const numEntries = 128
+	m := NewMap[int64, int64]()
+	for i := range numEntries {
+		m.Store(int64(i), int64(i))
+	}
+	for i := range numEntries {
+		v, ok := m.Load(int64(i))
+		if !ok {
+			t.Fatalf("value not found for %d", i)
+		}
+		if v != int64(i) {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
+func TestMapStore_Uint64Keys(t *testing.T) {
+	const numEntries = 128
+	m := NewMap[uint64, uint64]()
+	for i := range numEntries {
+		m.Store(uint64(i), uint64(i))
+	}
+	for i := range numEntries {
+		v, ok := m.Load(uint64(i))
+		if !ok {
+			t.Fatalf("value not found for %d", i)
+		}
+		if v != uint64(i) {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
+func TestMapStore_UintptrKeys(t *testing.T) {
+	const numEntries = 128
+	m := NewMap[uintptr, uintptr]()
+	for i := range numEntries {
+		m.Store(uintptr(i), uintptr(i))
+	}
+	for i := range numEntries {
+		v, ok := m.Load(uintptr(i))
+		if !ok {
+			t.Fatalf("value not found for %d", i)
+		}
+		if v != uintptr(i) {
+			t.Fatalf("values do not match for %d: %v", i, v)
+		}
+	}
+}
+
 func TestMapStore_StructKeys_IntValues(t *testing.T) {
 	const numEntries = 128
 	m := NewMap[point, int]()
@@ -584,6 +635,48 @@ func TestMapIntStoreThenDelete(t *testing.T) {
 	}
 }
 
+func TestMapStoreThenDelete_Int64Keys(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[int64, int64]()
+	for i := range numEntries {
+		m.Store(int64(i), int64(i))
+	}
+	for i := range numEntries {
+		m.Delete(int64(i))
+		if _, ok := m.Load(int64(i)); ok {
+			t.Fatalf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestMapStoreThenDelete_Uint64Keys(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[uint64, uint64]()
+	for i := range numEntries {
+		m.Store(uint64(i), uint64(i))
+	}
+	for i := range numEntries {
+		m.Delete(uint64(i))
+		if _, ok := m.Load(uint64(i)); ok {
+			t.Fatalf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestMapStoreThenDelete_UintptrKeys(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[uintptr, uintptr]()
+	for i := range numEntries {
+		m.Store(uintptr(i), uintptr(i))
+	}
+	for i := range numEntries {
+		m.Delete(uintptr(i))
+		if _, ok := m.Load(uintptr(i)); ok {
+			t.Fatalf("value was not expected for %d", i)
+		}
+	}
+}
+
 func TestMapStructStoreThenDelete(t *testing.T) {
 	const numEntries = 1000
 	m := NewMap[point, string]()
@@ -625,6 +718,54 @@ func TestMapIntStoreThenLoadAndDelete(t *testing.T) {
 			t.Fatalf("value was not found for %d", i)
 		}
 		if _, ok := m.Load(i); ok {
+			t.Fatalf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestMapStoreThenLoadAndDelete_Int64Keys(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[int64, int64]()
+	for i := range numEntries {
+		m.Store(int64(i), int64(i))
+	}
+	for i := range numEntries {
+		if _, loaded := m.LoadAndDelete(int64(i)); !loaded {
+			t.Fatalf("value was not found for %d", i)
+		}
+		if _, ok := m.Load(int64(i)); ok {
+			t.Fatalf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestMapStoreThenLoadAndDelete_Uint64Keys(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[uint64, uint64]()
+	for i := range numEntries {
+		m.Store(uint64(i), uint64(i))
+	}
+	for i := range numEntries {
+		if _, loaded := m.LoadAndDelete(uint64(i)); !loaded {
+			t.Fatalf("value was not found for %d", i)
+		}
+		if _, ok := m.Load(uint64(i)); ok {
+			t.Fatalf("value was not expected for %d", i)
+		}
+	}
+}
+
+func TestMapStoreThenLoadAndDelete_UintptrKeys(t *testing.T) {
+	const numEntries = 1000
+	m := NewMap[uintptr, uintptr]()
+	for i := range numEntries {
+		m.Store(uintptr(i), uintptr(i))
+	}
+	for i := range numEntries {
+		if _, loaded := m.LoadAndDelete(uintptr(i)); !loaded {
+			t.Fatalf("value was not found for %d", i)
+		}
+		if _, ok := m.Load(uintptr(i)); ok {
 			t.Fatalf("value was not expected for %d", i)
 		}
 	}
