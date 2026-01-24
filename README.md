@@ -64,8 +64,6 @@ Apart from CLHT, `Map` borrows ideas from Java's `j.u.c.ConcurrentHashMap` (immu
 
 `Map` uses the built-in Golang's hash function which has DDOS protection. It uses `maphash.Comparable` as the default hash function. This means that each map instance gets its own seed number and the hash function uses that seed for hash code calculation.
 
-Other than that, `Map` implements cooperative rehashing when resizing the hash table. This means that any goroutine that is running a map modification operation and is waiting for the resize participates in the rehashing.
-
 Besides the `Range` and `All` methods available for map iteration, there is also `ToPlainMap` utility function to convert a `Map` to a built-in Go's `map`:
 
 ```go
