@@ -67,6 +67,7 @@ Apart from CLHT, `Map` borrows ideas from Java's `j.u.c.ConcurrentHashMap` (immu
 Other than that, `Map` implements cooperative rehashing when resizing the hash table. This means that any goroutine that is running a map modification operation and is waiting for the resize participates in the rehashing.
 
 Besides the `Range` and `All` methods available for map iteration, there is also `ToPlainMap` utility function to convert a `Map` to a built-in Go's `map`:
+
 ```go
 m := xsync.NewMap[int, int]()
 m.Store(42, 42)
@@ -74,6 +75,7 @@ pm := xsync.ToPlainMap(m)
 ```
 
 For bulk conditional deletions, `DeleteMatching` can be used. This method is handy in caching use cases when it's necessary to delete stale entries:
+
 ```go
 m.DeleteMatching(func(key int, value int) (delete, cancel bool) {
 	return key%2 == 0, false // delete even keys
