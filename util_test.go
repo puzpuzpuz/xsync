@@ -29,7 +29,7 @@ func TestCheaprand(t *testing.T) {
 	count := 100
 	set := make(map[uint32]struct{}, count)
 
-	for i := 0; i < count; i++ {
+	for range count {
 		num := Cheaprand()
 		set[num] = struct{}{}
 	}
@@ -269,15 +269,15 @@ func TestSetByte(t *testing.T) {
 }
 
 func BenchmarkCheaprand(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = Cheaprand()
 	}
 	// <1.4 ns/op on x86-64
 }
 
 func BenchmarkRand(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = rand.Uint32()
 	}
-	// about 12 ns/op on x86-64
+	// about 5 ns/op on x86-64
 }
