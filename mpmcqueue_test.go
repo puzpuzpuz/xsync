@@ -24,13 +24,13 @@ func TestDeprecatedMPMCQueueOf(t *testing.T) {
 	}
 }
 
-func TestMPMCQueue_InvalidSize(t *testing.T) {
+func TestMPMCQueueInvalidSize(t *testing.T) {
 	defer func() { recover() }()
 	NewMPMCQueue[int](0)
 	t.Fatal("no panic detected")
 }
 
-func TestMPMCQueue_Wraparound(t *testing.T) {
+func TestMPMCQueueWraparound(t *testing.T) {
 	const capacity = 3
 	const cycles = 5
 	q := NewMPMCQueue[int](capacity)

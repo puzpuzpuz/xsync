@@ -24,13 +24,13 @@ func TestDeprecatedSPSCQueueOf(t *testing.T) {
 	}
 }
 
-func TestSPSCQueue_InvalidSize(t *testing.T) {
+func TestSPSCQueueInvalidSize(t *testing.T) {
 	defer func() { recover() }()
 	NewSPSCQueue[int](0)
 	t.Fatal("no panic detected")
 }
 
-func TestSPSCQueue_Wraparound(t *testing.T) {
+func TestSPSCQueueWraparound(t *testing.T) {
 	const capacity = 3
 	const cycles = 5
 	q := NewSPSCQueue[int](capacity)
@@ -50,7 +50,7 @@ func TestSPSCQueue_Wraparound(t *testing.T) {
 	}
 }
 
-func TestSPSCQueue_ConsumerCacheInvalidation(t *testing.T) {
+func TestSPSCQueueConsumerCacheInvalidation(t *testing.T) {
 	// Tests ccachedIdx invalidation in TryEnqueue.
 	// When the producer's cached consumer index is stale, it must be refreshed.
 	q := NewSPSCQueue[int](2)
@@ -87,7 +87,7 @@ func TestSPSCQueue_ConsumerCacheInvalidation(t *testing.T) {
 	}
 }
 
-func TestSPSCQueue_ProducerCacheInvalidation(t *testing.T) {
+func TestSPSCQueueProducerCacheInvalidation(t *testing.T) {
 	// Tests pcachedIdx invalidation in TryDequeue.
 	// When the consumer's cached producer index is stale, it must be refreshed.
 	q := NewSPSCQueue[int](2)
