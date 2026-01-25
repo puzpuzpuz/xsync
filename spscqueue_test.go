@@ -14,13 +14,106 @@ import (
 	. "github.com/puzpuzpuz/xsync/v4"
 )
 
-func TestSPSCQueueOf_InvalidSize(t *testing.T) {
+func TestDeprecatedSPSCQueueOf(t *testing.T) {
+	q := NewSPSCQueue[int](5)
+	if !q.TryEnqueue(1) {
+		t.Fatal("enqueue failed")
+	}
+	if v, ok := q.TryDequeue(); !ok || v != 1 {
+		t.Fatalf("got %v/%v, want 1/true", v, ok)
+	}
+}
+
+func TestSPSCQueueInvalidSize(t *testing.T) {
 	defer func() { recover() }()
 	NewSPSCQueue[int](0)
 	t.Fatal("no panic detected")
 }
 
-func TestSPSCQueueOfTryEnqueueDequeueInt(t *testing.T) {
+func TestSPSCQueueWraparound(t *testing.T) {
+	const capacity = 3
+	const cycles = 5
+	q := NewSPSCQueue[int](capacity)
+	// Cycle through the queue multiple times to test index wraparound
+	for cycle := range cycles {
+		for i := range capacity {
+			if !q.TryEnqueue(cycle*capacity + i) {
+				t.Fatalf("cycle %d: enqueue %d failed", cycle, i)
+			}
+		}
+		for i := range capacity {
+			v, ok := q.TryDequeue()
+			if !ok || v != cycle*capacity+i {
+				t.Fatalf("cycle %d: got %v/%v, want %d/true", cycle, v, ok, cycle*capacity+i)
+			}
+		}
+	}
+}
+
+func TestSPSCQueueConsumerCacheInvalidation(t *testing.T) {
+	// Tests ccachedIdx invalidation in TryEnqueue.
+	// When the producer's cached consumer index is stale, it must be refreshed.
+	q := NewSPSCQueue[int](2)
+
+	// Fill the queue to capacity
+	if !q.TryEnqueue(1) {
+		t.Fatal("first enqueue failed")
+	}
+	if !q.TryEnqueue(2) {
+		t.Fatal("second enqueue failed")
+	}
+
+	// Queue is full, enqueue should fail
+	if q.TryEnqueue(3) {
+		t.Fatal("enqueue on full queue should fail")
+	}
+
+	// Dequeue one item - this updates cidx but producer's ccachedIdx is stale
+	if v, ok := q.TryDequeue(); !ok || v != 1 {
+		t.Fatalf("dequeue: got %v/%v, want 1/true", v, ok)
+	}
+
+	// Now enqueue should succeed after cache invalidation
+	if !q.TryEnqueue(3) {
+		t.Fatal("enqueue after dequeue failed - cache invalidation issue")
+	}
+
+	// Verify queue contents
+	if v, ok := q.TryDequeue(); !ok || v != 2 {
+		t.Fatalf("got %v/%v, want 2/true", v, ok)
+	}
+	if v, ok := q.TryDequeue(); !ok || v != 3 {
+		t.Fatalf("got %v/%v, want 3/true", v, ok)
+	}
+}
+
+func TestSPSCQueueProducerCacheInvalidation(t *testing.T) {
+	// Tests pcachedIdx invalidation in TryDequeue.
+	// When the consumer's cached producer index is stale, it must be refreshed.
+	q := NewSPSCQueue[int](2)
+
+	// Queue is empty, dequeue should fail
+	if _, ok := q.TryDequeue(); ok {
+		t.Fatal("dequeue on empty queue should fail")
+	}
+
+	// Enqueue an item - this updates pidx but consumer's pcachedIdx is stale
+	if !q.TryEnqueue(1) {
+		t.Fatal("enqueue failed")
+	}
+
+	// Now dequeue should succeed after cache invalidation
+	if v, ok := q.TryDequeue(); !ok || v != 1 {
+		t.Fatalf("dequeue after enqueue failed - got %v/%v, want 1/true", v, ok)
+	}
+
+	// Verify queue is empty again
+	if _, ok := q.TryDequeue(); ok {
+		t.Fatal("dequeue on empty queue should fail")
+	}
+}
+
+func TestSPSCQueueEnqueueDequeueInt(t *testing.T) {
 	q := NewSPSCQueue[int](10)
 	for i := range 10 {
 		if !q.TryEnqueue(i) {
@@ -34,7 +127,7 @@ func TestSPSCQueueOfTryEnqueueDequeueInt(t *testing.T) {
 	}
 }
 
-func TestSPSCQueueOfTryEnqueueDequeueString(t *testing.T) {
+func TestSPSCQueueEnqueueDequeueString(t *testing.T) {
 	q := NewSPSCQueue[string](10)
 	for i := range 10 {
 		if !q.TryEnqueue(strconv.Itoa(i)) {
@@ -48,7 +141,7 @@ func TestSPSCQueueOfTryEnqueueDequeueString(t *testing.T) {
 	}
 }
 
-func TestSPSCQueueOfTryEnqueueDequeueStruct(t *testing.T) {
+func TestSPSCQueueEnqueueDequeueStruct(t *testing.T) {
 	type foo struct {
 		bar int
 		baz int
@@ -66,7 +159,7 @@ func TestSPSCQueueOfTryEnqueueDequeueStruct(t *testing.T) {
 	}
 }
 
-func TestSPSCQueueOfTryEnqueueDequeueStructRef(t *testing.T) {
+func TestSPSCQueueEnqueueDequeueStructRef(t *testing.T) {
 	type foo struct {
 		bar int
 		baz int
@@ -90,7 +183,7 @@ func TestSPSCQueueOfTryEnqueueDequeueStructRef(t *testing.T) {
 	}
 }
 
-func TestSPSCQueueOfTryEnqueueDequeue(t *testing.T) {
+func TestSPSCQueueTryEnqueueDequeue(t *testing.T) {
 	q := NewSPSCQueue[int](10)
 	for i := range 10 {
 		if !q.TryEnqueue(i) {
@@ -104,7 +197,7 @@ func TestSPSCQueueOfTryEnqueueDequeue(t *testing.T) {
 	}
 }
 
-func TestSPSCQueueOfTryEnqueueOnFull(t *testing.T) {
+func TestSPSCQueueTryEnqueueOnFull(t *testing.T) {
 	q := NewSPSCQueue[string](1)
 	if !q.TryEnqueue("foo") {
 		t.Error("failed to enqueue initial item")
@@ -114,14 +207,14 @@ func TestSPSCQueueOfTryEnqueueOnFull(t *testing.T) {
 	}
 }
 
-func TestSPSCQueueOfTryDequeueOnEmpty(t *testing.T) {
+func TestSPSCQueueTryDequeueOnEmpty(t *testing.T) {
 	q := NewSPSCQueue[int](2)
 	if _, ok := q.TryDequeue(); ok {
 		t.Error("got success for enqueue on empty queue")
 	}
 }
 
-func hammerSPSCQueueOfNonBlockingCalls(t *testing.T, cap, numOps int) {
+func hammerSPSCQueueNonBlockingCalls(t *testing.T, cap, numOps int) {
 	q := NewSPSCQueue[int](cap)
 	startwg := sync.WaitGroup{}
 	startwg.Add(1)
@@ -165,17 +258,17 @@ func hammerSPSCQueueOfNonBlockingCalls(t *testing.T, cap, numOps int) {
 	}
 }
 
-func TestSPSCQueueOfNonBlockingCalls(t *testing.T) {
+func TestSPSCQueueNonBlockingCalls(t *testing.T) {
 	n := 10
 	if testing.Short() {
 		n = 1
 	}
-	hammerSPSCQueueOfNonBlockingCalls(t, 1, n)
-	hammerSPSCQueueOfNonBlockingCalls(t, 2, 2*n)
-	hammerSPSCQueueOfNonBlockingCalls(t, 4, 4*n)
+	hammerSPSCQueueNonBlockingCalls(t, 1, n)
+	hammerSPSCQueueNonBlockingCalls(t, 2, 2*n)
+	hammerSPSCQueueNonBlockingCalls(t, 4, 4*n)
 }
 
-func benchmarkSPSCQueueOfProdCons(b *testing.B, queueSize, localWork int) {
+func benchmarkSPSCQueueProdCons(b *testing.B, queueSize, localWork int) {
 	callsPerSched := queueSize
 	N := int32(b.N / callsPerSched)
 	c := make(chan bool, 2)
@@ -221,12 +314,12 @@ func benchmarkSPSCQueueOfProdCons(b *testing.B, queueSize, localWork int) {
 	<-c
 }
 
-func BenchmarkSPSCQueueOfProdCons(b *testing.B) {
-	benchmarkSPSCQueueOfProdCons(b, 1000, 0)
+func BenchmarkSPSCQueueProdCons(b *testing.B) {
+	benchmarkSPSCQueueProdCons(b, 1000, 0)
 }
 
-func BenchmarkSPSCQueueOfProdConsWork100(b *testing.B) {
-	benchmarkSPSCQueueOfProdCons(b, 1000, 100)
+func BenchmarkSPSCQueueProdConsWork100(b *testing.B) {
+	benchmarkSPSCQueueProdCons(b, 1000, 100)
 }
 
 func benchmarkSPSCChan(b *testing.B, chanSize, localWork int) {
