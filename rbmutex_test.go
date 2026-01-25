@@ -28,6 +28,18 @@ func TestRBMutexSerialReader(t *testing.T) {
 	}
 }
 
+func TestRBMutexInvalidRUnlock(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for invalid RUnlock")
+		}
+	}()
+	mu := NewRBMutex()
+	// Create a token without a corresponding RLock and try to unlock
+	fakeToken := &RToken{}
+	mu.RUnlock(fakeToken)
+}
+
 func TestRBMutexSerialOptimisticReader(t *testing.T) {
 	const numCalls = 10
 	mu := NewRBMutex()
@@ -149,7 +161,7 @@ func hammerRBMutex(gomaxprocs, numReaders, numIterations int) {
 	}
 }
 
-func TestRBMutex(t *testing.T) {
+func TestRBMutexConcurrent(t *testing.T) {
 	const n = 1000
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
 	hammerRBMutex(1, 1, n)
@@ -219,7 +231,7 @@ func hammerOptimisticRBMutex(gomaxprocs, numReaders, numIterations int) {
 	}
 }
 
-func TestRBMutex_Optimistic(t *testing.T) {
+func TestRBMutexConcurrentOptimistic(t *testing.T) {
 	const n = 1000
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
 	hammerOptimisticRBMutex(1, 1, n)
@@ -255,7 +267,7 @@ func hammerMixedRBMutex(gomaxprocs, numReaders, numIterations int) {
 	}
 }
 
-func TestRBMutex_Mixed(t *testing.T) {
+func TestRBMutexConcurrentMixed(t *testing.T) {
 	const n = 1000
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
 	hammerMixedRBMutex(1, 1, n)
