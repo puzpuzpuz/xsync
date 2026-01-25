@@ -14,10 +14,40 @@ import (
 	. "github.com/puzpuzpuz/xsync/v4"
 )
 
+func TestDeprecatedMPMCQueueOf(t *testing.T) {
+	q := NewMPMCQueueOf[int](5)
+	if !q.TryEnqueue(1) {
+		t.Fatal("enqueue failed")
+	}
+	if v, ok := q.TryDequeue(); !ok || v != 1 {
+		t.Fatalf("got %v/%v, want 1/true", v, ok)
+	}
+}
+
 func TestMPMCQueue_InvalidSize(t *testing.T) {
 	defer func() { recover() }()
 	NewMPMCQueue[int](0)
 	t.Fatal("no panic detected")
+}
+
+func TestMPMCQueue_Wraparound(t *testing.T) {
+	const capacity = 3
+	const cycles = 5
+	q := NewMPMCQueue[int](capacity)
+	// Cycle through the queue multiple times to test index wraparound
+	for cycle := range cycles {
+		for i := range capacity {
+			if !q.TryEnqueue(cycle*capacity + i) {
+				t.Fatalf("cycle %d: enqueue %d failed", cycle, i)
+			}
+		}
+		for i := range capacity {
+			v, ok := q.TryDequeue()
+			if !ok || v != cycle*capacity+i {
+				t.Fatalf("cycle %d: got %v/%v, want %d/true", cycle, v, ok, cycle*capacity+i)
+			}
+		}
+	}
 }
 
 func TestMPMCQueueEnqueueDequeueInt(t *testing.T) {
