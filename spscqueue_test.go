@@ -15,7 +15,7 @@ import (
 )
 
 func TestDeprecatedSPSCQueueOf(t *testing.T) {
-	q := NewSPSCQueue[int](5)
+	q := NewSPSCQueueOf[int](5)
 	if !q.TryEnqueue(1) {
 		t.Fatal("enqueue failed")
 	}
