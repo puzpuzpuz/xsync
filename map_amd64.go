@@ -1,3 +1,5 @@
+//go:build amd64
+
 package xsync
 
 import (
@@ -370,6 +372,7 @@ func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 			return
 		}
 		b = (*bucketPadded)(bptr)
+		T0(unsafe.Pointer(b))
 	}
 }
 
@@ -483,6 +486,7 @@ func (m *Map[K, V]) Store(key K, value V) {
 				return
 			}
 			b = (*bucketPadded)(b.next)
+			T0(unsafe.Pointer(b))
 		}
 	}
 }
@@ -787,6 +791,7 @@ func (m *Map[K, V]) doCompute(
 				}
 			}
 			b = (*bucketPadded)(b.next)
+			T0(unsafe.Pointer(b))
 		}
 	}
 }
