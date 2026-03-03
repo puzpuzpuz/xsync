@@ -267,13 +267,13 @@ func hashUint64(seed, v uint64) uint64 {
 func hashKey[K comparable](k K, hashKind hashKind, seed maphash.Seed, intSeed uint64) uint64 {
 	switch hashKind {
 	case hashKindInt:
-		return hashUint64(intSeed, uint64(any(k).(int)))
+		return hashUint64(intSeed, uint64(*(*int)(unsafe.Pointer(&k))))
 	case hashKindInt64:
-		return hashUint64(intSeed, uint64(any(k).(int64)))
+		return hashUint64(intSeed, uint64(*(*int64)(unsafe.Pointer(&k))))
 	case hashKindUint64:
-		return hashUint64(intSeed, any(k).(uint64))
+		return hashUint64(intSeed, *(*uint64)(unsafe.Pointer(&k)))
 	case hashKindUintptr:
-		return hashUint64(intSeed, uint64(any(k).(uintptr)))
+		return hashUint64(intSeed, uint64(*(*uintptr)(unsafe.Pointer(&k))))
 	default:
 		return maphash.Comparable(seed, k)
 	}
@@ -326,13 +326,13 @@ func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 	var hash uint64
 	switch m.hashKind {
 	case hashKindInt:
-		hash = hashUint64(table.intSeed, uint64(any(key).(int)))
+		hash = hashUint64(table.intSeed, uint64(*(*int)(unsafe.Pointer(&key))))
 	case hashKindInt64:
-		hash = hashUint64(table.intSeed, uint64(any(key).(int64)))
+		hash = hashUint64(table.intSeed, uint64(*(*int64)(unsafe.Pointer(&key))))
 	case hashKindUint64:
-		hash = hashUint64(table.intSeed, any(key).(uint64))
+		hash = hashUint64(table.intSeed, *(*uint64)(unsafe.Pointer(&key)))
 	case hashKindUintptr:
-		hash = hashUint64(table.intSeed, uint64(any(key).(uintptr)))
+		hash = hashUint64(table.intSeed, uint64(*(*uintptr)(unsafe.Pointer(&key))))
 	default:
 		hash = maphash.Comparable(table.seed, key)
 	}
@@ -389,13 +389,13 @@ func (m *Map[K, V]) Store(key K, value V) {
 		var hash uint64
 		switch m.hashKind {
 		case hashKindInt:
-			hash = hashUint64(table.intSeed, uint64(any(key).(int)))
+			hash = hashUint64(table.intSeed, uint64(*(*int)(unsafe.Pointer(&key))))
 		case hashKindInt64:
-			hash = hashUint64(table.intSeed, uint64(any(key).(int64)))
+			hash = hashUint64(table.intSeed, uint64(*(*int64)(unsafe.Pointer(&key))))
 		case hashKindUint64:
-			hash = hashUint64(table.intSeed, any(key).(uint64))
+			hash = hashUint64(table.intSeed, *(*uint64)(unsafe.Pointer(&key)))
 		case hashKindUintptr:
-			hash = hashUint64(table.intSeed, uint64(any(key).(uintptr)))
+			hash = hashUint64(table.intSeed, uint64(*(*uintptr)(unsafe.Pointer(&key))))
 		default:
 			hash = maphash.Comparable(table.seed, key)
 		}
@@ -617,13 +617,13 @@ func (m *Map[K, V]) doCompute(
 		var hash uint64
 		switch m.hashKind {
 		case hashKindInt:
-			hash = hashUint64(table.intSeed, uint64(any(key).(int)))
+			hash = hashUint64(table.intSeed, uint64(*(*int)(unsafe.Pointer(&key))))
 		case hashKindInt64:
-			hash = hashUint64(table.intSeed, uint64(any(key).(int64)))
+			hash = hashUint64(table.intSeed, uint64(*(*int64)(unsafe.Pointer(&key))))
 		case hashKindUint64:
-			hash = hashUint64(table.intSeed, any(key).(uint64))
+			hash = hashUint64(table.intSeed, *(*uint64)(unsafe.Pointer(&key)))
 		case hashKindUintptr:
-			hash = hashUint64(table.intSeed, uint64(any(key).(uintptr)))
+			hash = hashUint64(table.intSeed, uint64(*(*uintptr)(unsafe.Pointer(&key))))
 		default:
 			hash = maphash.Comparable(table.seed, key)
 		}
