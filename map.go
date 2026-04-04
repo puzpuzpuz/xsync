@@ -261,7 +261,7 @@ func toUint64[K any](k K) uint64 {
 	case 1:
 		return uint64(*(*uint8)(unsafe.Pointer(&k)))
 	default:
-		return 0
+		panic("unreachable")
 	}
 }
 
