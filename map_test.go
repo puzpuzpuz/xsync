@@ -95,6 +95,41 @@ func TestMap_EmptyStringKey(t *testing.T) {
 	}
 }
 
+// TestMapHashUint64_NoDifferentialBias verifies that hashUint64 does
+// not exhibit seed-independent differential bias for XOR deltas
+// (see https://github.com/puzpuzpuz/xsync/issues/192).
+func TestMapHashUint64_NoDifferentialBias(t *testing.T) {
+	const (
+		nBuckets = 256
+		mask     = nBuckets - 1
+		nTrials  = 100_000
+	)
+	expected := float64(nTrials) / float64(nBuckets)
+	// Worst delta from the issue report plus a few more.
+	deltas := []uint64{
+		0x0000015000000000,
+		0x0000004F00000000,
+		0x000000A300000000,
+		0x00000D0000000000,
+	}
+	seed := uint64(42)
+	for _, delta := range deltas {
+		collisions := 0
+		for i := 0; i < nTrials; i++ {
+			v := uint64(i) * 0x9E3779B97F4A7C15 // spread values
+			h1 := HashUint64(seed, v)
+			h2 := HashUint64(seed, v^delta)
+			if (h1 & mask) == (h2 & mask) {
+				collisions++
+			}
+		}
+		ratio := float64(collisions) / expected
+		if ratio > 2.0 {
+			t.Errorf("differential bias for delta=0x%x: got %.2fx expected collision rate", delta, ratio)
+		}
+	}
+}
+
 func TestMapStore_NilValue(t *testing.T) {
 	m := NewMap[string, *struct{}]()
 	m.Store("foo", nil)

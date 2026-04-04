@@ -43,3 +43,7 @@ func SetByte(w uint64, b uint8, idx int) uint64 {
 func NextPowOf2(v uint32) uint32 {
 	return nextPowOf2(v)
 }
+
+func HashUint64(seed, v uint64) uint64 {
+	return hashUint64(seed, v)
+}

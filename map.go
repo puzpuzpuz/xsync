@@ -240,9 +240,7 @@ func detectIntKey[K comparable]() bool {
 }
 
 // hashUint64 computes a hash for integer keys using two rounds of
-// multiply-xorshift mixing (wyhash-style). The second round eliminates
-// the seed-independent differential bias present in a single-round
-// mixer (see https://github.com/puzpuzpuz/xsync/issues/192).
+// multiply-xorshift mixing (wyhash-style).
 // This is significantly faster than maphash.Comparable for integer types.
 func hashUint64(seed, v uint64) uint64 {
 	hi, lo := bits.Mul64(v^seed, 0x2d358dccaa6c78a5)
