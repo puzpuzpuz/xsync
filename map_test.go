@@ -703,23 +703,6 @@ func TestMapDeleteMatching_ConcurrentResize(t *testing.T) {
 	}
 }
 
-func TestMapStringStore(t *testing.T) {
-	const numEntries = 128
-	m := NewMap[string, int]()
-	for i := range numEntries {
-		m.Store(strconv.Itoa(i), i)
-	}
-	for i := range numEntries {
-		v, ok := m.Load(strconv.Itoa(i))
-		if !ok {
-			t.Fatalf("value not found for %d", i)
-		}
-		if v != i {
-			t.Fatalf("values do not match for %d: %v", i, v)
-		}
-	}
-}
-
 func testMapStoreKeys[K integerKey](t *testing.T, numEntries int) {
 	t.Helper()
 	m := NewMap[K, K]()
@@ -750,6 +733,21 @@ func TestMapStore_TypedKeys(t *testing.T) {
 	t.Run("int64", func(t *testing.T) { testMapStoreKeys[int64](t, n) })
 	t.Run("uint64", func(t *testing.T) { testMapStoreKeys[uint64](t, n) })
 	t.Run("uintptr", func(t *testing.T) { testMapStoreKeys[uintptr](t, n) })
+	t.Run("string", func(t *testing.T) {
+		m := NewMap[string, int]()
+		for i := range n {
+			m.Store(strconv.Itoa(i), i)
+		}
+		for i := range n {
+			v, ok := m.Load(strconv.Itoa(i))
+			if !ok {
+				t.Fatalf("value not found for %d", i)
+			}
+			if v != i {
+				t.Fatalf("values do not match for %d: %v", i, v)
+			}
+		}
+	})
 	t.Run("struct_intValues", func(t *testing.T) {
 		m := NewMap[point, int]()
 		for i := range n {
@@ -1048,20 +1046,6 @@ func TestMapCompute_CancelOpOnOverflowBucket(t *testing.T) {
 	}
 }
 
-func TestMapStringStoreThenDelete(t *testing.T) {
-	const numEntries = 1000
-	m := NewMap[string, int]()
-	for i := range numEntries {
-		m.Store(strconv.Itoa(i), i)
-	}
-	for i := range numEntries {
-		m.Delete(strconv.Itoa(i))
-		if _, ok := m.Load(strconv.Itoa(i)); ok {
-			t.Fatalf("value was not expected for %d", i)
-		}
-	}
-}
-
 func testMapStoreThenDeleteKeys[K integerKey](t *testing.T, numEntries int) {
 	t.Helper()
 	m := NewMap[K, K]()
@@ -1090,6 +1074,18 @@ func TestMapStoreThenDelete_TypedKeys(t *testing.T) {
 	t.Run("int64", func(t *testing.T) { testMapStoreThenDeleteKeys[int64](t, n) })
 	t.Run("uint64", func(t *testing.T) { testMapStoreThenDeleteKeys[uint64](t, n) })
 	t.Run("uintptr", func(t *testing.T) { testMapStoreThenDeleteKeys[uintptr](t, n) })
+	t.Run("string", func(t *testing.T) {
+		m := NewMap[string, int]()
+		for i := range n {
+			m.Store(strconv.Itoa(i), i)
+		}
+		for i := range n {
+			m.Delete(strconv.Itoa(i))
+			if _, ok := m.Load(strconv.Itoa(i)); ok {
+				t.Fatalf("value was not expected for %d", i)
+			}
+		}
+	})
 	t.Run("struct", func(t *testing.T) {
 		m := NewMap[point, string]()
 		for i := range n {
@@ -1102,22 +1098,6 @@ func TestMapStoreThenDelete_TypedKeys(t *testing.T) {
 			}
 		}
 	})
-}
-
-func TestMapStringStoreThenLoadAndDelete(t *testing.T) {
-	const numEntries = 1000
-	m := NewMap[string, int]()
-	for i := range numEntries {
-		m.Store(strconv.Itoa(i), i)
-	}
-	for i := range numEntries {
-		if v, loaded := m.LoadAndDelete(strconv.Itoa(i)); !loaded || v != i {
-			t.Fatalf("value was not found or different for %d: %v", i, v)
-		}
-		if _, ok := m.Load(strconv.Itoa(i)); ok {
-			t.Fatalf("value was not expected for %d", i)
-		}
-	}
 }
 
 func testMapStoreThenLoadAndDeleteKeys[K integerKey](t *testing.T, numEntries int) {
@@ -1150,6 +1130,20 @@ func TestMapStoreThenLoadAndDelete_TypedKeys(t *testing.T) {
 	t.Run("int64", func(t *testing.T) { testMapStoreThenLoadAndDeleteKeys[int64](t, n) })
 	t.Run("uint64", func(t *testing.T) { testMapStoreThenLoadAndDeleteKeys[uint64](t, n) })
 	t.Run("uintptr", func(t *testing.T) { testMapStoreThenLoadAndDeleteKeys[uintptr](t, n) })
+	t.Run("string", func(t *testing.T) {
+		m := NewMap[string, int]()
+		for i := range n {
+			m.Store(strconv.Itoa(i), i)
+		}
+		for i := range n {
+			if v, loaded := m.LoadAndDelete(strconv.Itoa(i)); !loaded || v != i {
+				t.Fatalf("value was not found or different for %d: %v", i, v)
+			}
+			if _, ok := m.Load(strconv.Itoa(i)); ok {
+				t.Fatalf("value was not expected for %d", i)
+			}
+		}
+	})
 	t.Run("struct", func(t *testing.T) {
 		m := NewMap[point, int]()
 		for i := range n {
