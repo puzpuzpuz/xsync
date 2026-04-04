@@ -239,13 +239,15 @@ func detectIntKey[K comparable]() bool {
 	}
 }
 
-// hashUint64 computes a hash for integer keys using a 128-bit
-// multiply-xorshift mixer (wyhash-style). The constant is xxHash's
-// PRIME64_1 which provides excellent avalanche. This is significantly
-// faster than maphash.Comparable for integer types.
+// hashUint64 computes a hash for integer keys using two rounds of
+// multiply-xorshift mixing (wyhash-style). The second round eliminates
+// the seed-independent differential bias present in a single-round
+// mixer (see https://github.com/puzpuzpuz/xsync/issues/192).
+// This is significantly faster than maphash.Comparable for integer types.
 func hashUint64(seed, v uint64) uint64 {
-	hi, lo := bits.Mul64(v^seed, 0x9E3779B185EBCA87)
-	return hi ^ lo
+	hi, lo := bits.Mul64(v^seed, 0x2d358dccaa6c78a5)
+	hi2, lo2 := bits.Mul64(hi^lo, 0x8bb84b93962eacc9)
+	return hi2 ^ lo2
 }
 
 // toUint64 reinterprets integer-like keys as uint64 for hashUint64.
