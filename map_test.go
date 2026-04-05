@@ -100,32 +100,63 @@ func TestMap_EmptyStringKey(t *testing.T) {
 // (see https://github.com/puzpuzpuz/xsync/issues/192).
 func TestMapHashUint64_NoDifferentialBias(t *testing.T) {
 	const (
-		nBuckets = 256
-		mask     = nBuckets - 1
-		nTrials  = 100_000
+		nBuckets  = 256
+		mask      = nBuckets - 1
+		nTrials   = 100_000
+		threshold = 3.0
 	)
 	expected := float64(nTrials) / float64(nBuckets)
-	// Worst delta from the issue report plus a few more.
-	deltas := []uint64{
+
+	// Deltas from the issue report.
+	issueDeltas := []uint64{
 		0x0000015000000000,
 		0x0000004F00000000,
 		0x000000A300000000,
 		0x00000D0000000000,
 	}
-	seed := uint64(42)
-	for _, delta := range deltas {
-		collisions := 0
-		for i := 0; i < nTrials; i++ {
-			v := uint64(i) * 0x9E3779B97F4A7C15 // spread values
-			h1 := HashUint64(seed, v)
-			h2 := HashUint64(seed, v^delta)
-			if (h1 & mask) == (h2 & mask) {
-				collisions++
-			}
+	// Structured deltas across various shift amounts.
+	var shiftedDeltas []uint64
+	for _, shift := range []uint{0, 8, 16, 24, 32, 40, 48} {
+		for k := uint64(1); k <= 64; k++ {
+			shiftedDeltas = append(shiftedDeltas, k<<shift)
 		}
-		ratio := float64(collisions) / expected
-		if ratio > 2.0 {
-			t.Errorf("differential bias for delta=0x%x: got %.2fx expected collision rate", delta, ratio)
+	}
+	// Single-bit and two-bit (Hamming distance 1-2) deltas.
+	var hammingDeltas []uint64
+	for b := 0; b < 64; b++ {
+		hammingDeltas = append(hammingDeltas, 1<<b)
+	}
+	for b1 := 0; b1 < 64; b1 += 4 {
+		for b2 := b1 + 1; b2 < 64; b2 += 4 {
+			hammingDeltas = append(hammingDeltas, (1<<b1)|(1<<b2))
+		}
+	}
+
+	allDeltas := make([]uint64, 0, len(issueDeltas)+len(shiftedDeltas)+len(hammingDeltas))
+	allDeltas = append(allDeltas, issueDeltas...)
+	allDeltas = append(allDeltas, shiftedDeltas...)
+	allDeltas = append(allDeltas, hammingDeltas...)
+
+	seeds := []uint64{0, 42, 0xDEADBEEF}
+	for _, seed := range seeds {
+		for _, delta := range allDeltas {
+			if delta == 0 {
+				continue
+			}
+			collisions := 0
+			for i := 0; i < nTrials; i++ {
+				v := uint64(i) * 0x9E3779B97F4A7C15 // spread values
+				h1 := HashUint64(seed, v)
+				h2 := HashUint64(seed, v^delta)
+				if (h1 & mask) == (h2 & mask) {
+					collisions++
+				}
+			}
+			ratio := float64(collisions) / expected
+			if ratio > threshold {
+				t.Errorf("seed=0x%x delta=0x%x: got %.2fx expected collision rate (threshold=%.1fx)",
+					seed, delta, ratio, threshold)
+			}
 		}
 	}
 }
