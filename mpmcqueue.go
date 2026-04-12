@@ -65,9 +65,9 @@ func NewMPMCQueue[I any](capacity int) *MPMCQueue[I] {
 	}
 	capPow2 := nextPowOf2(uint64(capacity))
 	return &MPMCQueue[I]{
-		capMask: capPow2 - 1,
+		capMask:  capPow2 - 1,
 		capShift: uint64(bits.TrailingZeros64(capPow2)),
-		slots:   make([]slotPadded[I], capPow2),
+		slots:    make([]slotPadded[I], capPow2),
 	}
 }
 
