@@ -130,10 +130,10 @@ Make sure to implement proper back-off strategy to handle failed optimistic oper
 ### MPMCQueue
 
 A `MPMCQueue` is a bounded multi-producer multi-consumer concurrent queue.
-Requested queue capacity is rounded up to the next power of 2.
 
 ```go
-q := xsync.NewMPMCQueue[string](1024)
+// capacity is rounded up to the next power of 2 (1000 -> 1024)
+q := xsync.NewMPMCQueue[string](1000)
 // producer optimistically inserts an item into the queue
 // optimistic insertion attempt; doesn't block
 inserted := q.TryEnqueue("bar")

@@ -219,7 +219,7 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
 		table = newMapTable[K, V](defaultMinMapTableLen, maphash.MakeSeed())
 	} else {
-		tableLen := nextPowOf2(uint32((float64(c.sizeHint) / entriesPerMapBucket) / mapLoadFactor))
+		tableLen := nextPowOf2(uint64((float64(c.sizeHint) / entriesPerMapBucket) / mapLoadFactor))
 		table = newMapTable[K, V](int(tableLen), maphash.MakeSeed())
 	}
 	m.minTableLen = len(table.buckets)

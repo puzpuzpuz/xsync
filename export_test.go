@@ -1,11 +1,12 @@
 package xsync
 
 const (
-	EntriesPerMapBucket   = entriesPerMapBucket
-	MapLoadFactor         = mapLoadFactor
-	DefaultMinMapTableLen = defaultMinMapTableLen
-	DefaultMinMapTableCap = defaultMinMapTableLen * entriesPerMapBucket
-	MaxMapCounterLen      = maxMapCounterLen
+	EntriesPerMapBucket           = entriesPerMapBucket
+	MapLoadFactor                 = mapLoadFactor
+	DefaultMinMapTableLen         = defaultMinMapTableLen
+	DefaultMinMapTableCap         = defaultMinMapTableLen * entriesPerMapBucket
+	MaxMapCounterLen              = maxMapCounterLen
+	MpmcQueueMaxRequestedCapacity = mpmcQueueMaxRequestedCapacity
 )
 
 type (
@@ -40,7 +41,7 @@ func SetByte(w uint64, b uint8, idx int) uint64 {
 	return setByte(w, b, idx)
 }
 
-func NextPowOf2(v uint32) uint32 {
+func NextPowOf2(v uint64) uint64 {
 	return nextPowOf2(v)
 }
 

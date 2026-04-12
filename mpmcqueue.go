@@ -6,7 +6,7 @@ import (
 	"unsafe"
 )
 
-const MpmcQueueMaxRequestedCapacity uint64 = uint64(1) << (bits.UintSize - 2)
+const mpmcQueueMaxRequestedCapacity uint64 = uint64(1) << (bits.UintSize - 2)
 
 // Deprecated: use [MPMCQueue].
 type MPMCQueueOf[I any] = MPMCQueue[I]
@@ -60,10 +60,10 @@ func NewMPMCQueue[I any](capacity int) *MPMCQueue[I] {
 	if capacity < 1 {
 		panic("capacity must be positive number")
 	}
-	if uint64(capacity) > MpmcQueueMaxRequestedCapacity {
+	if uint64(capacity) > mpmcQueueMaxRequestedCapacity {
 		panic("capacity is too large")
 	}
-	capPow2 := nextPowOf2_64(uint64(capacity))
+	capPow2 := nextPowOf2(uint64(capacity))
 	return &MPMCQueue[I]{
 		cap:     capPow2,
 		mask:    capPow2 - 1,
