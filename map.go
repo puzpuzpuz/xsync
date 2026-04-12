@@ -126,6 +126,13 @@ type Map[K comparable, V any] struct {
 
 type mapTable[K comparable, V any] struct {
 	buckets []bucketPadded
+	// bucketsPtr points to buckets[0] for fast bucket access.
+	// It avoids slice header dereference and bounds checks on hot paths.
+	bucketsPtr unsafe.Pointer
+	// bucketMask is len(buckets)-1, precomputed for hash-to-bucket mapping.
+	bucketMask uint64
+	// growThreshold is the precomputed size limit for triggering growth.
+	growThreshold int64
 	// striped counter for number of table entries;
 	// used to determine if a table shrinking is needed
 	// occupies min(buckets_memory/1024, 64KB) of memory
@@ -280,10 +287,13 @@ func newMapTable[K comparable, V any](minTableLen int, seed maphash.Seed) *mapTa
 	h.WriteByte(0)
 	intSeed := h.Sum64()
 	t := &mapTable[K, V]{
-		buckets: buckets,
-		size:    counter,
-		seed:    seed,
-		intSeed: intSeed,
+		buckets:       buckets,
+		bucketsPtr:    unsafe.Pointer(&buckets[0]),
+		bucketMask:    uint64(minTableLen - 1),
+		growThreshold: int64(float64(minTableLen) * entriesPerMapBucket * mapLoadFactor),
+		size:          counter,
+		seed:          seed,
+		intSeed:       intSeed,
 	}
 	return t
 }
@@ -316,11 +326,11 @@ func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 	}
 	h1 := h1(hash)
 	h2w := broadcast(h2(hash))
-	bidx := uint64(len(table.buckets)-1) & h1
-	// Same as: b := &table.buckets[bidx]
+	bidx := table.bucketMask & h1
 	// Inline bounds check elimination via unsafe pointer arithmetic.
-	// Safety: bidx is always < len(table.buckets) since it's masked with (len-1).
-	b := (*bucketPadded)(unsafe.Add(unsafe.Pointer(&table.buckets[0]),
+	// Safety: bidx is always < len(table.buckets) since it's masked
+	// with bucketMask (which is len(buckets)-1).
+	b := (*bucketPadded)(unsafe.Add(table.bucketsPtr,
 		uintptr(bidx)*unsafe.Sizeof(bucketPadded{})))
 	for {
 		metaw := atomic.LoadUint64(&b.meta)
@@ -362,7 +372,6 @@ func (m *Map[K, V]) Store(key K, value V) {
 			emptyidx int
 		)
 		table := m.table.Load()
-		tableLen := len(table.buckets)
 		var hash uint64
 		if m.intKey {
 			hash = hashUint64(table.intSeed, toUint64(key))
@@ -372,8 +381,9 @@ func (m *Map[K, V]) Store(key K, value V) {
 		h1 := h1(hash)
 		h2 := h2(hash)
 		h2w := broadcast(h2)
-		bidx := uint64(len(table.buckets)-1) & h1
-		rootb := &table.buckets[bidx]
+		bidx := table.bucketMask & h1
+		rootb := (*bucketPadded)(unsafe.Add(table.bucketsPtr,
+			uintptr(bidx)*unsafe.Sizeof(bucketPadded{})))
 
 		rootb.mu.Lock()
 		// The following two checks must go in reverse to what's
@@ -432,8 +442,7 @@ func (m *Map[K, V]) Store(key K, value V) {
 					table.addSize(bidx, 1)
 					return
 				}
-				growThreshold := float64(tableLen) * entriesPerMapBucket * mapLoadFactor
-				if table.sumSize() > int64(growThreshold) {
+				if table.sumSize() > table.growThreshold {
 					// Need to grow the table. Then go for another attempt.
 					rootb.mu.Unlock()
 					m.resize(table, mapGrowHint)
@@ -582,7 +591,6 @@ func (m *Map[K, V]) doCompute(
 			emptyidx int
 		)
 		table := m.table.Load()
-		tableLen := len(table.buckets)
 		var hash uint64
 		if m.intKey {
 			hash = hashUint64(table.intSeed, toUint64(key))
@@ -592,8 +600,9 @@ func (m *Map[K, V]) doCompute(
 		h1 := h1(hash)
 		h2 := h2(hash)
 		h2w := broadcast(h2)
-		bidx := uint64(len(table.buckets)-1) & h1
-		rootb := &table.buckets[bidx]
+		bidx := table.bucketMask & h1
+		rootb := (*bucketPadded)(unsafe.Add(table.bucketsPtr,
+			uintptr(bidx)*unsafe.Sizeof(bucketPadded{})))
 
 		if loadOp != noLoadOp {
 			b := rootb
@@ -720,8 +729,7 @@ func (m *Map[K, V]) doCompute(
 						return newValue, computeOnly
 					}
 				}
-				growThreshold := float64(tableLen) * entriesPerMapBucket * mapLoadFactor
-				if table.sumSize() > int64(growThreshold) {
+				if table.sumSize() > table.growThreshold {
 					// Need to grow the table. Then go for another attempt.
 					rootb.mu.Unlock()
 					m.resize(table, mapGrowHint)
@@ -945,8 +953,9 @@ func transferBucketUnsafe[K comparable, V any](
 				} else {
 					hash = maphash.Comparable(destTable.seed, e.key)
 				}
-				bidx := uint64(len(destTable.buckets)-1) & h1(hash)
-				destb := &destTable.buckets[bidx]
+				bidx := destTable.bucketMask & h1(hash)
+				destb := (*bucketPadded)(unsafe.Add(destTable.bucketsPtr,
+					uintptr(bidx)*unsafe.Sizeof(bucketPadded{})))
 				appendToBucket(h2(hash), e, destb)
 				copied++
 			}
