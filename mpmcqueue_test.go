@@ -30,6 +30,12 @@ func TestMPMCQueueInvalidSize(t *testing.T) {
 	t.Fatal("no panic detected")
 }
 
+func TestMPMCQueueInvalidCapacityTooLarge(t *testing.T) {
+	defer func() { recover() }()
+	NewMPMCQueue[int](int(MpmcQueueMaxRequestedCapacity + 1))
+	t.Fatal("no panic detected for overly large capacity")
+}
+
 func TestMPMCQueueWraparound(t *testing.T) {
 	const capacity = 3
 	const cycles = 5
@@ -148,6 +154,87 @@ func TestMPMCQueueTryDequeueOnEmpty(t *testing.T) {
 	q := NewMPMCQueue[int](2)
 	if _, ok := q.TryDequeue(); ok {
 		t.Error("got success for enqueue on empty queue")
+	}
+}
+
+// Test that capacity is rounded up to the next power of 2.
+func TestMPMCQueueCapacityRounding(t *testing.T) {
+	tests := []struct {
+		requestedCapacity int
+		expectedCapacity  int
+	}{
+		{1, 1},
+		{2, 2},
+		{3, 4},
+		{4, 4},
+		{5, 8},
+		{10, 16},
+		{15, 16},
+		{16, 16},
+		{17, 32},
+	}
+
+	for _, tt := range tests {
+		q := NewMPMCQueue[int](tt.requestedCapacity)
+		// Try to enqueue exactly the expected (rounded) capacity of items
+		for i := 0; i < tt.expectedCapacity; i++ {
+			if !q.TryEnqueue(i) {
+				t.Fatalf("requestedCapacity=%d: failed to enqueue item %d (expected capacity %d)",
+					tt.requestedCapacity, i, tt.expectedCapacity)
+			}
+		}
+		// The queue should now be full, next enqueue should fail
+		if q.TryEnqueue(tt.expectedCapacity) {
+			t.Fatalf("requestedCapacity=%d: queue should be full after %d items but enqueue succeeded",
+				tt.requestedCapacity, tt.expectedCapacity)
+		}
+		// Dequeue all items to verify they were stored correctly
+		for i := 0; i < tt.expectedCapacity; i++ {
+			v, ok := q.TryDequeue()
+			if !ok {
+				t.Fatalf("requestedCapacity=%d: failed to dequeue item %d", tt.requestedCapacity, i)
+			}
+			if v != i {
+				t.Fatalf("requestedCapacity=%d: got %d, want %d", tt.requestedCapacity, v, i)
+			}
+		}
+	}
+}
+
+// Test boundary condition: for capacity N, nextPow2(N) items
+// should succeed, but nextPow2(N)+1 should fail.
+func TestMPMCQueueBoundary(t *testing.T) {
+	testCapacities := []int{3, 5, 7, 10, 15, 17}
+	expectedRounded := map[int]int{3: 4, 5: 8, 7: 8, 10: 16, 15: 16, 17: 32}
+
+	for _, capacity := range testCapacities {
+		q := NewMPMCQueue[int](capacity)
+		rounded := expectedRounded[capacity]
+
+		// Enqueue exactly rounded capacity items
+		for i := 0; i < rounded; i++ {
+			if !q.TryEnqueue(i) {
+				t.Fatalf("capacity=%d (rounded to %d): failed to enqueue item %d",
+					capacity, rounded, i)
+			}
+		}
+
+		// Next enqueue should fail (queue is full)
+		if q.TryEnqueue(rounded) {
+			t.Fatalf("capacity=%d (rounded to %d): enqueue of item %d should have failed (queue is full)",
+				capacity, rounded, rounded)
+		}
+
+		// Dequeue one item - should succeed
+		v, ok := q.TryDequeue()
+		if !ok || v != 0 {
+			t.Fatalf("capacity=%d (rounded to %d): failed to dequeue from full queue", capacity, rounded)
+		}
+
+		// Now we should be able to enqueue one more item
+		if !q.TryEnqueue(rounded) {
+			t.Fatalf("capacity=%d (rounded to %d): failed to enqueue after dequeue", capacity, rounded)
+		}
 	}
 }
 

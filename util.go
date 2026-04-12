@@ -33,6 +33,14 @@ func nextPowOf2(v uint32) uint32 {
 	return v
 }
 
+// nextPowOf2_64 computes the next highest power of 2 of 64-bit v.
+func nextPowOf2_64(v uint64) uint64 {
+	if v <= 1 {
+		return 1
+	}
+	return 1 << bits.Len64(v-1)
+}
+
 func parallelism() uint32 {
 	maxProcs := uint32(runtime.GOMAXPROCS(0))
 	numCores := uint32(runtime.NumCPU())

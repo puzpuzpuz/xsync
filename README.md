@@ -130,6 +130,7 @@ Make sure to implement proper back-off strategy to handle failed optimistic oper
 ### MPMCQueue
 
 A `MPMCQueue` is a bounded multi-producer multi-consumer concurrent queue.
+Requested queue capacity is rounded up to the next power of 2.
 
 ```go
 q := xsync.NewMPMCQueue[string](1024)
