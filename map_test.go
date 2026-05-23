@@ -2247,6 +2247,73 @@ func benchmarkMapIntKeys(
 	})
 }
 
+// benchmarkMapAlignBucketCounts straddle the [16, 512) bucket window where
+// make([]bucketPadded, n) gets prefixed by the 8-byte malloc header, leaving
+// the slice base at offset 8 (mod 64) so each bucket straddles two cache lines.
+// See the bucket struct field-order comment in map.go.
+var benchmarkMapAlignBucketCounts = []int{32, 64, 128, 256, 512, 1024}
+
+// newAlignBenchMap returns a grow-only Map[int, int] whose table contains
+// exactly targetBuckets root buckets, pre-populated to ~50% load factor. All
+// numEntries keys are present, so writes overwrite in place and the table never
+// resizes out of the targeted bucket count.
+func newAlignBenchMap(b *testing.B, targetBuckets int) (m *Map[int, int], numEntries int) {
+	// sizeHint that resolves to exactly targetBuckets root buckets.
+	sizeHint := int(float64(targetBuckets) * EntriesPerMapBucket * MapLoadFactor)
+	m = NewMap[int, int](WithPresize(sizeHint), WithGrowOnly())
+	if rb := m.Stats().RootBuckets; rb != targetBuckets {
+		b.Fatalf("got %d root buckets, want %d", rb, targetBuckets)
+	}
+	numEntries = targetBuckets * EntriesPerMapBucket / 2 // ~50% load factor
+	for i := range numEntries {
+		m.Store(i, i)
+	}
+	if rb := m.Stats().RootBuckets; rb != targetBuckets {
+		b.Fatalf("table resized to %d root buckets during warm-up, want %d", rb, targetBuckets)
+	}
+	return m, numEntries
+}
+
+// BenchmarkMapAlign_Write measures concurrent Store throughput into a table
+// with a fixed root-bucket count. Every key already exists, so stores overwrite
+// in place and the table never resizes; this isolates the per-bucket mutex
+// write and exposes false sharing between adjacent buckets when the buckets
+// slice is not cache-line aligned.
+func BenchmarkMapAlign_Write(b *testing.B) {
+	for _, n := range benchmarkMapAlignBucketCounts {
+		b.Run("buckets="+strconv.Itoa(n), func(b *testing.B) {
+			m, numEntries := newAlignBenchMap(b, n)
+			runParallel(b, func(pb *testing.PB) {
+				for pb.Next() {
+					m.Store(int(Cheaprand()%uint32(numEntries)), 1)
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkMapAlign_Mixed measures a 90% Load / 10% Store workload against a
+// fixed root-bucket count. It exposes the writer-invalidates-reader pattern: a
+// writer on bucket[i] shoots down the cache line that a concurrent reader of
+// bucket[i+1] is touching when the two buckets share a cache line.
+func BenchmarkMapAlign_Mixed(b *testing.B) {
+	for _, n := range benchmarkMapAlignBucketCounts {
+		b.Run("buckets="+strconv.Itoa(n), func(b *testing.B) {
+			m, numEntries := newAlignBenchMap(b, n)
+			runParallel(b, func(pb *testing.PB) {
+				for pb.Next() {
+					i := int(Cheaprand() % uint32(numEntries))
+					if Cheaprand()%10 == 0 {
+						m.Store(i, 1)
+					} else {
+						m.Load(i)
+					}
+				}
+			})
+		})
+	}
+}
+
 func BenchmarkMapRange(b *testing.B) {
 	m := NewMap[string, int](WithPresize(benchmarkNumEntries))
 	for i := range benchmarkNumEntries {
