@@ -149,11 +149,22 @@ type bucketPadded struct {
 	bucket
 }
 
+// Field order matters: when the enclosing []bucketPadded slice is not
+// cache-line aligned (see [bucketPadded]), the last 8 bytes of each bucket
+// share a cache line with the next bucket's first 56 bytes. Keeping mu
+// (written on every Store/Delete) ahead of next (written only on overflow
+// chain growth) avoids invalidating neighbouring buckets' hot read fields
+// on every write.
+//
+// Reason: a []bucketPadded slice is not guaranteed to start cache-line
+// aligned: for tables in the [16, 512) bucket range the Go allocator
+// prefixes the allocation with an 8-byte malloc header, so each bucket
+// straddles two cache lines.
 type bucket struct {
 	meta    uint64
 	entries [entriesPerMapBucket]unsafe.Pointer // *entry
-	next    unsafe.Pointer                      // *bucketPadded
 	mu      sync.Mutex
+	next    unsafe.Pointer // *bucketPadded
 }
 
 // entry is an immutable map entry.
