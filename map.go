@@ -1234,7 +1234,7 @@ func h2(h uint64) uint8 {
 
 // MapStats is Map statistics.
 //
-// Warning: map statistics are intented to be used for diagnostic
+// Warning: map statistics are intended to be used for diagnostic
 // purposes, not for production code. This means that breaking changes
 // may be introduced into this struct even between minor releases.
 type MapStats struct {
@@ -1264,12 +1264,12 @@ type MapStats struct {
 	// MinEntries is the minimum number of entries per a chain of
 	// buckets, i.e. a root bucket and its chained buckets.
 	MinEntries int
-	// MinEntries is the maximum number of entries per a chain of
+	// MaxEntries is the maximum number of entries per a chain of
 	// buckets, i.e. a root bucket and its chained buckets.
 	MaxEntries int
 	// TotalGrowths is the number of times the hash table grew.
 	TotalGrowths int64
-	// TotalGrowths is the number of times the hash table shrinked.
+	// TotalShrinks is the number of times the hash table shrunk.
 	TotalShrinks int64
 }
 
