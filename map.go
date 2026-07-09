@@ -585,6 +585,19 @@ func (m *Map[K, V]) doCompute(
 	loadOp loadOp,
 	computeOnly bool,
 ) (V, bool) {
+	// callValueFn invokes valueFn while holding mu. If valueFn panics, the
+	// mutex is released before the panic propagates so that the bucket does
+	// not stay permanently locked.
+	callValueFn := func(mu *sync.Mutex, oldv V, loaded bool) (newv V, op ComputeOp) {
+		defer func() {
+			if r := recover(); r != nil {
+				mu.Unlock()
+				panic(r)
+			}
+		}()
+		return valueFn(oldv, loaded)
+	}
+
 	for {
 	compute_attempt:
 		var (
@@ -666,7 +679,7 @@ func (m *Map[K, V]) doCompute(
 						// snapshot won't be correct in case of multiple Store calls
 						// using the same value.
 						oldv := e.value
-						newv, op := valueFn(oldv, true)
+						newv, op := callValueFn(&rootb.mu, oldv, true)
 						switch op {
 						case DeleteOp:
 							// Deletion.
@@ -713,7 +726,7 @@ func (m *Map[K, V]) doCompute(
 				if emptyb != nil {
 					// Insertion into an existing bucket.
 					var zeroV V
-					newValue, op := valueFn(zeroV, false)
+					newValue, op := callValueFn(&rootb.mu, zeroV, false)
 					switch op {
 					case DeleteOp, CancelOp:
 						rootb.mu.Unlock()
@@ -739,7 +752,7 @@ func (m *Map[K, V]) doCompute(
 				}
 				// Insertion into a new bucket.
 				var zeroV V
-				newValue, op := valueFn(zeroV, false)
+				newValue, op := callValueFn(&rootb.mu, zeroV, false)
 				switch op {
 				case DeleteOp, CancelOp:
 					rootb.mu.Unlock()
