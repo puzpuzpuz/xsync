@@ -2071,6 +2071,37 @@ func TestToPlainMap(t *testing.T) {
 	}
 }
 
+func TestMapComputePanicReleasesLock(t *testing.T) {
+	// Verify that a panic inside the Compute callback releases the bucket lock.
+	// If the lock is leaked, the second Compute call on the same key deadlocks.
+	m := NewMap[string, int]()
+	m.Store("k", 1)
+
+	// A panic in the compute function, recovered by the caller.
+	func() {
+		defer func() { _ = recover() }()
+		m.Compute("k", func(old int, loaded bool) (int, ComputeOp) {
+			panic("at the disco")
+		})
+	}()
+
+	// Touch the same key again; deadlocks forever if the bucket lock was leaked.
+	done := make(chan struct{})
+	go func() {
+		m.Compute("k", func(old int, loaded bool) (int, ComputeOp) {
+			return old + 1, UpdateOp
+		})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// lock was released correctly
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: bucket lock was not released after a panicking Compute callback")
+	}
+}
+
 func BenchmarkMap_NoWarmUp(b *testing.B) {
 	for _, bc := range benchmarkCases {
 		if bc.readPercentage == 100 {
