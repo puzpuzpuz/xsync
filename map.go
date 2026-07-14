@@ -116,7 +116,7 @@ type Map[K comparable, V any] struct {
 	// only used along with resizeCond
 	resizeMu sync.Mutex
 	// used to wake up resize waiters (concurrent writes)
-	resizeCond sync.Cond
+	resizeCond *sync.Cond
 	// transfer progress index for resize
 	resizeIdx   atomic.Int64
 	minTableLen int
@@ -223,7 +223,7 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 	}
 
 	m := &Map[K, V]{}
-	m.resizeCond = *sync.NewCond(&m.resizeMu)
+	m.resizeCond = sync.NewCond(&m.resizeMu)
 	m.intKey = detectIntKey[K]()
 	var table *mapTable[K, V]
 	if c.sizeHint <= defaultMinMapTableLen*entriesPerMapBucket {
