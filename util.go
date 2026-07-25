@@ -3,6 +3,7 @@ package xsync
 import (
 	"math/bits"
 	"runtime"
+	"unsafe"
 	_ "unsafe"
 )
 
@@ -56,4 +57,11 @@ func markZeroBytes(w uint64) uint64 {
 func setByte(w uint64, b uint8, idx int) uint64 {
 	shift := idx << 3
 	return (w &^ (0xff << shift)) | (uint64(b) << shift)
+}
+
+// Bool2int returns 0 if x is false or 1 if x is true.
+func Bool2int(x bool) int {
+	// Avoid branches. In the SSA compiler, this compiles to
+	// exactly what you would want it to.
+	return int(*(*uint8)(unsafe.Pointer(&x)))
 }
