@@ -638,6 +638,7 @@ func testParallelRangeRelaxed(t *testing.T, numGoroutines int) {
 }
 
 func TestMapParallelRangeRelaxed(t *testing.T) {
+	testParallelRangeRelaxed(t, 1)
 	testParallelRangeRelaxed(t, 2)
 	testParallelRangeRelaxed(t, runtime.GOMAXPROCS(0))
 	testParallelRangeRelaxed(t, 100)
@@ -703,6 +704,7 @@ func testParallelDeleteMatching(t *testing.T, numGoroutines int) {
 }
 
 func TestMapParallelDeleteMatching(t *testing.T) {
+	testParallelDeleteMatching(t, 1)
 	testParallelDeleteMatching(t, 2)
 	testParallelDeleteMatching(t, runtime.GOMAXPROCS(0))
 	testParallelDeleteMatching(t, 100)
