@@ -690,12 +690,8 @@ func (m *Map[K, V]) doCompute(
 							newv = oldv
 						}
 						rootb.mu.Unlock()
-						if computeOnly {
-							// Compute expects the new value to be returned.
-							return newv, true
-						}
-						// LoadAndStore expects the old value to be returned.
-						return oldv, true
+						rv := [2]V{oldv, newv}
+						return rv[Bool2int(computeOnly)], true
 					}
 				}
 				markedw &= markedw - 1
@@ -1313,15 +1309,12 @@ func (m *Map[K, V]) Stats() MapStats {
 			nentriesLocal := 0
 			stats.Capacity += entriesPerMapBucket
 			for i := range entriesPerMapBucket {
-				if atomic.LoadPointer(&b.entries[i]) != nil {
-					stats.Size++
-					nentriesLocal++
-				}
+				occupied := Bool2int(atomic.LoadPointer(&b.entries[i]) != nil)
+				stats.Size += occupied
+				nentriesLocal += occupied
 			}
 			nentries += nentriesLocal
-			if nentriesLocal == 0 {
-				stats.EmptyBuckets++
-			}
+			stats.EmptyBuckets += Bool2int(nentriesLocal == 0)
 			if b.next == nil {
 				break
 			}
