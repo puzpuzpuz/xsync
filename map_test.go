@@ -1114,6 +1114,157 @@ func TestMapCompute_CancelOpOnOverflowBucket(t *testing.T) {
 	}
 }
 
+func TestMap_IntKeyDetection(t *testing.T) {
+	type userID int64
+	type port uint16
+	type name string
+	if !MapIntKey(NewMap[int, int]()) {
+		t.Fatal("int key should use integer hashing")
+	}
+	if !MapIntKey(NewMap[userID, int]()) {
+		t.Fatal("named int64 key should use integer hashing")
+	}
+	if !MapIntKey(NewMap[port, int]()) {
+		t.Fatal("named uint16 key should use integer hashing")
+	}
+	if MapIntKey(NewMap[name, int]()) {
+		t.Fatal("named string key should not use integer hashing")
+	}
+	if MapIntKey(NewMap[point, int]()) {
+		t.Fatal("struct key should not use integer hashing")
+	}
+}
+
+func TestMapDelete_UnlinksEmptyOverflowBucket(t *testing.T) {
+	m := NewMap[int, int]()
+	// Fill the root bucket, one overflow bucket and part of a second one.
+	keys := MapKeysInRootBucket(m, 2*EntriesPerMapBucket+3)
+	root := keys[:EntriesPerMapBucket:EntriesPerMapBucket]
+	middle := keys[EntriesPerMapBucket : 2*EntriesPerMapBucket : 2*EntriesPerMapBucket]
+	tail := keys[2*EntriesPerMapBucket:]
+	for _, k := range keys {
+		m.Store(k, k)
+	}
+	if l := MapChainLen(m); l != 3 {
+		t.Fatalf("a chain of 3 buckets was expected, got: %d", l)
+	}
+
+	// Without unlinking, a map of stable size keeps the longest chain
+	// it ever had, and every miss walks all of it.
+	for _, k := range middle {
+		m.Delete(k)
+	}
+	if l := MapChainLen(m); l != 2 {
+		t.Fatalf("the empty overflow bucket was expected to be unlinked, chain length: %d", l)
+	}
+	for _, k := range append(append([]int{}, root...), tail...) {
+		if v, ok := m.Load(k); !ok || v != k {
+			t.Fatalf("value was not found for %d after unlinking", k)
+		}
+	}
+
+	// Readers must keep finding the entries behind a bucket that is unlinked
+	// under them. Each round links a bucket of middle keys after the root
+	// and a bucket of tail keys after it, then unlinks the middle bucket
+	// while readers look up the tail keys. A miss only counts while the
+	// round is in that phase, before the tail keys are deleted too.
+	for _, k := range tail {
+		m.Delete(k)
+	}
+	var (
+		wg      sync.WaitGroup
+		phase   atomic.Int64
+		stop    atomic.Bool
+		missing atomic.Int64
+	)
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for !stop.Load() {
+				p := phase.Load()
+				if p%2 == 0 {
+					continue
+				}
+				for _, k := range tail {
+					if _, ok := m.Load(k); !ok && phase.Load() == p {
+						missing.Add(1)
+					}
+				}
+			}
+		}()
+	}
+	for r := range int64(20_000) {
+		for _, k := range middle {
+			m.Store(k, k)
+		}
+		for _, k := range tail {
+			m.Store(k, k)
+		}
+		phase.Store(2*r + 1)
+		for _, k := range middle {
+			m.Delete(k)
+		}
+		phase.Store(2*r + 2)
+		for _, k := range tail {
+			m.Delete(k)
+		}
+	}
+	stop.Store(true)
+	wg.Wait()
+	if n := missing.Load(); n != 0 {
+		t.Fatalf("entries behind an unlinked bucket were not found %d times", n)
+	}
+}
+
+func TestMapDeleteMatching_UnlinksEmptyOverflowBuckets(t *testing.T) {
+	m := NewMap[int, int]()
+	keys := MapKeysInRootBucket(m, 3*EntriesPerMapBucket+1)
+	for _, k := range keys {
+		m.Store(k, k)
+	}
+	if l := MapChainLen(m); l != 4 {
+		t.Fatalf("a chain of 4 buckets was expected, got: %d", l)
+	}
+	// Empty both full overflow buckets, keep the root and the last one.
+	middle := make(map[int]bool)
+	for _, k := range keys[EntriesPerMapBucket : 3*EntriesPerMapBucket] {
+		middle[k] = true
+	}
+	deleted := m.DeleteMatching(func(key, value int) (delete, stop bool) {
+		return middle[key], false
+	})
+	if deleted != len(middle) {
+		t.Fatalf("%d deletions were expected, got: %d", len(middle), deleted)
+	}
+	if l := MapChainLen(m); l != 2 {
+		t.Fatalf("empty overflow buckets were expected to be unlinked, chain length: %d", l)
+	}
+	for _, k := range keys {
+		_, ok := m.Load(k)
+		if ok == middle[k] {
+			t.Fatalf("unexpected presence for %d: %v", k, ok)
+		}
+	}
+}
+
+func TestMapResize_LateGrowDoesNotGrowAgain(t *testing.T) {
+	// A writer that saw a full chain unlocks its bucket and only then starts
+	// the resize. If another writer has grown the table in between, the late
+	// one must not grow the new table again.
+	m := NewMap[int, int]()
+	seen := LoadMapTable(m)
+	GrowMap(m, seen)
+	grown := m.Stats().RootBuckets
+	GrowMap(m, seen)
+	if l := m.Stats().RootBuckets; l != grown {
+		t.Fatalf("a table of %d buckets was expected, got: %d", grown, l)
+	}
+	if g := m.Stats().TotalGrowths; g != 1 {
+		t.Fatalf("one growth was expected, got: %d", g)
+	}
+}
+
 func testMapStoreThenDeleteKeys[K integerKey](t *testing.T, numEntries int) {
 	t.Helper()
 	m := NewMap[K, K]()

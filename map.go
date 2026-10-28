@@ -6,6 +6,7 @@ import (
 	"iter"
 	"math"
 	"math/bits"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -239,10 +240,12 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 }
 
 // detectIntKey returns true if the key type is an integer type.
+// Checks kind, not type, so named types like `type ID int64` qualify too.
 func detectIntKey[K comparable]() bool {
-	var zero K
-	switch any(zero).(type) {
-	case int, uint, uintptr, int64, uint64, int32, uint32, int16, uint16, int8, uint8:
+	switch reflect.TypeFor[K]().Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Uintptr:
 		return true
 	default:
 		return false
@@ -650,6 +653,7 @@ func (m *Map[K, V]) doCompute(
 			rootb.mu.Unlock()
 			goto compute_attempt
 		}
+		var prevb *bucketPadded
 		b := rootb
 		for {
 			metaw := b.meta
@@ -674,6 +678,9 @@ func (m *Map[K, V]) doCompute(
 							newmetaw := setByte(metaw, 0, idx)
 							atomic.StoreUint64(&b.meta, newmetaw)
 							atomic.StorePointer(&b.entries[idx], nil)
+							if newmetaw == 0 && prevb != nil {
+								unlinkBucket(prevb, b)
+							}
 							rootb.mu.Unlock()
 							table.addSize(bidx, -1)
 							// Might need to shrink the table if we left bucket empty.
@@ -758,6 +765,7 @@ func (m *Map[K, V]) doCompute(
 					return newValue, computeOnly
 				}
 			}
+			prevb = b
 			b = (*bucketPadded)(b.next)
 		}
 	}
@@ -808,6 +816,12 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	tableLen := len(table.buckets)
 	switch hint {
 	case mapGrowHint:
+		if table != knownTable {
+			// Caller saw full chain in older table, unlocked, then lost race:
+			// someone grew table in between. Growing again would double it twice.
+			m.cancelResize(seq)
+			return
+		}
 		// Grow the table with factor of 2.
 		// We must keep the same table seed here to keep the same hash codes
 		// allowing us to avoid locking destination buckets when resizing.
@@ -823,10 +837,7 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 			newTable = newMapTable[K, V](tableLen>>1, table.seed)
 		} else {
 			// No need to shrink. Wake up all waiters and give up.
-			m.resizeMu.Lock()
-			m.resizeCtl.Store(resizeCtl(seq+2, 0))
-			m.resizeCond.Broadcast()
-			m.resizeMu.Unlock()
+			m.cancelResize(seq)
 			return
 		}
 	case mapClearHint:
@@ -862,6 +873,15 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	for !m.resizeCtl.CompareAndSwap(ctl, newCtl) {
 		runtime.Gosched()
 	}
+	m.resizeCond.Broadcast()
+	m.resizeMu.Unlock()
+}
+
+// cancelResize ends resize started by CAS to seq+1 without new table
+// and wakes up waiters.
+func (m *Map[K, V]) cancelResize(seq uint64) {
+	m.resizeMu.Lock()
+	m.resizeCtl.Store(resizeCtl(seq+2, 0))
 	m.resizeCond.Broadcast()
 	m.resizeMu.Unlock()
 }
@@ -1130,7 +1150,11 @@ delete_loop_attempt:
 			goto delete_loop_attempt
 		}
 
-		var bucketDeleted int
+		var (
+			bucketDeleted int
+			stopped       bool
+			prevb         *bucketPadded
+		)
 		b := rootb
 		for {
 			for i := range entriesPerMapBucket {
@@ -1150,27 +1174,29 @@ delete_loop_attempt:
 						}
 					}
 					if stop {
-						rootb.mu.Unlock()
-						totalDeleted += bucketDeleted
-						if bucketDeleted > 0 {
-							table.addSize(uint64(bidx), -bucketDeleted)
-						}
-						if anyBucketEmptied {
-							m.resize(table, mapShrinkHint)
-						}
-						return totalDeleted
+						stopped = true
+						break
 					}
 				}
 			}
-			if b.next == nil {
+			nextb := (*bucketPadded)(b.next)
+			if b.meta == 0 && prevb != nil {
+				unlinkBucket(prevb, b)
+			} else {
+				prevb = b
+			}
+			if stopped || nextb == nil {
 				break
 			}
-			b = (*bucketPadded)(b.next)
+			b = nextb
 		}
 		rootb.mu.Unlock()
 		if bucketDeleted > 0 {
 			totalDeleted += bucketDeleted
 			table.addSize(uint64(bidx), -bucketDeleted)
+		}
+		if stopped {
+			break
 		}
 	}
 	if anyBucketEmptied {
@@ -1187,6 +1213,17 @@ func (m *Map[K, V]) Clear() {
 // Size returns current size of the map.
 func (m *Map[K, V]) Size() int {
 	return int(m.table.Load().sumSize())
+}
+
+// unlinkBucket removes emptied overflow bucket b from chain after prevb.
+// Without it, chain keeps longest length it ever had until next resize,
+// so map with stable size under churn wastes memory and misses walk
+// extra buckets. Caller must hold root bucket lock.
+//
+// b.next stays intact: lock-free reader standing in b sees empty meta
+// and still reaches rest of chain, so present key can't be missed.
+func unlinkBucket(prevb, b *bucketPadded) {
+	atomic.StorePointer(&prevb.next, b.next)
 }
 
 // It is safe to use plain stores here because the destination bucket must be
